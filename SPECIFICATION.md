@@ -1,9 +1,5 @@
 # nostr-shard-signer — Technical Specification
 
-> Source: [Gemini conversation](https://gemini.google.com/app/79bf598025677689) — preserved here so context is not lost.
-
----
-
 ## Security Model: Key Isolation
 
 Your Nostr private key (nsec) is held exclusively inside a sandboxed cross-origin iframe hosted on `bunker.yourdomain.com`. It is never passed to, accessible by, or visible in the memory of the parent application page.
@@ -19,12 +15,12 @@ Your Nostr private key (nsec) is held exclusively inside a sandboxed cross-origi
 
 The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr app without exposing the user's private key (nsec) to the parent application's memory.
 
-| Component | Role |
-|-----------|------|
-| **The Sandbox** | The private key is extracted and held only inside a secure universal iframe hosted on a central origin (`bunker.yourdomain.com`). |
-| **The Registry** | The iframe prevents domain-spoofing by querying a hardcoded Root Pubkey's NIP-33 events to verify if the parent's domain is authorized to use the provided Web3Auth `clientId`. |
-| **The Bridge** | The parent app uses a comprehensive JS bundle that natively integrates `window.nostr.js` or `nostr-login`. Standard extensions (Alby), mobile signers (Amber), and remote bunkers (NIP-46) are all supported alongside the hidden iframe bunker. The bundle acts as a traffic router, forwarding signature requests to whichever signer is active. |
-| **The UI** | The iframe manages its own visual state, communicating with the parent script to resize its container based on user interaction. |
+| Component        | Role                                                                                                                                                                                                                                                                                                                                               |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **The Sandbox**  | The private key is extracted and held only inside a secure universal iframe hosted on a central origin (`bunker.yourdomain.com`).                                                                                                                                                                                                                  |
+| **The Registry** | The iframe prevents domain-spoofing by querying a hardcoded Root Pubkey's NIP-33 events to verify if the parent's domain is authorized to use the provided Web3Auth `clientId`.                                                                                                                                                                    |
+| **The Bridge**   | The parent app uses a comprehensive JS bundle that natively integrates `window.nostr.js` or `nostr-login`. Standard extensions (Alby), mobile signers (Amber), and remote bunkers (NIP-46) are all supported alongside the hidden iframe bunker. The bundle acts as a traffic router, forwarding signature requests to whichever signer is active. |
+| **The UI**       | The iframe manages its own visual state, communicating with the parent script to resize its container based on user interaction.                                                                                                                                                                                                                   |
 
 ---
 
@@ -37,12 +33,13 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 **Logic Flow:**
 
 1. **Initialization** is fully parameterized by the developer:
+
    ```js
    NostrBridge.init({
-     clientId:    "YOUR_WEB3_ID",
+     clientId: "YOUR_WEB3_ID",
      forceIframe: false,
-     layout:      "floating" | "in-place",
-     buttonSize:  "standard" | "large_social_grid",
+     layout: "floating" | "in-place",
+     buttonSize: "standard" | "large_social_grid",
    });
    ```
 
@@ -51,14 +48,17 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
    - If `forceIframe: true`, skips the extension check entirely.
 
 3. Injects the iframe:
+
    ```html
    <iframe
      id="nostr-signer-iframe"
      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
      allow="clipboard-write"
-     src="https://bunker.yourdomain.com?clientId=${config.clientId}">
+     src="https://bunker.yourdomain.com?clientId=${config.clientId}"
+   >
    </iframe>
    ```
+
    > **Note:** `allow-same-origin` is required so `event.origin` is not `"null"` during validation. `allow-popups-to-escape-sandbox` is necessary for Web3Auth's OAuth popup flow (Google login), but means popups inherit the iframe's origin context.
 
 4. **Proxy injection:** `window.nostr` is injected synchronously the millisecond the page loads.
@@ -80,6 +80,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 **Responsibility:** Handles Web3Auth/OAuth login, holds the raw nsec in memory, signs Nostr events using `nostr-tools`, and renders the UI (Button → Avatar → Profile).
 
 **Strict Message Validation:**
+
 - Never accept messages where `event.origin === "null"`.
 - **Parent:** validate `event.source === document.getElementById('nostr-signer-iframe').contentWindow`.
 - **Iframe:** validate `event.source === window.parent`.
@@ -90,7 +91,11 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
    - Read the parent domain from `event.origin` or `document.ancestorOrigins`.
    - Connect to a relay and query:
      ```json
-     { "authors": ["YOUR_ROOT_PUBKEY"], "kinds": [30078], "#d": ["${clientId}"] }
+     {
+       "authors": ["YOUR_ROOT_PUBKEY"],
+       "kinds": [30078],
+       "#d": ["${clientId}"]
+     }
      ```
    - Parse event content. If parent domain is in `allowed_domains`, proceed. Otherwise halt with: `"Domain not authorized for this Client ID."`.
    - Use in-memory session caching and a dedicated relay for speed.
@@ -102,20 +107,20 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
    - Derive `npub`/hex public key via `nostr-tools`.
    - Send `AUTH_SUCCESS` to the parent with the public key.
    - Update DOM to show user avatar.
-   > `AUTH_SUCCESS` is sent after a user actively completes the OAuth flow, distinct from `AUTH_STATE` which is sent passively on iframe load.
+     > `AUTH_SUCCESS` is sent after a user actively completes the OAuth flow, distinct from `AUTH_STATE` which is sent passively on iframe load.
 
 4. **Cryptographic Request Handling:** Listen for NIP-46 RPC `postMessage` calls. Process with `nostr-tools` and the isolated private key. Return NIP-46 response objects.
 
 5. **Auto-Approve Policy:**
 
-   | Action | Behaviour |
-   |--------|-----------|
-   | Kind 1 (notes), Kind 7 (reactions) | ✅ Auto-approved |
-   | Kind 0 (profile update) | ⚠️ Prompt user |
-   | Kind 4 / Kind 44 (DMs) | ⚠️ Prompt user |
-   | Kind 9734 (Zaps) | ⚠️ Prompt user |
-   | Unknown custom kinds | ⚠️ Prompt user |
-   | Any `nip04_decrypt` / `nip44_decrypt` | ⚠️ Prompt user |
+   | Action                                | Behaviour        |
+   | ------------------------------------- | ---------------- |
+   | Kind 1 (notes), Kind 7 (reactions)    | ✅ Auto-approved |
+   | Kind 0 (profile update)               | ⚠️ Prompt user   |
+   | Kind 4 / Kind 44 (DMs)                | ⚠️ Prompt user   |
+   | Kind 9734 (Zaps)                      | ⚠️ Prompt user   |
+   | Unknown custom kinds                  | ⚠️ Prompt user   |
+   | Any `nip04_decrypt` / `nip44_decrypt` | ⚠️ Prompt user   |
 
    For prompt-required actions: trigger `RESIZE → "modal"`, show confirmation UI ("Allow app to read direct messages?", "Approve Zap?", etc.), and only process and return if the user clicks **Approve**.
 
@@ -139,7 +144,10 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
      ```json
      {
        "kind": 30078,
-       "tags": [["d", "clientId"], ["p", "<registrant_npub>"]],
+       "tags": [
+         ["d", "clientId"],
+         ["p", "<registrant_npub>"]
+       ],
        "content": "{\"allowed_domains\": [\"domain\"]}"
      }
      ```
@@ -178,6 +186,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 NIP-46 format: stringified arrays for `params`, stringified objects for `result`.
 
 **Parent → Iframe (Requests):**
+
 ```jsonc
 { "id": "req_0", "method": "get_public_key",  "params": [] }
 { "id": "req_1", "method": "sign_event",       "params": ["<stringified_unsigned_event>"] }
@@ -188,6 +197,7 @@ NIP-46 format: stringified arrays for `params`, stringified objects for `result`
 ```
 
 **Iframe → Parent (Responses):**
+
 ```jsonc
 // Success
 { "id": "req_1", "result": "<stringified_signed_event_or_string>", "error": null }
@@ -204,14 +214,14 @@ NIP-46 format: stringified arrays for `params`, stringified objects for `result`
 
 > The provider must allow **silent programmatic private key extraction** so `nostr-tools` can run Schnorr signatures without external UI popups.
 
-| Feature | Web3Auth ⭐ | Turnkey | Dynamic.xyz | Arcana Auth | Privy | Moralis |
-|---------|------------|---------|-------------|-------------|-------|---------|
-| **Underlying Tech** | MPC | Secure Enclave (TEE) | MPC / Embedded Wallets | MPC | TEE / Stripe Crypto | N/A (Shifted to APIs) |
-| **Silent Key Extraction** | ✅ Flawless `private_key` extraction via RPC | ✅ Programmatic via `exportPrivateKey()` to secure iframes | ❌ Forces own UI flow (`initExportProcess`) | ❌ Extracts via own UI widgets | ❌ Actively blocks silent export | N/A |
-| **Nostr Signature Support** | Needs `nostr-tools` polyfill | Needs `nostr-tools` polyfill | Needs `nostr-tools` polyfill | Needs `nostr-tools` polyfill | Needs polyfill | N/A |
-| **Custom Iframe UI** | ✅ Perfect — 100% your UI | ✅ Perfect — pure API/backend | ❌ Enforces own UI overlays | ❌ Enforces own UI widgets | ❌ Enforces own UI overlays | N/A |
-| **Free Tier** | 1,000 MAW | First 25 signatures | 500 MAW | 500 MAW | 499 MAU | N/A |
-| **Pricing** | $69/mo | $0.10/signature | ~$249/mo | $99/mo | $299/mo | N/A |
+| Feature                     | Web3Auth ⭐                                  | Turnkey                                                    | Dynamic.xyz                                 | Arcana Auth                    | Privy                            | Moralis               |
+| --------------------------- | -------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------- | ------------------------------ | -------------------------------- | --------------------- |
+| **Underlying Tech**         | MPC                                          | Secure Enclave (TEE)                                       | MPC / Embedded Wallets                      | MPC                            | TEE / Stripe Crypto              | N/A (Shifted to APIs) |
+| **Silent Key Extraction**   | ✅ Flawless `private_key` extraction via RPC | ✅ Programmatic via `exportPrivateKey()` to secure iframes | ❌ Forces own UI flow (`initExportProcess`) | ❌ Extracts via own UI widgets | ❌ Actively blocks silent export | N/A                   |
+| **Nostr Signature Support** | Needs `nostr-tools` polyfill                 | Needs `nostr-tools` polyfill                               | Needs `nostr-tools` polyfill                | Needs `nostr-tools` polyfill   | Needs polyfill                   | N/A                   |
+| **Custom Iframe UI**        | ✅ Perfect — 100% your UI                    | ✅ Perfect — pure API/backend                              | ❌ Enforces own UI overlays                 | ❌ Enforces own UI widgets     | ❌ Enforces own UI overlays      | N/A                   |
+| **Free Tier**               | 1,000 MAW                                    | First 25 signatures                                        | 500 MAW                                     | 500 MAW                        | 499 MAU                          | N/A                   |
+| **Pricing**                 | $69/mo                                       | $0.10/signature                                            | ~$249/mo                                    | $99/mo                         | $299/mo                          | N/A                   |
 
 ### Verdict
 
