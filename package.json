@@ -1,0 +1,19 @@
+{
+  "name": "nostr-shard-signer",
+  "version": "0.1.0",
+  "description": "Cross-origin iframe authentication system for Nostr using MPC/Web3Auth and NIP-33 domain registry",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "registrar"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev:bunker": "npx serve bunker -p 8080",
+    "dev:registrar": "npm run dev --workspace=registrar"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.0",
+    "serve": "^14.2.0"
+  }
+}

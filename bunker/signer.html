@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!--
+    Content-Security-Policy: tighten in production.
+    current policy is permissive to accommodate Web3Auth SDK and relay WebSockets.
+    In production, replace 'self' sources and enumerate exact CDN origins.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self';
+             script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://auth.web3auth.io;
+             connect-src 'self' wss: https:;
+             img-src 'self' data: https:;
+             style-src 'self' 'unsafe-inline';
+             frame-ancestors *;" />
+  <title>Nostr Signer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, sans-serif;
+      background: transparent;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+
+    /* ── View system ── */
+    .view { display: none; width: 100%; min-height: 100%; }
+    .view.active { display: flex; flex-direction: column; align-items: center; }
+
+    /* ── Login Button View ── */
+    #view-button {
+      padding: 6px;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    .login-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      background: #7c3aed;
+      color: #fff;
+      width: 100%;
+      justify-content: center;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .login-btn:hover { background: #6d28d9; }
+    .login-btn:active { background: #5b21b6; }
+    .login-btn img { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Large social grid */
+    .social-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      width: 100%;
+    }
+    .social-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .social-btn:hover { background: #f3f4f6; }
+    .social-btn img { width: 18px; height: 18px; flex-shrink: 0; }
+
+    /* ── Avatar View ── */
+    #view-avatar {
+      width: 48px;
+      height: 48px;
+      cursor: pointer;
+      justify-content: center;
+    }
+    #avatar-img {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 2px solid #7c3aed;
+      object-fit: cover;
+    }
+
+    /* ── Profile Modal View ── */
+    #view-modal {
+      position: fixed;
+      inset: 0;
+      background: #fff;
+      border-radius: 16px;
+      padding: 20px;
+      overflow-y: auto;
+      gap: 14px;
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+    .modal-header h2 { font-size: 17px; font-weight: 700; color: #111827; }
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+      color: #6b7280;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .close-btn:hover { background: #f3f4f6; }
+
+    .profile-avatar {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid #7c3aed;
+    }
+
+    .field-group { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+    .field-group label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .field-group input,
+    .field-group textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+      resize: vertical;
+    }
+    .field-group input:focus,
+    .field-group textarea:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px #ede9fe; }
+
+    .key-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+    }
+    .key-row code {
+      flex: 1;
+      font-size: 11px;
+      padding: 6px 8px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      user-select: all;
+      cursor: pointer;
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+    .copy-btn {
+      padding: 6px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .copy-btn:hover { background: #f3f4f6; }
+
+    .action-btn {
+      width: 100%;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-primary { background: #7c3aed; color: #fff; }
+    .btn-primary:hover { background: #6d28d9; }
+    .btn-danger { background: #fee2e2; color: #dc2626; }
+    .btn-danger:hover { background: #fecaca; }
+    .btn-secondary { background: #f3f4f6; color: #374151; }
+    .btn-secondary:hover { background: #e5e7eb; }
+
+    .status-msg {
+      font-size: 12px;
+      color: #6b7280;
+      width: 100%;
+      text-align: center;
+      min-height: 16px;
+    }
+    .status-msg.success { color: #059669; }
+    .status-msg.error   { color: #dc2626; }
+
+    /* ── Confirmation View ── */
+    #view-confirm {
+      position: fixed;
+      inset: 0;
+      background: #fff;
+      border-radius: 16px;
+      padding: 20px;
+      gap: 14px;
+      justify-content: center;
+    }
+    #view-confirm h3 { font-size: 15px; font-weight: 700; color: #111827; width: 100%; }
+    #confirm-detail {
+      font-size: 11px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 10px;
+      width: 100%;
+      max-height: 220px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #374151;
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+    .confirm-actions { display: flex; gap: 10px; width: 100%; }
+    .confirm-actions button { flex: 1; }
+
+    /* ── Error Banner ── */
+    #error-banner {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #fff;
+      border-radius: 16px;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+      padding: 24px;
+      text-align: center;
+    }
+    #error-banner.active { display: flex; }
+    #error-banner .err-icon { font-size: 32px; }
+    #error-banner p { font-size: 14px; color: #dc2626; font-weight: 700; }
+    #error-banner small { font-size: 12px; color: #6b7280; line-height: 1.5; }
+
+    /* ── Loading spinner ── */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      border-radius: 16px;
+    }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #7c3aed;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-overlay.hidden { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- ── Loading overlay (shown during bootstrap) ── -->
+<div id="loading-overlay"><div class="spinner"></div></div>
+
+<!-- ── Login Button View ── -->
+<div id="view-button" class="view">
+  <div id="login-standard" style="width:100%">
+    <button class="login-btn" id="btn-login-google">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" />
+      Sign in with Google
+    </button>
+  </div>
+  <div id="login-grid" class="social-grid" style="display:none;">
+    <button class="social-btn" data-provider="google">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" />
+      Google
+    </button>
+    <button class="social-btn" data-provider="apple">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 814 1000'%3E%3Cpath d='M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-43.4-150.3-109.2c-52-77.1-95.1-198.4-95.1-313.6 0-197.8 129.1-302.2 256.1-302.2 66 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2z'/%3E%3C/svg%3E" alt="" />
+      Apple
+    </button>
+    <button class="social-btn" data-provider="twitter">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z'/%3E%3C/svg%3E" alt="" />
+      Twitter/X
+    </button>
+    <button class="social-btn" data-provider="email_passwordless">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z'/%3E%3C/svg%3E" alt="" />
+      Email
+    </button>
+  </div>
+</div>
+
+<!-- ── Avatar View ── -->
+<div id="view-avatar" class="view">
+  <img id="avatar-img" src="" alt="Profile avatar" />
+</div>
+
+<!-- ── Profile Modal View ── -->
+<div id="view-modal" class="view">
+  <div class="modal-header">
+    <h2>Nostr Profile</h2>
+    <button class="close-btn" id="btn-close-modal" aria-label="Close">✕</button>
+  </div>
+  <img class="profile-avatar" id="modal-avatar-img" src="" alt="" />
+
+  <div class="field-group">
+    <label>Display Name</label>
+    <input type="text" id="field-name" placeholder="Satoshi" autocomplete="off" />
+  </div>
+  <div class="field-group">
+    <label>Avatar URL</label>
+    <input type="url" id="field-picture" placeholder="https://..." autocomplete="off" />
+  </div>
+  <div class="field-group">
+    <label>About</label>
+    <textarea id="field-about" rows="3" placeholder="Bio..."></textarea>
+  </div>
+  <div class="field-group">
+    <label>Lightning / LNURL</label>
+    <input type="text" id="field-lud16" placeholder="you@walletofsatoshi.com" autocomplete="off" />
+  </div>
+
+  <div class="field-group">
+    <label>Public Key (npub)</label>
+    <div class="key-row">
+      <code id="display-npub" title="Click to select all"></code>
+      <button class="copy-btn" id="btn-copy-npub">Copy</button>
+    </div>
+  </div>
+
+  <div class="field-group">
+    <label>Secret Key (nsec) — keep private!</label>
+    <div class="key-row">
+      <code id="display-nsec" title="Reveal to copy">••••••••••••••••••••</code>
+      <button class="copy-btn" id="btn-reveal-nsec">Reveal &amp; Copy</button>
+    </div>
+  </div>
+
+  <button class="action-btn btn-primary" id="btn-save-profile">Save Profile</button>
+  <p class="status-msg" id="save-status"></p>
+  <button class="action-btn btn-danger" id="btn-logout">Log Out</button>
+</div>
+
+<!-- ── Confirmation View ── -->
+<div id="view-confirm" class="view">
+  <h3 id="confirm-title">Approve Request?</h3>
+  <pre id="confirm-detail"></pre>
+  <div class="confirm-actions">
+    <button class="action-btn btn-secondary" id="btn-reject">Reject</button>
+    <button class="action-btn btn-primary"   id="btn-approve">Approve</button>
+  </div>
+</div>
+
+<!-- ── Error Banner ── -->
+<div id="error-banner">
+  <span class="err-icon">⚠️</span>
+  <p id="error-msg">An error occurred.</p>
+  <small id="error-detail"></small>
+</div>
+
+<!--
+  PRODUCTION NOTE:
+  Pin these CDN scripts with Subresource Integrity (SRI) hashes.
+  Generate with: https://www.srihash.org/
+  Example: integrity="sha384-<hash>" crossorigin="anonymous"
+
+  Web3Auth v9 No-Modal SDK
+  nostr-tools v2 browser bundle
+-->
+<script src="https://cdn.jsdelivr.net/npm/@web3auth/no-modal@9/dist/noModal.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@web3auth/openlogin-adapter@9/dist/openloginAdapter.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/nostr.bundle.js"></script>
+
+<script>
+/* global Web3AuthNoModal, OpenloginAdapter, NostrTools */
+(async function () {
+  "use strict";
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // DEPLOY-TIME CONSTANTS — fill these in before hosting
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Hex public key of the server keypair that signs NIP-33 registry events */
+  var ROOT_PUBKEY_HEX = "__ROOT_PUBKEY_HEX__";
+
+  /** Primary relay to query for the NIP-33 registry */
+  var REGISTRY_RELAY  = "wss://relay.damus.io";
+
+  /** Relays to publish signed profile updates to */
+  var PUBLISH_RELAYS  = [
+    "wss://relay.damus.io",
+    "wss://relay.nostr.band",
+    "wss://nos.lol",
+  ];
+
+  var DEFAULT_AVATAR = "https://robohash.org/nostr?set=set4&size=48x48";
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // URL params (set by nostr-bridge.js when it builds the iframe src)
+  // ─────────────────────────────────────────────────────────────────────────────
+  var urlParams    = new URLSearchParams(location.search);
+  var clientId     = urlParams.get("clientId")     || "";
+  var layout       = urlParams.get("layout")       || "floating";
+  var buttonSize   = urlParams.get("buttonSize")   || "standard";
+  // parentOrigin is provided by nostr-bridge.js as window.location.origin
+  var parentOrigin = urlParams.get("parentOrigin") || "";
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // State
+  // ─────────────────────────────────────────────────────────────────────────────
+  var privateKeyBytes  = null; // Uint8Array — NEVER sent via postMessage
+  var publicKeyHex     = null;
+  var nsecStr          = null;
+  var npubStr          = null;
+  var web3auth         = null;
+  var userProfile      = {};
+  var nsecRevealed     = false;
+
+  /** Pending confirmation: { approve: Function, reject: Function } */
+  var pendingConfirmation = null;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // DOM refs
+  // ─────────────────────────────────────────────────────────────────────────────
+  var loadingOverlay  = document.getElementById("loading-overlay");
+  var errorBanner     = document.getElementById("error-banner");
+  var errorMsgEl      = document.getElementById("error-msg");
+  var errorDetailEl   = document.getElementById("error-detail");
+  var viewEls         = {
+    button:  document.getElementById("view-button"),
+    avatar:  document.getElementById("view-avatar"),
+    modal:   document.getElementById("view-modal"),
+    confirm: document.getElementById("view-confirm"),
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────────────────────────────────────
+  function hideLoading() {
+    loadingOverlay.classList.add("hidden");
+  }
+
+  function showError(msg, detail) {
+    hideLoading();
+    errorMsgEl.textContent    = msg    || "An unexpected error occurred.";
+    errorDetailEl.textContent = detail || "";
+    errorBanner.classList.add("active");
+    Object.values(viewEls).forEach(function (v) { v.classList.remove("active"); });
+  }
+
+  function showView(name) {
+    Object.values(viewEls).forEach(function (v) { v.classList.remove("active"); });
+    if (viewEls[name]) viewEls[name].classList.add("active");
+    // Map view name → RESIZE state expected by the parent
+    var resizeState = name === "button"  ? "button"
+                    : name === "avatar"  ? "avatar"
+                    : "modal"; // modal and confirm both use modal dimensions
+    postToParent({ type: "RESIZE", state: resizeState });
+  }
+
+  // Safely post to parent — never posts to a null or mismatched origin
+  function postToParent(msg) {
+    if (!parentOrigin || parentOrigin === "null") return;
+    try {
+      window.parent.postMessage(msg, parentOrigin);
+    } catch (_) { /* cross-origin write blocked — ignore */ }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Ancestor origin validation
+  // Ensures this page is actually embedded in the declared parentOrigin
+  // and not opened standalone or in an unexpected parent.
+  // ─────────────────────────────────────────────────────────────────────────────
+  function validateAncestorOrigin() {
+    if (!parentOrigin || parentOrigin === "null") return false;
+
+    // document.ancestorOrigins is a live list of ancestor frame origins
+    if (typeof document.ancestorOrigins !== "undefined") {
+      var ancestors = document.ancestorOrigins;
+      if (ancestors.length === 0) return false; // standalone — not in an iframe
+      if (ancestors[0] === "null") return false; // sandboxed without allow-same-origin
+      if (ancestors[0] !== parentOrigin) return false;
+    }
+    // In browsers that don't expose ancestorOrigins we allow through but rely on
+    // the origin-based message filtering below.
+    return true;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NIP-33 Registry check (with session cache)
+  // Queries ROOT_PUBKEY's kind:30078 events with d-tag == clientId
+  // and checks that parentOrigin is in the allowed_domains list.
+  // ─────────────────────────────────────────────────────────────────────────────
+  var _registryCache = null; // session cache
+
+  function queryRegistryRelay(relay, cId) {
+    return new Promise(function (resolve) {
+      var resolved = false;
+      var ws;
+      var timer = setTimeout(function () {
+        if (!resolved) { resolved = true; if (ws) ws.close(); resolve(null); }
+      }, 8000);
+
+      try { ws = new WebSocket(relay); } catch (_) { resolve(null); return; }
+
+      var subId  = "reg_" + Math.random().toString(36).slice(2);
+      var filter = { authors: [ROOT_PUBKEY_HEX], kinds: [30078], "#d": [cId], limit: 1 };
+
+      ws.onopen    = function () { ws.send(JSON.stringify(["REQ", subId, filter])); };
+      ws.onerror   = function () { if (!resolved) { resolved = true; clearTimeout(timer); resolve(null); } };
+      ws.onmessage = function (e) {
+        var msg;
+        try { msg = JSON.parse(e.data); } catch { return; }
+        if (!Array.isArray(msg)) return;
+
+        if (msg[0] === "EVENT" && msg[1] === subId) {
+          var evt = msg[2];
+          // Only trust events actually signed by the root key
+          if (evt.pubkey !== ROOT_PUBKEY_HEX) return;
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            ws.close();
+            try { resolve(JSON.parse(evt.content)); }
+            catch (_) { resolve(null); }
+          }
+        }
+        if (msg[0] === "EOSE" && msg[1] === subId) {
+          if (!resolved) { resolved = true; clearTimeout(timer); ws.close(); resolve(null); }
+        }
+      };
+    });
+  }
+
+  async function isAuthorized(cId, origin) {
+    if (_registryCache !== null) {
+      return checkDomain(_registryCache, origin);
+    }
+    var content = await queryRegistryRelay(REGISTRY_RELAY, cId);
+    if (!content) return false;
+    _registryCache = content;
+    return checkDomain(content, origin);
+  }
+
+  function checkDomain(content, origin) {
+    var allowed = content.allowed_domains;
+    if (!Array.isArray(allowed)) return false;
+    var norm = function (d) {
+      try { return new URL(d.startsWith("http") ? d : "https://" + d).origin.toLowerCase(); }
+      catch (_) { return d.toLowerCase(); }
+    };
+    var target = norm(origin);
+    return allowed.some(function (d) { return norm(d) === target; });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Web3Auth initialization & login
+  // ─────────────────────────────────────────────────────────────────────────────
+  async function initWeb3Auth() {
+    // Web3Auth UMD globals vary by SDK version — adjust as needed
+    var W3A       = window.Web3AuthNoModal   || window["@web3auth/no-modal"];
+    var OLA       = window.OpenloginAdapter  || window["@web3auth/openlogin-adapter"];
+
+    var web3authInstance = new W3A.Web3AuthNoModal({
+      clientId:       clientId,
+      chainConfig:    { chainNamespace: "other" },
+      web3AuthNetwork: "sapphire_mainnet",
+    });
+
+    var openloginAdapter = new OLA.OpenloginAdapter({
+      adapterSettings: {
+        uxMode: "popup",
+        // Configure verifiers to match your Web3Auth dashboard setup
+        loginConfig: {
+          google: {
+            verifier:    "nostr-google", // replace with your verifier name
+            typeOfLogin: "google",
+            clientId:    "",             // your Google OAuth client ID
+          },
+        },
+      },
+    });
+    web3authInstance.configureAdapter(openloginAdapter);
+    await web3authInstance.init();
+    return web3authInstance;
+  }
+
+  async function loginWith(provider) {
+    await web3auth.connectTo("openlogin", { loginProvider: provider });
+    await extractAndStoreKey();
+  }
+
+  async function extractAndStoreKey() {
+    if (!web3auth || !web3auth.provider) throw new Error("No provider after login");
+
+    var rawKey = await web3auth.provider.request({ method: "private_key" });
+    if (!rawKey || typeof rawKey !== "string") throw new Error("Empty private key");
+    if (!/^[0-9a-f]{64}$/i.test(rawKey)) throw new Error("Invalid private key format");
+
+    var NT = window.NostrTools;
+    // Store as bytes — avoids keeping a hex string in memory longer than necessary
+    privateKeyBytes = NT.hexToBytes(rawKey.toLowerCase());
+    publicKeyHex    = NT.getPublicKey(privateKeyBytes);
+    nsecStr         = NT.nip19.nsecEncode(privateKeyBytes);
+    npubStr         = NT.nip19.npubEncode(publicKeyHex);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Auto-approve policy
+  //   Approved automatically: Kind 1 (notes), Kind 7 (reactions)
+  //   Requires confirmation: everything else + all decrypt operations
+  // ─────────────────────────────────────────────────────────────────────────────
+  var AUTO_APPROVE_KINDS = new Set([1, 7]);
+
+  function requiresConfirmation(method, params) {
+    if (method === "nip04_decrypt" || method === "nip44_decrypt") return true;
+    if (method === "sign_event") {
+      try {
+        var evt = JSON.parse(params[0]);
+        return !AUTO_APPROVE_KINDS.has(evt.kind);
+      } catch (_) { return true; }
+    }
+    // Encrypt operations: auto-approve (plaintext already known to the parent)
+    if (method === "nip04_encrypt" || method === "nip44_encrypt") return false;
+    return true; // unknown method — prompt
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Cryptographic operations (all operate on the in-memory privateKeyBytes)
+  // ─────────────────────────────────────────────────────────────────────────────
+  async function processRpc(method, params) {
+    var NT = window.NostrTools;
+
+    if (method === "get_public_key") {
+      return publicKeyHex;
+    }
+
+    if (method === "sign_event") {
+      var unsignedEvent = JSON.parse(params[0]);
+      var signedEvent   = NT.finalizeEvent(unsignedEvent, privateKeyBytes);
+      return JSON.stringify(signedEvent);
+    }
+
+    if (method === "nip04_encrypt") {
+      return await NT.nip04.encrypt(NT.bytesToHex(privateKeyBytes), params[0], params[1]);
+    }
+
+    if (method === "nip04_decrypt") {
+      return await NT.nip04.decrypt(NT.bytesToHex(privateKeyBytes), params[0], params[1]);
+    }
+
+    if (method === "nip44_encrypt") {
+      var ck44e = NT.nip44.v2.utils.getConversationKey(privateKeyBytes, params[0]);
+      return NT.nip44.v2.encrypt(params[1], ck44e);
+    }
+
+    if (method === "nip44_decrypt") {
+      var ck44d = NT.nip44.v2.utils.getConversationKey(privateKeyBytes, params[0]);
+      return NT.nip44.v2.decrypt(params[1], ck44d);
+    }
+
+    throw new Error("Unknown method: " + method);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Confirmation UI
+  // ─────────────────────────────────────────────────────────────────────────────
+  var CONFIRM_TITLES = {
+    nip04_decrypt:  "Allow app to decrypt a direct message?",
+    nip44_decrypt:  "Allow app to decrypt a sealed message?",
+    nip04_encrypt:  "Allow app to encrypt a message?",
+    nip44_encrypt:  "Allow app to encrypt a sealed message?",
+    sign_event:     "Approve event signature?",
+  };
+
+  function presentConfirmation(method, params) {
+    return new Promise(function (approve, reject) {
+      pendingConfirmation = { approve: approve, reject: reject };
+
+      document.getElementById("confirm-title").textContent =
+        CONFIRM_TITLES[method] || "Approve request?";
+
+      var detail;
+      try {
+        if (method === "sign_event") {
+          detail = JSON.stringify(JSON.parse(params[0]), null, 2);
+        } else {
+          detail = "Method: " + method + "\n\nParams:\n" + JSON.stringify(params, null, 2);
+        }
+      } catch (_) { detail = "Method: " + method; }
+
+      document.getElementById("confirm-detail").textContent = detail;
+      showView("confirm");
+    });
+  }
+
+  document.getElementById("btn-approve").addEventListener("click", function () {
+    if (pendingConfirmation) {
+      var cb = pendingConfirmation.approve;
+      pendingConfirmation = null;
+      showView("avatar");
+      cb();
+    }
+  });
+
+  document.getElementById("btn-reject").addEventListener("click", function () {
+    if (pendingConfirmation) {
+      var cb = pendingConfirmation.reject;
+      pendingConfirmation = null;
+      showView("avatar");
+      cb(new Error("User rejected request"));
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Incoming postMessage handler (Parent → Iframe, NIP-46 RPC)
+  // ─────────────────────────────────────────────────────────────────────────────
+  window.addEventListener("message", async function (event) {
+    // 1. Reject null origins unconditionally
+    if (!event.origin || event.origin === "null") return;
+
+    // 2. Only accept messages from the declared parent origin
+    if (event.origin !== parentOrigin) return;
+
+    // 3. Only accept from window.parent (not from nested frames or popups)
+    if (event.source !== window.parent) return;
+
+    var data = event.data;
+    if (!data || typeof data !== "object") return;
+
+    var id     = data.id;
+    var method = data.method;
+    var params = Array.isArray(data.params) ? data.params : [];
+
+    // Must look like a NIP-46 RPC call
+    if (id === undefined || !method) return;
+
+    // Must be authenticated to process any crypto request
+    if (!privateKeyBytes) {
+      postToParent({ id: id, result: null, error: "Not authenticated" });
+      return;
+    }
+
+    try {
+      var result;
+      if (requiresConfirmation(method, params)) {
+        await presentConfirmation(method, params);
+        result = await processRpc(method, params);
+      } else {
+        result = await processRpc(method, params);
+      }
+      postToParent({ id: id, result: result, error: null });
+    } catch (err) {
+      postToParent({ id: id, result: null, error: (err && err.message) || "Operation failed" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Profile UI helpers
+  // ─────────────────────────────────────────────────────────────────────────────
+  function refreshAvatarUI() {
+    var pic = userProfile.picture || DEFAULT_AVATAR;
+    document.getElementById("avatar-img").src       = pic;
+    document.getElementById("modal-avatar-img").src = pic;
+    document.getElementById("display-npub").textContent = npubStr || "";
+  }
+
+  // Avatar click → open modal
+  document.getElementById("view-avatar").addEventListener("click", function () {
+    document.getElementById("field-name").value    = userProfile.name    || "";
+    document.getElementById("field-picture").value = userProfile.picture || "";
+    document.getElementById("field-about").value   = userProfile.about   || "";
+    document.getElementById("field-lud16").value   = userProfile.lud16   || "";
+    // Reset nsec display
+    document.getElementById("display-nsec").textContent = "••••••••••••••••••••";
+    document.getElementById("btn-reveal-nsec").textContent = "Reveal & Copy";
+    nsecRevealed = false;
+    document.getElementById("save-status").textContent = "";
+    document.getElementById("save-status").className   = "status-msg";
+    showView("modal");
+  });
+
+  document.getElementById("btn-close-modal").addEventListener("click", function () {
+    showView("avatar");
+  });
+
+  // Copy npub
+  document.getElementById("btn-copy-npub").addEventListener("click", function () {
+    var btn = document.getElementById("btn-copy-npub");
+    navigator.clipboard.writeText(npubStr || "").then(function () {
+      btn.textContent = "Copied!";
+      setTimeout(function () { btn.textContent = "Copy"; }, 2000);
+    }).catch(function () {});
+  });
+
+  // Reveal / copy nsec (two-step: reveal first, then copy)
+  document.getElementById("btn-reveal-nsec").addEventListener("click", function () {
+    var btn = document.getElementById("btn-reveal-nsec");
+    var codeEl = document.getElementById("display-nsec");
+    if (!nsecRevealed) {
+      codeEl.textContent = nsecStr || "";
+      btn.textContent    = "Copy";
+      nsecRevealed       = true;
+    } else {
+      navigator.clipboard.writeText(nsecStr || "").then(function () {
+        btn.textContent = "Copied!";
+        setTimeout(function () {
+          // Re-hide after 5s for safety
+          codeEl.textContent = "••••••••••••••••••••";
+          btn.textContent    = "Reveal & Copy";
+          nsecRevealed       = false;
+        }, 5000);
+      }).catch(function () {});
+    }
+  });
+
+  // Save profile
+  document.getElementById("btn-save-profile").addEventListener("click", async function () {
+    userProfile.name    = document.getElementById("field-name").value.trim();
+    userProfile.picture = document.getElementById("field-picture").value.trim();
+    userProfile.about   = document.getElementById("field-about").value.trim();
+    userProfile.lud16   = document.getElementById("field-lud16").value.trim();
+
+    var statusEl = document.getElementById("save-status");
+    statusEl.textContent = "Publishing…";
+    statusEl.className   = "status-msg";
+
+    var NT = window.NostrTools;
+    var metadataEvent = NT.finalizeEvent({
+      kind:       0,
+      created_at: Math.floor(Date.now() / 1000),
+      tags:       [],
+      content:    JSON.stringify(userProfile),
+    }, privateKeyBytes);
+
+    var results = await Promise.allSettled(
+      PUBLISH_RELAYS.map(function (r) { return publishToRelay(r, metadataEvent); })
+    );
+    var ok = results.filter(function (r) { return r.status === "fulfilled"; }).length;
+
+    if (ok > 0) {
+      statusEl.textContent = "Profile saved to " + ok + "/" + PUBLISH_RELAYS.length + " relays.";
+      statusEl.className   = "status-msg success";
+      refreshAvatarUI();
+    } else {
+      statusEl.textContent = "Failed to publish. Check your connection.";
+      statusEl.className   = "status-msg error";
+    }
+    setTimeout(function () {
+      statusEl.textContent = "";
+      statusEl.className   = "status-msg";
+    }, 4000);
+  });
+
+  function publishToRelay(relayUrl, event) {
+    return new Promise(function (resolve, reject) {
+      var ws;
+      var timer = setTimeout(function () { if (ws) ws.close(); reject(new Error("Timeout")); }, 8000);
+      try { ws = new WebSocket(relayUrl); } catch (e) { reject(e); return; }
+      ws.onopen    = function () { ws.send(JSON.stringify(["EVENT", event])); };
+      ws.onmessage = function (e) {
+        var msg; try { msg = JSON.parse(e.data); } catch { return; }
+        if (Array.isArray(msg) && msg[0] === "OK") {
+          clearTimeout(timer); ws.close();
+          msg[2] !== false ? resolve() : reject(new Error(msg[3] || "Rejected"));
+        }
+      };
+      ws.onerror = function () { clearTimeout(timer); reject(new Error("WebSocket error")); };
+    });
+  }
+
+  // Logout
+  document.getElementById("btn-logout").addEventListener("click", async function () {
+    try { if (web3auth) await web3auth.logout(); } catch (_) {}
+    // Scrub key material from memory
+    if (privateKeyBytes) privateKeyBytes.fill(0);
+    privateKeyBytes = null; publicKeyHex = null; nsecStr = null; npubStr = null;
+    userProfile = {}; nsecRevealed = false;
+    showView("button");
+    postToParent({ type: "AUTH_STATE", loggedIn: false, pubkey: null });
+  });
+
+  // Login button handlers
+  async function handleLogin(provider) {
+    try {
+      await loginWith(provider);
+      // Fetch profile metadata from relays (best-effort)
+      userProfile = await fetchProfile(publicKeyHex) || {};
+      refreshAvatarUI();
+      showView("avatar");
+      // AUTH_SUCCESS: user actively completed an OAuth flow
+      postToParent({ type: "AUTH_SUCCESS", pubkey: publicKeyHex });
+    } catch (err) {
+      console.error("Login failed:", err);
+      // Surface error briefly in the button area instead of crashing the whole iframe
+      var statusEl = document.getElementById("save-status");
+      if (statusEl) { statusEl.textContent = "Login failed: " + (err.message || err); }
+    }
+  }
+
+  document.getElementById("btn-login-google").addEventListener("click", function () {
+    handleLogin("google");
+  });
+  document.querySelectorAll(".social-btn[data-provider]").forEach(function (btn) {
+    btn.addEventListener("click", function () { handleLogin(btn.dataset.provider); });
+  });
+
+  // Fetch NIP-01 profile metadata from relays (best-effort, for auto-populating the form)
+  function fetchProfile(pubkeyHex) {
+    return new Promise(function (resolve) {
+      var resolved = false;
+      var ws;
+      var timer = setTimeout(function () { if (ws) ws.close(); if (!resolved) { resolved = true; resolve(null); } }, 5000);
+      var subId = "prof_" + Math.random().toString(36).slice(2);
+      try { ws = new WebSocket(REGISTRY_RELAY); } catch (_) { resolve(null); return; }
+      ws.onopen = function () {
+        ws.send(JSON.stringify(["REQ", subId, { authors: [pubkeyHex], kinds: [0], limit: 1 }]));
+      };
+      ws.onmessage = function (e) {
+        var msg; try { msg = JSON.parse(e.data); } catch { return; }
+        if (Array.isArray(msg) && msg[0] === "EVENT" && msg[1] === subId && msg[2].kind === 0) {
+          if (!resolved) {
+            resolved = true; clearTimeout(timer); ws.close();
+            try { resolve(JSON.parse(msg[2].content)); } catch { resolve(null); }
+          }
+        }
+        if (Array.isArray(msg) && msg[0] === "EOSE") {
+          if (!resolved) { resolved = true; clearTimeout(timer); ws.close(); resolve(null); }
+        }
+      };
+      ws.onerror = function () { if (!resolved) { resolved = true; clearTimeout(timer); resolve(null); } };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Bootstrap
+  // ─────────────────────────────────────────────────────────────────────────────
+  async function bootstrap() {
+    // 1. Validate we're embedded in the expected parent
+    if (!validateAncestorOrigin()) {
+      showError(
+        "Invalid embedding context.",
+        "This signer must be embedded via an authorized nostr-bridge.js integration."
+      );
+      return;
+    }
+
+    // 2. Require a clientId
+    if (!clientId) {
+      showError("Missing clientId.", "No Web3Auth clientId was provided in the iframe URL.");
+      return;
+    }
+
+    // 3. Apply button-size variant
+    if (buttonSize === "large_social_grid") {
+      document.getElementById("login-standard").style.display = "none";
+      document.getElementById("login-grid").style.display     = "grid";
+    }
+
+    // 4. Validate domain against NIP-33 registry
+    var authorized = await isAuthorized(clientId, parentOrigin);
+    if (!authorized) {
+      showError(
+        "Domain not authorized for this Client ID.",
+        parentOrigin + " is not registered for clientId: " + clientId
+      );
+      return;
+    }
+
+    // 5. Initialize Web3Auth
+    try {
+      web3auth = await initWeb3Auth();
+    } catch (err) {
+      showError("Failed to initialize authentication provider.", err.message);
+      return;
+    }
+
+    // 6. Check for an existing session
+    if (web3auth.connected) {
+      try {
+        await extractAndStoreKey();
+        userProfile = await fetchProfile(publicKeyHex) || {};
+        refreshAvatarUI();
+        hideLoading();
+        showView("avatar");
+        // AUTH_STATE (passive, on load): inform parent the session is already active
+        postToParent({ type: "AUTH_STATE", loggedIn: true, pubkey: publicKeyHex });
+        return;
+      } catch (_) { /* fall through to login screen */ }
+    }
+
+    // 7. No active session — show login button
+    hideLoading();
+    showView("button");
+    // AUTH_STATE (passive, on load): inform parent no session is active
+    postToParent({ type: "AUTH_STATE", loggedIn: false, pubkey: null });
+  }
+
+  bootstrap().catch(function (err) {
+    showError("Unexpected initialization error.", err && err.message);
+  });
+
+}());
+</script>
+</body>
+</html>

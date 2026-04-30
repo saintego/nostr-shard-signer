@@ -1,0 +1,19 @@
+{
+  "name": "nostr-shard-registrar",
+  "version": "0.1.0",
+  "description": "Cloudflare Worker: NIP-33 domain/clientId registry for nostr-shard-signer",
+  "private": true,
+  "type": "module",
+  "main": "registrar-worker.js",
+  "scripts": {
+    "dev":    "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail":   "wrangler tail"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
