@@ -32,35 +32,35 @@
   var DEFAULT_BUNKER_ORIGIN = "https://bunker.yourdomain.com";
 
   var EXTENSION_TIMEOUT_MS = 5000; // How long to wait for a native extension
-  var RPC_TIMEOUT_MS       = 30000; // How long to wait for an iframe RPC reply
-  var IFRAME_ID            = "nostr-signer-iframe";
-  var CONTAINER_ID         = "nostr-signer-container";
+  var RPC_TIMEOUT_MS = 30000; // How long to wait for an iframe RPC reply
+  var IFRAME_ID = "nostr-signer-iframe";
+  var CONTAINER_ID = "nostr-signer-container";
 
   // ── State ────────────────────────────────────────────────────────────────────
-  var config          = {};
-  var iframeEl        = null;
-  var containerEl     = null;
-  var authState       = "unknown"; // "unknown" | "loggedIn" | "loggedOut"
-  var currentPubkey   = null;
-  var pendingQueue    = []; // items waiting for AUTH_STATE to arrive
+  var config = {};
+  var iframeEl = null;
+  var containerEl = null;
+  var authState = "unknown"; // "unknown" | "loggedIn" | "loggedOut"
+  var currentPubkey = null;
+  var pendingQueue = []; // items waiting for AUTH_STATE to arrive
   var pendingRequests = {}; // id -> { resolve, reject, timer }
-  var reqCounter      = 0;
-  var resolvedOrigin  = null; // pinned after first valid message from iframe
-  var initialized     = false;
+  var reqCounter = 0;
+  var resolvedOrigin = null; // pinned after first valid message from iframe
+  var initialized = false;
 
   // ── CSS size map ─────────────────────────────────────────────────────────────
   var SIZES = {
     button: {
-      standard:         { width: "220px", height: "48px"  },
-      large_social_grid:{ width: "320px", height: "136px" },
+      standard: { width: "220px", height: "48px" },
+      large_social_grid: { width: "320px", height: "136px" },
     },
-    avatar: { width: "48px",  height: "48px"  },
-    modal:  { width: "420px", height: "580px" },
+    avatar: { width: "48px", height: "48px" },
+    modal: { width: "420px", height: "580px" },
   };
 
   function getButtonDimensions() {
     var sz = config.buttonSize || "standard";
-    return (SIZES.button[sz] || SIZES.button.standard);
+    return SIZES.button[sz] || SIZES.button.standard;
   }
 
   // ── DOM helpers ──────────────────────────────────────────────────────────────
@@ -91,9 +91,9 @@
     var origin = config.bunkerOrigin || DEFAULT_BUNKER_ORIGIN;
     // Use URL constructor for safe concatenation (no string injection)
     var url = new URL("/signer.html", origin);
-    url.searchParams.set("clientId",     config.clientId);
-    url.searchParams.set("layout",       config.layout       || "floating");
-    url.searchParams.set("buttonSize",   config.buttonSize   || "standard");
+    url.searchParams.set("clientId", config.clientId);
+    url.searchParams.set("layout", config.layout || "floating");
+    url.searchParams.set("buttonSize", config.buttonSize || "standard");
     url.searchParams.set("parentOrigin", global.location.origin);
     return url.toString();
   }
@@ -110,7 +110,7 @@
     } else {
       return;
     }
-    containerEl.style.width  = dims.width;
+    containerEl.style.width = dims.width;
     containerEl.style.height = dims.height;
   }
 
@@ -122,11 +122,11 @@
     containerEl = document.createElement("div");
     containerEl.id = CONTAINER_ID;
     var initDims = getButtonDimensions();
-    containerEl.style.width  = initDims.width;
+    containerEl.style.width = initDims.width;
     containerEl.style.height = initDims.height;
 
     iframeEl = document.createElement("iframe");
-    iframeEl.id  = IFRAME_ID;
+    iframeEl.id = IFRAME_ID;
     iframeEl.src = buildIframeSrc();
 
     // allow-same-origin: required so event.origin is not "null" inside the iframe.
@@ -134,7 +134,7 @@
     // This means popups opened by the iframe inherit the iframe's origin context.
     iframeEl.setAttribute(
       "sandbox",
-      "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
+      "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
     );
     iframeEl.setAttribute("allow", "clipboard-write");
     iframeEl.setAttribute("referrerpolicy", "origin");
@@ -186,15 +186,15 @@
 
     // ── UI/State messages (custom schema) ────────────────────────────────────
     if (data.type === "AUTH_STATE") {
-      authState     = data.loggedIn ? "loggedIn" : "loggedOut";
-      currentPubkey = data.pubkey   || null;
+      authState = data.loggedIn ? "loggedIn" : "loggedOut";
+      currentPubkey = data.pubkey || null;
       setContainerSize(data.loggedIn ? "avatar" : "button");
       flushQueue();
       return;
     }
 
     if (data.type === "AUTH_SUCCESS") {
-      authState     = "loggedIn";
+      authState = "loggedIn";
       currentPubkey = data.pubkey;
       setContainerSize("avatar");
       flushQueue();
@@ -228,7 +228,7 @@
       if (authState === "loggedIn") {
         (function (it) {
           dispatchRpc(it.method, it.params).then(it.resolve).catch(it.reject);
-        }(item));
+        })(item);
       } else {
         item.reject(new Error("nostr-bridge: user is not logged in"));
       }
@@ -240,7 +240,12 @@
     return new Promise(function (resolve, reject) {
       if (authState === "unknown") {
         // Queue: AUTH_STATE has not arrived yet
-        pendingQueue.push({ method: method, params: params, resolve: resolve, reject: reject });
+        pendingQueue.push({
+          method: method,
+          params: params,
+          resolve: resolve,
+          reject: reject,
+        });
         return;
       }
       if (authState === "loggedOut") {
@@ -248,7 +253,7 @@
         return;
       }
 
-      var id    = "req_" + (reqCounter++);
+      var id = "req_" + reqCounter++;
       var timer = setTimeout(function () {
         delete pendingRequests[id];
         reject(new Error("nostr-bridge: RPC timeout for '" + method + "'"));
@@ -280,9 +285,11 @@
       },
 
       signEvent: function (event) {
-        return dispatchRpc("sign_event", [JSON.stringify(event)]).then(function (result) {
-          return JSON.parse(result);
-        });
+        return dispatchRpc("sign_event", [JSON.stringify(event)]).then(
+          function (result) {
+            return JSON.parse(result);
+          },
+        );
       },
 
       nip04: {
@@ -315,11 +322,20 @@
         resolve(false);
         return;
       }
-      var timer = setTimeout(function () { resolve(false); }, EXTENSION_TIMEOUT_MS);
+      var timer = setTimeout(function () {
+        resolve(false);
+      }, EXTENSION_TIMEOUT_MS);
       try {
-        existingNostr.getPublicKey()
-          .then(function () { clearTimeout(timer); resolve(true);  })
-          .catch(function () { clearTimeout(timer); resolve(false); });
+        existingNostr
+          .getPublicKey()
+          .then(function () {
+            clearTimeout(timer);
+            resolve(true);
+          })
+          .catch(function () {
+            clearTimeout(timer);
+            resolve(false);
+          });
       } catch (_) {
         clearTimeout(timer);
         resolve(false);
@@ -339,26 +355,30 @@
 
     config = Object.assign(
       {
-        layout:       "floating",
-        buttonSize:   "standard",
-        forceIframe:  false,
+        layout: "floating",
+        buttonSize: "standard",
+        forceIframe: false,
         bunkerOrigin: DEFAULT_BUNKER_ORIGIN,
       },
-      userConfig
+      userConfig,
     );
 
     initialized = true;
 
     // Save a reference to any pre-existing window.nostr (native extension)
-    var nativeNostr = (typeof global.nostr !== "undefined") ? global.nostr : null;
+    var nativeNostr = typeof global.nostr !== "undefined" ? global.nostr : null;
 
     // Install our proxy synchronously so callers can queue immediately.
     // Use defineProperty so we shadow any existing value without destroying it.
     var proxy = buildNostrProxy();
     try {
       Object.defineProperty(global, "nostr", {
-        get: function () { return proxy; },
-        set: function (v) { /* ignore attempts to overwrite */ },
+        get: function () {
+          return proxy;
+        },
+        set: function (v) {
+          /* ignore attempts to overwrite */
+        },
         configurable: true,
       });
     } catch (_) {
@@ -384,7 +404,9 @@
         }
         global.removeEventListener("message", onMessage);
         initialized = false;
-        console.info("nostr-bridge: responsive native extension found; iframe skipped.");
+        console.info(
+          "nostr-bridge: responsive native extension found; iframe skipped.",
+        );
         return;
       }
     }
@@ -399,5 +421,4 @@
 
   // ── Expose ───────────────────────────────────────────────────────────────────
   global.NostrBridge = { init: init };
-
-}(window));
+})(window);

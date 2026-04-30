@@ -24,25 +24,25 @@
  *   - All domain inputs are normalised to their HTTPS origin to prevent bypass via path tricks.
  */
 
-import {
-  finalizeEvent,
-  verifyEvent,
-  nip19,
-} from "nostr-tools";
+import { finalizeEvent, verifyEvent, nip19 } from "nostr-tools";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const KV_PREFIX_CLAIM = "claim:";   // claim:{clientId}  → JSON
-const KV_PREFIX_NONCE = "nonce:";   // nonce:{clientId}  → JSON (TTL-bound)
-const NONCE_TTL_SEC   = 300;        // 5 minutes
-const MAX_DOMAINS     = 50;         // per clientId
+const KV_PREFIX_CLAIM = "claim:"; // claim:{clientId}  → JSON
+const KV_PREFIX_NONCE = "nonce:"; // nonce:{clientId}  → JSON (TTL-bound)
+const NONCE_TTL_SEC = 300; // 5 minutes
+const MAX_DOMAINS = 50; // per clientId
 const MAX_CLIENT_ID_LEN = 512;
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
 /** Convert a 64-char lowercase hex string to Uint8Array (32 bytes). */
 function hexToBytes(hex) {
-  if (typeof hex !== "string" || hex.length !== 64 || !/^[0-9a-f]+$/.test(hex)) {
+  if (
+    typeof hex !== "string" ||
+    hex.length !== 64 ||
+    !/^[0-9a-f]+$/.test(hex)
+  ) {
     throw new Error("Invalid 32-byte hex private key");
   }
   const arr = new Uint8Array(32);
@@ -85,7 +85,7 @@ function isValidHexPubkey(str) {
 
 const CORS_HEADERS = {
   // PRODUCTION: restrict to your own admin/integration origins, not "*"
-  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
@@ -117,10 +117,15 @@ function cors204() {
  * @param {string}      registrantHex   — hex pubkey of the domain owner (p-tag)
  * @param {string[]}    allowedDomains  — list of normalised origin strings
  */
-function buildRegistryEvent(rootPrivkeyBytes, clientId, registrantHex, allowedDomains) {
+function buildRegistryEvent(
+  rootPrivkeyBytes,
+  clientId,
+  registrantHex,
+  allowedDomains,
+) {
   return finalizeEvent(
     {
-      kind:       30078,
+      kind: 30078,
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ["d", clientId],
@@ -128,7 +133,7 @@ function buildRegistryEvent(rootPrivkeyBytes, clientId, registrantHex, allowedDo
       ],
       content: JSON.stringify({ allowed_domains: allowedDomains }),
     },
-    rootPrivkeyBytes
+    rootPrivkeyBytes,
   );
 }
 
@@ -137,7 +142,12 @@ function buildRegistryEvent(rootPrivkeyBytes, clientId, registrantHex, allowedDo
 /** Publish a signed Nostr event to a single relay via WebSocket. */
 function publishToRelay(relayUrl, event) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { try { ws.close(); } catch (_) {} reject(new Error("Timeout")); }, 10_000);
+    const timer = setTimeout(() => {
+      try {
+        ws.close();
+      } catch (_) {}
+      reject(new Error("Timeout"));
+    }, 10_000);
     let ws;
     try {
       ws = new WebSocket(relayUrl);
@@ -146,16 +156,27 @@ function publishToRelay(relayUrl, event) {
       reject(err);
       return;
     }
-    ws.addEventListener("open",  () => ws.send(JSON.stringify(["EVENT", event])));
-    ws.addEventListener("error", () => { clearTimeout(timer); reject(new Error("WebSocket error")); });
+    ws.addEventListener("open", () =>
+      ws.send(JSON.stringify(["EVENT", event])),
+    );
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("WebSocket error"));
+    });
     ws.addEventListener("message", (e) => {
       let msg;
-      try { msg = JSON.parse(e.data); } catch { return; }
+      try {
+        msg = JSON.parse(e.data);
+      } catch {
+        return;
+      }
       if (!Array.isArray(msg) || msg[0] !== "OK") return;
       clearTimeout(timer);
       ws.close();
       // msg[2] is the success boolean; msg[3] is an optional message
-      msg[2] !== false ? resolve(msg) : reject(new Error(msg[3] || "Relay rejected event"));
+      msg[2] !== false
+        ? resolve(msg)
+        : reject(new Error(msg[3] || "Relay rejected event"));
     });
   });
 }
@@ -167,12 +188,17 @@ async function broadcastEvent(env, event) {
     .map((u) => u.trim())
     .filter(Boolean);
 
-  const results = await Promise.allSettled(relayUrls.map((url) => publishToRelay(url, event)));
+  const results = await Promise.allSettled(
+    relayUrls.map((url) => publishToRelay(url, event)),
+  );
   const succeeded = results.filter((r) => r.status === "fulfilled").length;
 
   if (succeeded === 0) {
     const firstError = results.find((r) => r.status === "rejected");
-    throw new Error("Failed to publish to any relay: " + (firstError?.reason?.message || "unknown"));
+    throw new Error(
+      "Failed to publish to any relay: " +
+        (firstError?.reason?.message || "unknown"),
+    );
   }
   return { published: succeeded, total: relayUrls.length };
 }
@@ -182,28 +208,40 @@ async function broadcastEvent(env, event) {
 async function getClaim(env, clientId) {
   const raw = await env.KV_NAMESPACE.get(KV_PREFIX_CLAIM + clientId);
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 async function saveClaim(env, clientId, registrantHex, domains) {
   await env.KV_NAMESPACE.put(
     KV_PREFIX_CLAIM + clientId,
-    JSON.stringify({ registrantHex, domains })
+    JSON.stringify({ registrantHex, domains }),
   );
 }
 
 async function saveNonce(env, clientId, nonce, registrantHex) {
   await env.KV_NAMESPACE.put(
     KV_PREFIX_NONCE + clientId,
-    JSON.stringify({ nonce, registrantHex, expiresAt: Date.now() + NONCE_TTL_SEC * 1000 }),
-    { expirationTtl: NONCE_TTL_SEC }
+    JSON.stringify({
+      nonce,
+      registrantHex,
+      expiresAt: Date.now() + NONCE_TTL_SEC * 1000,
+    }),
+    { expirationTtl: NONCE_TTL_SEC },
   );
 }
 
 async function getNonce(env, clientId) {
   const raw = await env.KV_NAMESPACE.get(KV_PREFIX_NONCE + clientId);
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 async function deleteNonce(env, clientId) {
@@ -220,14 +258,25 @@ async function deleteNonce(env, clientId) {
  */
 async function handleRegister(request, env) {
   let body;
-  try { body = await request.json(); }
-  catch { return jsonErr("Request body must be valid JSON"); }
+  try {
+    body = await request.json();
+  } catch {
+    return jsonErr("Request body must be valid JSON");
+  }
 
   const { clientId, npub, domain } = body;
 
   // ── Input validation ────────────────────────────────────────────────────────
-  if (!clientId || typeof clientId !== "string" || clientId.length > MAX_CLIENT_ID_LEN) {
-    return jsonErr("clientId is required and must be a string ≤ " + MAX_CLIENT_ID_LEN + " chars");
+  if (
+    !clientId ||
+    typeof clientId !== "string" ||
+    clientId.length > MAX_CLIENT_ID_LEN
+  ) {
+    return jsonErr(
+      "clientId is required and must be a string ≤ " +
+        MAX_CLIENT_ID_LEN +
+        " chars",
+    );
   }
   // Disallow characters that could cause KV key collisions
   if (/[:\s]/.test(clientId)) {
@@ -236,7 +285,9 @@ async function handleRegister(request, env) {
 
   const normalizedDomain = normalizeDomain(domain);
   if (!normalizedDomain) {
-    return jsonErr("domain must be a valid HTTPS origin (e.g. https://app.example.com)");
+    return jsonErr(
+      "domain must be a valid HTTPS origin (e.g. https://app.example.com)",
+    );
   }
 
   const registrantHex = npubToHex(npub);
@@ -253,23 +304,37 @@ async function handleRegister(request, env) {
     }
     // Same owner — add domain if not already present
     if (existing.domains.includes(normalizedDomain)) {
-      return jsonOk({ ok: true, message: "Domain already registered for this clientId" });
+      return jsonOk({
+        ok: true,
+        message: "Domain already registered for this clientId",
+      });
     }
     if (existing.domains.length >= MAX_DOMAINS) {
-      return jsonErr("Maximum number of domains (" + MAX_DOMAINS + ") reached for this clientId");
+      return jsonErr(
+        "Maximum number of domains (" +
+          MAX_DOMAINS +
+          ") reached for this clientId",
+      );
     }
     existing.domains.push(normalizedDomain);
     const rootPrivkey = hexToBytes(env.ROOT_PRIVKEY_HEX);
-    const event       = buildRegistryEvent(rootPrivkey, clientId, registrantHex, existing.domains);
-    const broadcast   = await broadcastEvent(env, event);
+    const event = buildRegistryEvent(
+      rootPrivkey,
+      clientId,
+      registrantHex,
+      existing.domains,
+    );
+    const broadcast = await broadcastEvent(env, event);
     await saveClaim(env, clientId, registrantHex, existing.domains);
     return jsonOk({ ok: true, event: event.id, ...broadcast });
   }
 
   // ── New claim ───────────────────────────────────────────────────────────────
   const rootPrivkey = hexToBytes(env.ROOT_PRIVKEY_HEX);
-  const event       = buildRegistryEvent(rootPrivkey, clientId, registrantHex, [normalizedDomain]);
-  const broadcast   = await broadcastEvent(env, event);
+  const event = buildRegistryEvent(rootPrivkey, clientId, registrantHex, [
+    normalizedDomain,
+  ]);
+  const broadcast = await broadcastEvent(env, event);
   await saveClaim(env, clientId, registrantHex, [normalizedDomain]);
 
   return jsonOk({ ok: true, event: event.id, ...broadcast }, 201);
@@ -284,8 +349,11 @@ async function handleRegister(request, env) {
  */
 async function handleChallenge(request, env) {
   let body;
-  try { body = await request.json(); }
-  catch { return jsonErr("Request body must be valid JSON"); }
+  try {
+    body = await request.json();
+  } catch {
+    return jsonErr("Request body must be valid JSON");
+  }
 
   const { clientId, npub } = body;
   if (!clientId || !npub) return jsonErr("clientId and npub are required");
@@ -294,13 +362,16 @@ async function handleChallenge(request, env) {
   if (!registrantHex) return jsonErr("npub is invalid");
 
   const existing = await getClaim(env, clientId);
-  if (!existing)                                    return jsonErr("clientId not found", 404);
-  if (existing.registrantHex !== registrantHex)     return jsonErr("npub does not own this clientId", 403);
+  if (!existing) return jsonErr("clientId not found", 404);
+  if (existing.registrantHex !== registrantHex)
+    return jsonErr("npub does not own this clientId", 403);
 
   // Generate a 32-byte cryptographically random nonce
   const nonceBytes = new Uint8Array(32);
   crypto.getRandomValues(nonceBytes);
-  const nonce = Array.from(nonceBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const nonce = Array.from(nonceBytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
   await saveNonce(env, clientId, nonce, registrantHex);
 
@@ -327,13 +398,23 @@ async function handleChallenge(request, env) {
  */
 async function handleUpdate(request, env) {
   let body;
-  try { body = await request.json(); }
-  catch { return jsonErr("Request body must be valid JSON"); }
+  try {
+    body = await request.json();
+  } catch {
+    return jsonErr("Request body must be valid JSON");
+  }
 
   const { clientId, domains, proofEvent } = body;
 
-  if (!clientId || !Array.isArray(domains) || !proofEvent || typeof proofEvent !== "object") {
-    return jsonErr("clientId (string), domains (array), and proofEvent (object) are all required");
+  if (
+    !clientId ||
+    !Array.isArray(domains) ||
+    !proofEvent ||
+    typeof proofEvent !== "object"
+  ) {
+    return jsonErr(
+      "clientId (string), domains (array), and proofEvent (object) are all required",
+    );
   }
 
   // ── Validate domains list ───────────────────────────────────────────────────
@@ -343,7 +424,8 @@ async function handleUpdate(request, env) {
   const normalizedDomains = [];
   for (const domain of domains) {
     const n = normalizeDomain(domain);
-    if (!n) return jsonErr("Invalid domain in list: " + String(domain).slice(0, 100));
+    if (!n)
+      return jsonErr("Invalid domain in list: " + String(domain).slice(0, 100));
     normalizedDomains.push(n);
   }
   // Deduplicate
@@ -356,17 +438,31 @@ async function handleUpdate(request, env) {
   // ── Fetch nonce ─────────────────────────────────────────────────────────────
   const nonceRecord = await getNonce(env, clientId);
   if (!nonceRecord) {
-    return jsonErr("No active challenge for this clientId. Call POST /challenge first.");
+    return jsonErr(
+      "No active challenge for this clientId. Call POST /challenge first.",
+    );
   }
   if (Date.now() > nonceRecord.expiresAt) {
     await deleteNonce(env, clientId);
-    return jsonErr("Challenge nonce has expired. Call POST /challenge again.", 410);
+    return jsonErr(
+      "Challenge nonce has expired. Call POST /challenge again.",
+      410,
+    );
   }
 
   // ── Validate proof event structure ─────────────────────────────────────────
   const { id, pubkey, sig, kind, content, created_at, tags } = proofEvent;
-  if (!id || !pubkey || !sig || kind === undefined || content === undefined || !created_at) {
-    return jsonErr("proofEvent is missing required NIP-01 fields (id, pubkey, sig, kind, content, created_at)");
+  if (
+    !id ||
+    !pubkey ||
+    !sig ||
+    kind === undefined ||
+    content === undefined ||
+    !created_at
+  ) {
+    return jsonErr(
+      "proofEvent is missing required NIP-01 fields (id, pubkey, sig, kind, content, created_at)",
+    );
   }
 
   // pubkey must match the registered owner
@@ -382,7 +478,9 @@ async function handleUpdate(request, env) {
   // Timestamp within ±5 minutes
   const ageSec = Math.floor(Date.now() / 1000) - created_at;
   if (ageSec > NONCE_TTL_SEC || ageSec < -30) {
-    return jsonErr("proofEvent created_at is outside the acceptable time window (±5 min)");
+    return jsonErr(
+      "proofEvent created_at is outside the acceptable time window (±5 min)",
+    );
   }
 
   // Content must equal the issued nonce exactly
@@ -406,12 +504,22 @@ async function handleUpdate(request, env) {
 
   // ── Publish updated NIP-33 event ────────────────────────────────────────────
   const rootPrivkey = hexToBytes(env.ROOT_PRIVKEY_HEX);
-  const event       = buildRegistryEvent(rootPrivkey, clientId, existing.registrantHex, uniqueDomains);
-  const broadcast   = await broadcastEvent(env, event);
+  const event = buildRegistryEvent(
+    rootPrivkey,
+    clientId,
+    existing.registrantHex,
+    uniqueDomains,
+  );
+  const broadcast = await broadcastEvent(env, event);
 
   await saveClaim(env, clientId, existing.registrantHex, uniqueDomains);
 
-  return jsonOk({ ok: true, event: event.id, domains: uniqueDomains, ...broadcast });
+  return jsonOk({
+    ok: true,
+    event: event.id,
+    domains: uniqueDomains,
+    ...broadcast,
+  });
 }
 
 // ── Main fetch handler ────────────────────────────────────────────────────────
@@ -427,20 +535,30 @@ export default {
 
     // Validate that required secrets are configured
     if (!env.ROOT_PRIVKEY_HEX) {
-      return jsonErr("Worker misconfiguration: ROOT_PRIVKEY_HEX secret is not set", 500);
+      return jsonErr(
+        "Worker misconfiguration: ROOT_PRIVKEY_HEX secret is not set",
+        500,
+      );
     }
     if (!env.KV_NAMESPACE) {
-      return jsonErr("Worker misconfiguration: KV_NAMESPACE binding is missing", 500);
+      return jsonErr(
+        "Worker misconfiguration: KV_NAMESPACE binding is missing",
+        500,
+      );
     }
 
     const url = new URL(request.url);
 
     try {
       switch (url.pathname) {
-        case "/register":  return await handleRegister(request, env);
-        case "/challenge": return await handleChallenge(request, env);
-        case "/update":    return await handleUpdate(request, env);
-        default:           return jsonErr("Not found", 404);
+        case "/register":
+          return await handleRegister(request, env);
+        case "/challenge":
+          return await handleChallenge(request, env);
+        case "/update":
+          return await handleUpdate(request, env);
+        default:
+          return jsonErr("Not found", 404);
       }
     } catch (err) {
       // Unexpected internal errors — log but don't leak stack traces to clients
