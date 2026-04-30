@@ -9,7 +9,7 @@
  *   <script>
  *     NostrBridge.init({
  *       clientId:     "YOUR_WEB3AUTH_CLIENT_ID",
- *       bunkerOrigin: "https://bunker.yourdomain.com",
+ *       bunkerOrigin: "https://bunker.yourdomain.com",   // required
  *       forceIframe:  false,
  *       layout:       "floating",      // "floating" | "in-place"
  *       buttonSize:   "standard",      // "standard" | "large_social_grid"
@@ -18,66 +18,92 @@
  *   </script>
  *
  * Security notes:
+ *  - bunkerOrigin is required and sanitized to its bare origin (no path/query).
  *  - All postMessage calls target the pinned bunkerOrigin exactly (no wildcard).
  *  - event.source is checked against the specific iframe contentWindow.
  *  - "null" origins are rejected unconditionally.
  *  - A 5-second probe timeout prevents locked extensions from hanging the queue.
+ *  - AUTH_STATE is expected within 10 s; pending queue is flushed as logged-out otherwise.
  */
 
 (function (global) {
   "use strict";
 
-  // ── Build-time constant: replaced by your bundler / CI step ─────────────────
-  // Set to your actual bunker origin, e.g. "https://bunker.yourdomain.com"
-  var DEFAULT_BUNKER_ORIGIN = "https://bunker.yourdomain.com";
-
-  var EXTENSION_TIMEOUT_MS = 5000; // How long to wait for a native extension
-  var RPC_TIMEOUT_MS = 30000; // How long to wait for an iframe RPC reply
-  var IFRAME_ID = "nostr-signer-iframe";
-  var CONTAINER_ID = "nostr-signer-container";
+  // ── Constants ─────────────────────────────────────────────────────────────────
+  const EXTENSION_TIMEOUT_MS        = 5000;   // How long to wait for a native extension
+  const RPC_TIMEOUT_MS              = 30000;  // How long to wait for an iframe RPC reply
+  const IFRAME_AUTH_STATE_TIMEOUT_MS = 10000; // How long to wait for AUTH_STATE from iframe
+  const IFRAME_ID    = "nostr-signer-iframe";
+  const CONTAINER_ID = "nostr-signer-container";
 
   // ── State ────────────────────────────────────────────────────────────────────
-  var config = {};
-  var iframeEl = null;
-  var containerEl = null;
-  var authState = "unknown"; // "unknown" | "loggedIn" | "loggedOut"
-  var currentPubkey = null;
-  var pendingQueue = []; // items waiting for AUTH_STATE to arrive
-  var pendingRequests = {}; // id -> { resolve, reject, timer }
-  var reqCounter = 0;
-  var resolvedOrigin = null; // pinned after first valid message from iframe
-  var initialized = false;
+  let config          = {};
+  let iframeEl        = null;
+  let containerEl     = null;
+  let iframeReady     = false;       // true once iframe fires "load"
+  let authStateTimer  = null;        // cleared when AUTH_STATE arrives
+  let authState       = "unknown";   // "unknown" | "loggedIn" | "loggedOut"
+  let currentPubkey   = null;
+  let pendingQueue    = [];          // items waiting for AUTH_STATE to arrive
+  let pendingRequests = {};          // id -> { resolve, reject, timer }
+  let reqCounter      = 0;
+  let resolvedOrigin  = null;        // pinned after first valid message from iframe
+  let initialized     = false;
 
-  // ── CSS size map ─────────────────────────────────────────────────────────────
-  var SIZES = {
-    button: {
-      standard: { width: "220px", height: "48px" },
-      large_social_grid: { width: "320px", height: "136px" },
+  // ── 2D size map [layout][state] ───────────────────────────────────────────────
+  // Numeric values are converted to "Npx"; strings (e.g. "100%") are used as-is.
+  const SIZE_MAP = {
+    floating: {
+      button: {
+        standard:          { w: 220, h: 48  },
+        large_social_grid: { w: 320, h: 136 },
+      },
+      avatar: { w: 48,  h: 48  },
+      modal:  { w: 420, h: 580 },
     },
-    avatar: { width: "48px", height: "48px" },
-    modal: { width: "420px", height: "580px" },
+    "in-place": {
+      button: {
+        standard:          { w: "100%", h: "48px"  },
+        large_social_grid: { w: "100%", h: "136px" },
+      },
+      avatar: { w: "100%", h: "48px"  },
+      modal:  { w: "100%", h: "580px" },
+    },
   };
 
-  function getButtonDimensions() {
-    var sz = config.buttonSize || "standard";
-    return SIZES.button[sz] || SIZES.button.standard;
+  function applySize(state) {
+    if (!containerEl) return;
+    const layout = config.layout === "in-place" ? "in-place" : "floating";
+    const lmap   = SIZE_MAP[layout];
+    let dims;
+    if (state === "button") {
+      const bsMap = lmap.button;
+      dims = bsMap[config.buttonSize] || bsMap.standard;
+    } else {
+      dims = lmap[state];
+    }
+    if (!dims) return;
+    containerEl.style.width  = typeof dims.w === "number" ? dims.w + "px" : dims.w;
+    containerEl.style.height = typeof dims.h === "number" ? dims.h + "px" : dims.h;
   }
 
   // ── DOM helpers ──────────────────────────────────────────────────────────────
   function injectStyles() {
     if (document.getElementById("nostr-bridge-styles")) return;
-    var style = document.createElement("style");
-    style.id = "nostr-bridge-styles";
-    var isFloating = config.layout !== "in-place";
+    const style      = document.createElement("style");
+    style.id         = "nostr-bridge-styles";
+    const isFloating = config.layout !== "in-place";
     style.textContent = [
       "#" + CONTAINER_ID + " {",
       "  position: " + (isFloating ? "fixed" : "relative") + ";",
       isFloating ? "  bottom: 24px; right: 24px;" : "",
       "  z-index: 2147483647;",
-      "  transition: width 0.2s ease, height 0.2s ease;",
+      "  transition: width 0.25s ease, height 0.25s ease;",
       "  overflow: hidden;",
       "  border: none;",
       "  background: transparent;",
+      isFloating ? "  border-radius: 12px;" : "",
+      isFloating ? "  box-shadow: 0 4px 24px rgba(0,0,0,0.18);" : "",
       "}",
       "#" + IFRAME_ID + " {",
       "  width: 100%; height: 100%;",
@@ -88,30 +114,12 @@
   }
 
   function buildIframeSrc() {
-    var origin = config.bunkerOrigin || DEFAULT_BUNKER_ORIGIN;
-    // Use URL constructor for safe concatenation (no string injection)
-    var url = new URL("/signer.html", origin);
-    url.searchParams.set("clientId", config.clientId);
-    url.searchParams.set("layout", config.layout || "floating");
-    url.searchParams.set("buttonSize", config.buttonSize || "standard");
+    const url = new URL("/signer.html", config.bunkerOrigin);
+    url.searchParams.set("clientId",     config.clientId);
+    url.searchParams.set("layout",       config.layout     || "floating");
+    url.searchParams.set("buttonSize",   config.buttonSize || "standard");
     url.searchParams.set("parentOrigin", global.location.origin);
     return url.toString();
-  }
-
-  function setContainerSize(state) {
-    if (!containerEl) return;
-    var dims;
-    if (state === "button") {
-      dims = getButtonDimensions();
-    } else if (state === "avatar") {
-      dims = SIZES.avatar;
-    } else if (state === "modal") {
-      dims = SIZES.modal;
-    } else {
-      return;
-    }
-    containerEl.style.width = dims.width;
-    containerEl.style.height = dims.height;
   }
 
   function injectIframe() {
@@ -119,15 +127,14 @@
 
     injectStyles();
 
-    containerEl = document.createElement("div");
+    containerEl    = document.createElement("div");
     containerEl.id = CONTAINER_ID;
-    var initDims = getButtonDimensions();
-    containerEl.style.width = initDims.width;
-    containerEl.style.height = initDims.height;
+    applySize("button");
 
-    iframeEl = document.createElement("iframe");
-    iframeEl.id = IFRAME_ID;
-    iframeEl.src = buildIframeSrc();
+    iframeEl       = document.createElement("iframe");
+    iframeEl.id    = IFRAME_ID;
+    iframeEl.src   = buildIframeSrc();
+    iframeEl.title = "Nostr Signer";
 
     // allow-same-origin: required so event.origin is not "null" inside the iframe.
     // allow-popups-to-escape-sandbox: required for Web3Auth's OAuth popup flow.
@@ -136,15 +143,20 @@
       "sandbox",
       "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
     );
-    iframeEl.setAttribute("allow", "clipboard-write");
-    iframeEl.setAttribute("referrerpolicy", "origin");
+    iframeEl.setAttribute("allow",           "clipboard-write");
+    iframeEl.setAttribute("referrerpolicy",  "origin");
     // Prevent iframe from navigating the parent page
-    iframeEl.setAttribute("csp", "default-src 'self'");
+    iframeEl.setAttribute("csp",             "default-src 'self'");
+
+    // Guard RPC dispatch until the iframe document has finished loading
+    iframeEl.addEventListener("load", function () {
+      iframeReady = true;
+    });
 
     containerEl.appendChild(iframeEl);
 
     if (config.layout === "in-place" && config.mountSelector) {
-      var mount = document.querySelector(config.mountSelector);
+      const mount = document.querySelector(config.mountSelector);
       (mount || document.body).appendChild(containerEl);
     } else {
       document.body.appendChild(containerEl);
@@ -157,9 +169,10 @@
   }
 
   function postToIframe(msg) {
-    var cw = iframeWindow();
+    if (!iframeReady) throw new Error("nostr-bridge: iframe not ready yet");
+    const cw = iframeWindow();
     if (!cw) throw new Error("nostr-bridge: iframe not available");
-    var target = resolvedOrigin || config.bunkerOrigin || DEFAULT_BUNKER_ORIGIN;
+    const target = resolvedOrigin || config.bunkerOrigin;
     cw.postMessage(msg, target);
   }
 
@@ -168,11 +181,9 @@
     // Reject null origins unconditionally (sandboxed contexts without allow-same-origin)
     if (!event.origin || event.origin === "null") return;
 
-    var expected = config.bunkerOrigin || DEFAULT_BUNKER_ORIGIN;
-
     // Pin the origin on first contact; all future messages must match
     if (!resolvedOrigin) {
-      if (event.origin !== expected) return;
+      if (event.origin !== config.bunkerOrigin) return;
       resolvedOrigin = event.origin;
     } else {
       if (event.origin !== resolvedOrigin) return;
@@ -181,54 +192,53 @@
     // Source check: only messages from our specific iframe contentWindow
     if (event.source !== iframeWindow()) return;
 
-    var data = event.data;
+    const data = event.data;
     if (!data || typeof data !== "object") return;
 
     // ── UI/State messages (custom schema) ────────────────────────────────────
     if (data.type === "AUTH_STATE") {
-      authState = data.loggedIn ? "loggedIn" : "loggedOut";
+      if (authStateTimer) { clearTimeout(authStateTimer); authStateTimer = null; }
+      authState     = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
-      setContainerSize(data.loggedIn ? "avatar" : "button");
+      applySize(data.loggedIn ? "avatar" : "button");
       flushQueue();
       return;
     }
 
     if (data.type === "AUTH_SUCCESS") {
-      authState = "loggedIn";
+      if (authStateTimer) { clearTimeout(authStateTimer); authStateTimer = null; }
+      authState     = "loggedIn";
       currentPubkey = data.pubkey;
-      setContainerSize("avatar");
+      applySize("avatar");
       flushQueue();
       return;
     }
 
     if (data.type === "RESIZE") {
-      setContainerSize(data.state);
+      // Validate state before applying to prevent unexpected size changes
+      if (!["button", "avatar", "modal"].includes(data.state)) return;
+      applySize(data.state);
       return;
     }
 
     // ── NIP-46 RPC responses ─────────────────────────────────────────────────
     if (data.id !== undefined) {
-      var pending = pendingRequests[data.id];
+      const pending = pendingRequests[data.id];
       if (!pending) return;
       clearTimeout(pending.timer);
       delete pendingRequests[data.id];
-      if (data.error) {
-        pending.reject(new Error(data.error));
-      } else {
-        pending.resolve(data.result);
-      }
+      data.error
+        ? pending.reject(new Error(data.error))
+        : pending.resolve(data.result);
     }
   }
 
   // ── Queue management ─────────────────────────────────────────────────────────
   function flushQueue() {
-    var queue = pendingQueue.splice(0);
-    for (var i = 0; i < queue.length; i++) {
-      var item = queue[i];
+    const queue = pendingQueue.splice(0);
+    for (const item of queue) {
       if (authState === "loggedIn") {
-        (function (it) {
-          dispatchRpc(it.method, it.params).then(it.resolve).catch(it.reject);
-        })(item);
+        dispatchRpc(item.method, item.params).then(item.resolve).catch(item.reject);
       } else {
         item.reject(new Error("nostr-bridge: user is not logged in"));
       }
@@ -240,12 +250,7 @@
     return new Promise(function (resolve, reject) {
       if (authState === "unknown") {
         // Queue: AUTH_STATE has not arrived yet
-        pendingQueue.push({
-          method: method,
-          params: params,
-          resolve: resolve,
-          reject: reject,
-        });
+        pendingQueue.push({ method, params, resolve, reject });
         return;
       }
       if (authState === "loggedOut") {
@@ -253,16 +258,17 @@
         return;
       }
 
-      var id = "req_" + reqCounter++;
-      var timer = setTimeout(function () {
+      // Collision-resistant ID: monotonic counter + random suffix
+      const id    = "req_" + (reqCounter++) + "_" + Math.random().toString(36).slice(2, 8);
+      const timer = setTimeout(function () {
         delete pendingRequests[id];
         reject(new Error("nostr-bridge: RPC timeout for '" + method + "'"));
       }, RPC_TIMEOUT_MS);
 
-      pendingRequests[id] = { resolve: resolve, reject: reject, timer: timer };
+      pendingRequests[id] = { resolve, reject, timer };
 
       try {
-        postToIframe({ id: id, method: method, params: params });
+        postToIframe({ id, method, params });
       } catch (err) {
         clearTimeout(timer);
         delete pendingRequests[id];
@@ -274,7 +280,7 @@
   // ── window.nostr Proxy ───────────────────────────────────────────────────────
   function buildNostrProxy() {
     return {
-      getPublicKey: function () {
+      getPublicKey() {
         if (authState === "loggedIn" && currentPubkey) {
           return Promise.resolve(currentPubkey);
         }
@@ -284,28 +290,26 @@
         });
       },
 
-      signEvent: function (event) {
-        return dispatchRpc("sign_event", [JSON.stringify(event)]).then(
-          function (result) {
-            return JSON.parse(result);
-          },
-        );
+      signEvent(event) {
+        return dispatchRpc("sign_event", [JSON.stringify(event)]).then(function (result) {
+          return JSON.parse(result);
+        });
       },
 
       nip04: {
-        encrypt: function (recipientHex, plaintext) {
+        encrypt(recipientHex, plaintext) {
           return dispatchRpc("nip04_encrypt", [recipientHex, plaintext]);
         },
-        decrypt: function (senderHex, ciphertext) {
+        decrypt(senderHex, ciphertext) {
           return dispatchRpc("nip04_decrypt", [senderHex, ciphertext]);
         },
       },
 
       nip44: {
-        encrypt: function (recipientHex, plaintext) {
+        encrypt(recipientHex, plaintext) {
           return dispatchRpc("nip44_encrypt", [recipientHex, plaintext]);
         },
-        decrypt: function (senderHex, ciphertext) {
+        decrypt(senderHex, ciphertext) {
           return dispatchRpc("nip44_decrypt", [senderHex, ciphertext]);
         },
       },
@@ -322,20 +326,12 @@
         resolve(false);
         return;
       }
-      var timer = setTimeout(function () {
-        resolve(false);
-      }, EXTENSION_TIMEOUT_MS);
+      const timer = setTimeout(function () { resolve(false); }, EXTENSION_TIMEOUT_MS);
       try {
         existingNostr
           .getPublicKey()
-          .then(function () {
-            clearTimeout(timer);
-            resolve(true);
-          })
-          .catch(function () {
-            clearTimeout(timer);
-            resolve(false);
-          });
+          .then(function ()  { clearTimeout(timer); resolve(true);  })
+          .catch(function () { clearTimeout(timer); resolve(false); });
       } catch (_) {
         clearTimeout(timer);
         resolve(false);
@@ -352,33 +348,31 @@
     if (!userConfig || !userConfig.clientId) {
       throw new Error("nostr-bridge: clientId is required");
     }
+    if (!userConfig.bunkerOrigin) {
+      throw new Error("nostr-bridge: bunkerOrigin is required");
+    }
+
+    // Sanitize bunkerOrigin: strip any path/query/fragment to prevent injection
+    const sanitizedOrigin = new URL(userConfig.bunkerOrigin).origin;
 
     config = Object.assign(
-      {
-        layout: "floating",
-        buttonSize: "standard",
-        forceIframe: false,
-        bunkerOrigin: DEFAULT_BUNKER_ORIGIN,
-      },
+      { layout: "floating", buttonSize: "standard", forceIframe: false },
       userConfig,
+      { bunkerOrigin: sanitizedOrigin },
     );
 
     initialized = true;
 
     // Save a reference to any pre-existing window.nostr (native extension)
-    var nativeNostr = typeof global.nostr !== "undefined" ? global.nostr : null;
+    const nativeNostr = typeof global.nostr !== "undefined" ? global.nostr : null;
 
     // Install our proxy synchronously so callers can queue immediately.
     // Use defineProperty so we shadow any existing value without destroying it.
-    var proxy = buildNostrProxy();
+    const proxy = buildNostrProxy();
     try {
       Object.defineProperty(global, "nostr", {
-        get: function () {
-          return proxy;
-        },
-        set: function (v) {
-          /* ignore attempts to overwrite */
-        },
+        get() { return proxy; },
+        set() { /* ignore attempts to overwrite */ },
         configurable: true,
       });
     } catch (_) {
@@ -389,7 +383,7 @@
     global.addEventListener("message", onMessage);
 
     if (!config.forceIframe && nativeNostr) {
-      var works = await probeNativeExtension(nativeNostr);
+      const works = await probeNativeExtension(nativeNostr);
       if (works) {
         // The native extension is responsive — defer to it instead of the iframe.
         // Restore the native object and tear down our listener.
@@ -404,12 +398,23 @@
         }
         global.removeEventListener("message", onMessage);
         initialized = false;
-        console.info(
-          "nostr-bridge: responsive native extension found; iframe skipped.",
-        );
+        console.info("nostr-bridge: responsive native extension found; iframe skipped.");
+        // Hand off to nostr-login if it is available on the page
+        if (global.nostrLogin && typeof global.nostrLogin.init === "function") {
+          global.nostrLogin.init({ bunkers: "", perms: "" });
+        }
         return;
       }
     }
+
+    // AUTH_STATE timeout: if the iframe doesn't report back in time,
+    // flush the pending queue as logged-out to unblock callers.
+    authStateTimer = setTimeout(function () {
+      if (authState === "unknown") {
+        authState = "loggedOut";
+        flushQueue();
+      }
+    }, IFRAME_AUTH_STATE_TIMEOUT_MS);
 
     // Inject iframe (deferred if DOM not ready yet)
     if (document.body) {
@@ -420,5 +425,5 @@
   }
 
   // ── Expose ───────────────────────────────────────────────────────────────────
-  global.NostrBridge = { init: init };
+  global.NostrBridge = { init };
 })(window);

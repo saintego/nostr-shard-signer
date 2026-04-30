@@ -7,14 +7,14 @@
  * the binding as a NIP-33 (kind:30078) event signed by the server's root keypair.
  *
  * Required Cloudflare bindings (set via wrangler.toml + `wrangler secret put`):
- *   ROOT_PRIVKEY_HEX  — 64-char hex private key (kept as a secret, never in code)
- *   KV_NAMESPACE      — KV namespace binding
- *   RELAY_URLS        — comma-separated relay WebSocket URLs (env var)
+ *   ROOT_PRIVATE_KEY_HEX  — 64-char hex private key (kept as a secret, never in code)
+ *   REGISTRY_KV           — KV namespace for clientId → domain claims
+ *   CHALLENGES_KV         — KV namespace for one-time ownership challenges
+ *   RELAY_URLS            — comma-separated relay WebSocket URLs (env var)
  *
  * Endpoints:
  *   POST /register   — claim a new clientId → domain binding
- *   POST /challenge  — request a nonce to prove ownership of a registered npub
- *   POST /update     — update allowed_domains after proving ownership
+ *   POST /update     — two-phase: (1) issue challenge nonce, (2) verify and update domains
  *
  * Security model:
  *   - /register is open: anyone can claim an unclaimed clientId.
@@ -28,8 +28,8 @@ import { finalizeEvent, verifyEvent, nip19 } from "nostr-tools";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const KV_PREFIX_CLAIM = "claim:"; // claim:{clientId}  → JSON
-const KV_PREFIX_NONCE = "nonce:"; // nonce:{clientId}  → JSON (TTL-bound)
+const KV_PREFIX_CLAIM = "claim:"; // claim:{clientId}  → JSON  (in REGISTRY_KV)
+const KV_PREFIX_NONCE = "nonce:"; // nonce:{clientId}  → JSON  (in CHALLENGES_KV, TTL-bound)
 const NONCE_TTL_SEC = 300; // 5 minutes
 const MAX_DOMAINS = 50; // per clientId
 const MAX_CLIENT_ID_LEN = 512;
@@ -52,15 +52,25 @@ function hexToBytes(hex) {
   return arr;
 }
 
-/** Decode a bech32 npub to its 32-byte hex pubkey, or return null on failure. */
-function npubToHex(npub) {
-  if (typeof npub !== "string") return null;
+/** Decode a bech32 npub to its 32-byte hex pubkey; falls back to raw hex. */
+function npubToHex(input) {
+  if (typeof input !== "string") return null;
+  // Try bech32 npub first
   try {
-    const decoded = nip19.decode(npub);
-    return decoded.type === "npub" ? decoded.data : null;
-  } catch (_) {
-    return null;
-  }
+    const decoded = nip19.decode(input);
+    if (decoded.type === "npub") return decoded.data;
+  } catch (_) {}
+  // Fall back: accept a raw 64-char lowercase hex pubkey
+  if (isValidHexPubkey(input)) return input.toLowerCase();
+  return null;
+}
+
+/**
+ * Validate a hostname against RFC-1123 label rules.
+ * Blocks bare IPs, localhost, and single-label hostnames.
+ */
+function isValidDomain(hostname) {
+  return /^(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,}$/.test(hostname);
 }
 
 /** Normalise a domain/origin input to an https:// origin string. */
@@ -68,8 +78,8 @@ function normalizeDomain(input) {
   if (typeof input !== "string" || !input) return null;
   try {
     const url = new URL(input.startsWith("http") ? input : "https://" + input);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    // We store the full origin (scheme + host + port)
+    if (url.protocol !== "https:") return null; // only HTTPS origins
+    if (!isValidDomain(url.hostname)) return null; // block IPs, localhost, bare names
     return url.origin.toLowerCase(); // e.g. "https://app.example.com"
   } catch (_) {
     return null;
@@ -181,71 +191,48 @@ function publishToRelay(relayUrl, event) {
   });
 }
 
-/** Broadcast to all configured relays; resolves if at least one succeeds. */
+/** Broadcast to all configured relays; resolves as soon as one succeeds. */
 async function broadcastEvent(env, event) {
   const relayUrls = (env.RELAY_URLS || "wss://relay.damus.io")
     .split(",")
     .map((u) => u.trim())
     .filter(Boolean);
 
-  const results = await Promise.allSettled(
-    relayUrls.map((url) => publishToRelay(url, event)),
-  );
-  const succeeded = results.filter((r) => r.status === "fulfilled").length;
-
-  if (succeeded === 0) {
-    const firstError = results.find((r) => r.status === "rejected");
-    throw new Error(
-      "Failed to publish to any relay: " +
-        (firstError?.reason?.message || "unknown"),
-    );
-  }
-  return { published: succeeded, total: relayUrls.length };
+  await Promise.any(relayUrls.map((url) => publishToRelay(url, event)));
+  return { published: 1, total: relayUrls.length };
 }
 
-// ── KV helpers ────────────────────────────────────────────────────────────────
+// ── KV helpers (two separate namespaces) ─────────────────────────────────────
 
 async function getClaim(env, clientId) {
-  const raw = await env.KV_NAMESPACE.get(KV_PREFIX_CLAIM + clientId);
+  const raw = await env.REGISTRY_KV.get(KV_PREFIX_CLAIM + clientId);
   if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(raw); } catch { return null; }
 }
 
 async function saveClaim(env, clientId, registrantHex, domains) {
-  await env.KV_NAMESPACE.put(
+  await env.REGISTRY_KV.put(
     KV_PREFIX_CLAIM + clientId,
     JSON.stringify({ registrantHex, domains }),
   );
 }
 
-async function saveNonce(env, clientId, nonce, registrantHex) {
-  await env.KV_NAMESPACE.put(
+async function saveChallenge(env, clientId, nonce, registrantHex) {
+  await env.CHALLENGES_KV.put(
     KV_PREFIX_NONCE + clientId,
-    JSON.stringify({
-      nonce,
-      registrantHex,
-      expiresAt: Date.now() + NONCE_TTL_SEC * 1000,
-    }),
+    JSON.stringify({ nonce, registrantHex, expiresAt: Date.now() + NONCE_TTL_SEC * 1000 }),
     { expirationTtl: NONCE_TTL_SEC },
   );
 }
 
-async function getNonce(env, clientId) {
-  const raw = await env.KV_NAMESPACE.get(KV_PREFIX_NONCE + clientId);
+async function getChallenge(env, clientId) {
+  const raw = await env.CHALLENGES_KV.get(KV_PREFIX_NONCE + clientId);
   if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(raw); } catch { return null; }
 }
 
-async function deleteNonce(env, clientId) {
-  await env.KV_NAMESPACE.delete(KV_PREFIX_NONCE + clientId);
+async function deleteChallenge(env, clientId) {
+  await env.CHALLENGES_KV.delete(KV_PREFIX_NONCE + clientId);
 }
 
 // ── Route: POST /register ─────────────────────────────────────────────────────
@@ -286,7 +273,7 @@ async function handleRegister(request, env) {
   const normalizedDomain = normalizeDomain(domain);
   if (!normalizedDomain) {
     return jsonErr(
-      "domain must be a valid HTTPS origin (e.g. https://app.example.com)",
+      "domain must be a valid HTTPS origin for a public FQDN (e.g. https://app.example.com)",
     );
   }
 
@@ -317,83 +304,56 @@ async function handleRegister(request, env) {
       );
     }
     existing.domains.push(normalizedDomain);
-    const rootPrivkey = hexToBytes(env.ROOT_PRIVKEY_HEX);
+    const rootPrivkey = hexToBytes(env.ROOT_PRIVATE_KEY_HEX);
     const event = buildRegistryEvent(
       rootPrivkey,
       clientId,
       registrantHex,
       existing.domains,
     );
-    const broadcast = await broadcastEvent(env, event);
     await saveClaim(env, clientId, registrantHex, existing.domains);
-    return jsonOk({ ok: true, event: event.id, ...broadcast });
+    try {
+      const broadcast = await broadcastEvent(env, event);
+      return jsonOk({ ok: true, event: event.id, ...broadcast });
+    } catch (err) {
+      // Roll back the domain addition on broadcast failure
+      existing.domains.pop();
+      await saveClaim(env, clientId, registrantHex, existing.domains);
+      return jsonErr("Failed to broadcast registry event. Please retry: " + err.message, 502);
+    }
   }
 
   // ── New claim ───────────────────────────────────────────────────────────────
-  const rootPrivkey = hexToBytes(env.ROOT_PRIVKEY_HEX);
+  const rootPrivkey = hexToBytes(env.ROOT_PRIVATE_KEY_HEX);
   const event = buildRegistryEvent(rootPrivkey, clientId, registrantHex, [
     normalizedDomain,
   ]);
-  const broadcast = await broadcastEvent(env, event);
+  // Persist first, then broadcast; roll back on failure
   await saveClaim(env, clientId, registrantHex, [normalizedDomain]);
-
-  return jsonOk({ ok: true, event: event.id, ...broadcast }, 201);
-}
-
-// ── Route: POST /challenge ────────────────────────────────────────────────────
-/**
- * Issue a one-time nonce for the owner of a clientId to sign, proving key ownership.
- * The nonce expires after NONCE_TTL_SEC seconds.
- *
- * Body: { clientId: string, npub: string }
- */
-async function handleChallenge(request, env) {
-  let body;
   try {
-    body = await request.json();
-  } catch {
-    return jsonErr("Request body must be valid JSON");
+    const broadcast = await broadcastEvent(env, event);
+    return jsonOk({ ok: true, event: event.id, ...broadcast }, 201);
+  } catch (err) {
+    await env.REGISTRY_KV.delete(KV_PREFIX_CLAIM + clientId);
+    return jsonErr("Failed to broadcast registry event. Please retry: " + err.message, 502);
   }
-
-  const { clientId, npub } = body;
-  if (!clientId || !npub) return jsonErr("clientId and npub are required");
-
-  const registrantHex = npubToHex(npub);
-  if (!registrantHex) return jsonErr("npub is invalid");
-
-  const existing = await getClaim(env, clientId);
-  if (!existing) return jsonErr("clientId not found", 404);
-  if (existing.registrantHex !== registrantHex)
-    return jsonErr("npub does not own this clientId", 403);
-
-  // Generate a 32-byte cryptographically random nonce
-  const nonceBytes = new Uint8Array(32);
-  crypto.getRandomValues(nonceBytes);
-  const nonce = Array.from(nonceBytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  await saveNonce(env, clientId, nonce, registrantHex);
-
-  return jsonOk({ ok: true, nonce, expiresIn: NONCE_TTL_SEC });
 }
 
-// ── Route: POST /update ───────────────────────────────────────────────────────
+// ── Route: POST /update (two-phase) ──────────────────────────────────────────
 /**
- * Replace the allowed_domains list for an existing clientId, after the caller
- * proves they own the registered npub by submitting a signed nonce event.
+ * Phase 1 — issue a challenge nonce:
+ *   Body: { clientId, npub }
+ *   Response: { ok, nonce, expiresIn, message }
  *
- * Body: {
- *   clientId:   string,
- *   domains:    string[],   // complete replacement list
- *   proofEvent: object,     // NIP-01 signed event; kind=27235; content=<nonce>
- * }
+ * Phase 2 — verify and update domains:
+ *   Body: { clientId, nonce, signedEvent, domains }
+ *   Response: { ok, event, domains, published, total }
  *
- * Proof event requirements:
+ * signedEvent requirements:
  *   - pubkey   === registrant npub (hex)
- *   - content  === the nonce returned by /challenge
- *   - kind     === 27235  (NIP-98 HTTP Auth kind)
- *   - created_at within ±5 minutes of server time
+ *   - content  === the nonce returned by Phase 1
+ *   - kind     === 27235  (NIP-98 HTTP Auth)
+ *   - created_at within ±5 minutes
  *   - valid Schnorr signature
  */
 async function handleUpdate(request, env) {
@@ -404,20 +364,53 @@ async function handleUpdate(request, env) {
     return jsonErr("Request body must be valid JSON");
   }
 
-  const { clientId, domains, proofEvent } = body;
+  const { clientId, npub, domains, nonce, signedEvent } = body;
 
-  if (
-    !clientId ||
-    !Array.isArray(domains) ||
-    !proofEvent ||
-    typeof proofEvent !== "object"
-  ) {
-    return jsonErr(
-      "clientId (string), domains (array), and proofEvent (object) are all required",
-    );
+  if (!clientId || typeof clientId !== "string") {
+    return jsonErr("clientId is required");
   }
 
-  // ── Validate domains list ───────────────────────────────────────────────────
+  const existing = await getClaim(env, clientId);
+  if (!existing) return jsonErr("clientId not found", 404);
+
+  // ── Phase 1: Issue challenge (no nonce / signedEvent provided) ──────────────
+  if (!nonce && !signedEvent) {
+    if (!npub) return jsonErr("npub is required to request a challenge");
+    const registrantHex = npubToHex(npub);
+    if (!registrantHex) return jsonErr("npub is invalid");
+    if (existing.registrantHex !== registrantHex) {
+      return jsonErr("npub does not own this clientId", 403);
+    }
+
+    const nonceBytes = new Uint8Array(32);
+    crypto.getRandomValues(nonceBytes);
+    const issuedNonce = Array.from(nonceBytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    await saveChallenge(env, clientId, issuedNonce, registrantHex);
+
+    return jsonOk({
+      ok: true,
+      nonce: issuedNonce,
+      expiresIn: NONCE_TTL_SEC,
+      message:
+        "Sign a Nostr event whose content is this nonce, then POST back to /update with nonce and signedEvent.",
+    });
+  }
+
+  // ── Phase 2: Verify challenge and update domains ─────────────────────────────
+  if (!nonce || !signedEvent) {
+    return jsonErr(
+      "Both nonce and signedEvent are required to complete the update. " +
+        "POST without them first to receive a challenge nonce.",
+    );
+  }
+  if (!Array.isArray(domains)) {
+    return jsonErr("domains array is required");
+  }
+
+  // Validate domains list
   if (domains.length > MAX_DOMAINS) {
     return jsonErr("Too many domains (max " + MAX_DOMAINS + ")");
   }
@@ -428,82 +421,61 @@ async function handleUpdate(request, env) {
       return jsonErr("Invalid domain in list: " + String(domain).slice(0, 100));
     normalizedDomains.push(n);
   }
-  // Deduplicate
   const uniqueDomains = [...new Set(normalizedDomains)];
 
-  // ── Fetch claim ─────────────────────────────────────────────────────────────
-  const existing = await getClaim(env, clientId);
-  if (!existing) return jsonErr("clientId not found", 404);
-
-  // ── Fetch nonce ─────────────────────────────────────────────────────────────
-  const nonceRecord = await getNonce(env, clientId);
-  if (!nonceRecord) {
+  // Fetch and validate challenge
+  const challengeRecord = await getChallenge(env, clientId);
+  if (!challengeRecord) {
     return jsonErr(
-      "No active challenge for this clientId. Call POST /challenge first.",
+      "No active challenge for this clientId. POST without nonce/signedEvent to request one.",
     );
   }
-  if (Date.now() > nonceRecord.expiresAt) {
-    await deleteNonce(env, clientId);
-    return jsonErr(
-      "Challenge nonce has expired. Call POST /challenge again.",
-      410,
-    );
+  if (Date.now() > challengeRecord.expiresAt) {
+    await deleteChallenge(env, clientId);
+    return jsonErr("Challenge has expired. Request a new one.", 410);
+  }
+  if (nonce !== challengeRecord.nonce) {
+    return jsonErr("nonce does not match the issued challenge");
   }
 
-  // ── Validate proof event structure ─────────────────────────────────────────
-  const { id, pubkey, sig, kind, content, created_at, tags } = proofEvent;
-  if (
-    !id ||
-    !pubkey ||
-    !sig ||
-    kind === undefined ||
-    content === undefined ||
-    !created_at
-  ) {
+  // Validate proof event structure
+  const { id, pubkey, sig, kind, content, created_at } = signedEvent;
+  if (!id || !pubkey || !sig || kind === undefined || content === undefined || !created_at) {
     return jsonErr(
-      "proofEvent is missing required NIP-01 fields (id, pubkey, sig, kind, content, created_at)",
+      "signedEvent is missing required NIP-01 fields (id, pubkey, sig, kind, content, created_at)",
     );
   }
-
-  // pubkey must match the registered owner
   if (pubkey !== existing.registrantHex) {
-    return jsonErr("proofEvent pubkey does not match the registered npub");
+    return jsonErr("signedEvent pubkey does not match the registered npub");
   }
-
-  // Kind must be 27235 (NIP-98 HTTP Auth)
   if (kind !== 27235) {
-    return jsonErr("proofEvent must be kind 27235");
+    return jsonErr("signedEvent must be kind 27235");
   }
-
-  // Timestamp within ±5 minutes
   const ageSec = Math.floor(Date.now() / 1000) - created_at;
   if (ageSec > NONCE_TTL_SEC || ageSec < -30) {
     return jsonErr(
-      "proofEvent created_at is outside the acceptable time window (±5 min)",
+      "signedEvent created_at is outside the acceptable time window (±5 min)",
     );
   }
-
-  // Content must equal the issued nonce exactly
-  if (content !== nonceRecord.nonce) {
-    return jsonErr("proofEvent content does not match the issued nonce");
+  if (content !== challengeRecord.nonce) {
+    return jsonErr("signedEvent content does not match the issued nonce");
   }
 
-  // Cryptographic signature verification
   let signatureValid = false;
   try {
-    signatureValid = verifyEvent(proofEvent);
+    signatureValid = verifyEvent(signedEvent);
   } catch (_) {
-    return jsonErr("proofEvent signature verification threw an error");
+    return jsonErr("signedEvent signature verification threw an error");
   }
   if (!signatureValid) {
-    return jsonErr("proofEvent Schnorr signature is invalid");
+    return jsonErr("signedEvent Schnorr signature is invalid");
   }
 
-  // ── Consume nonce (one-time use) ────────────────────────────────────────────
-  await deleteNonce(env, clientId);
+  // Consume nonce (one-time use)
+  await deleteChallenge(env, clientId);
 
-  // ── Publish updated NIP-33 event ────────────────────────────────────────────
-  const rootPrivkey = hexToBytes(env.ROOT_PRIVKEY_HEX);
+  // Publish updated NIP-33 event
+  const rootPrivkey = hexToBytes(env.ROOT_PRIVATE_KEY_HEX);
   const event = buildRegistryEvent(
     rootPrivkey,
     clientId,
@@ -511,7 +483,6 @@ async function handleUpdate(request, env) {
     uniqueDomains,
   );
   const broadcast = await broadcastEvent(env, event);
-
   await saveClaim(env, clientId, existing.registrantHex, uniqueDomains);
 
   return jsonOk({
@@ -524,6 +495,15 @@ async function handleUpdate(request, env) {
 
 // ── Main fetch handler ────────────────────────────────────────────────────────
 
+// ── Node.js / local-test compatibility ────────────────────────────────────────
+// In-memory KV shim — lets you run and unit-test the worker outside Cloudflare.
+class InMemoryKV {
+  constructor() { this._store = new Map(); }
+  get(key)        { return Promise.resolve(this._store.get(key) ?? null); }
+  put(key, value) { this._store.set(key, value); return Promise.resolve(); }
+  delete(key)     { this._store.delete(key);     return Promise.resolve(); }
+}
+
 export default {
   async fetch(request, env, _ctx) {
     // CORS preflight
@@ -533,16 +513,22 @@ export default {
       return jsonErr("Method not allowed — use POST", 405);
     }
 
-    // Validate that required secrets are configured
-    if (!env.ROOT_PRIVKEY_HEX) {
+    // Validate that required bindings/secrets are configured
+    if (!env.ROOT_PRIVATE_KEY_HEX) {
       return jsonErr(
-        "Worker misconfiguration: ROOT_PRIVKEY_HEX secret is not set",
+        "Worker misconfiguration: ROOT_PRIVATE_KEY_HEX secret is not set",
         500,
       );
     }
-    if (!env.KV_NAMESPACE) {
+    if (!env.REGISTRY_KV) {
       return jsonErr(
-        "Worker misconfiguration: KV_NAMESPACE binding is missing",
+        "Worker misconfiguration: REGISTRY_KV binding is missing",
+        500,
+      );
+    }
+    if (!env.CHALLENGES_KV) {
+      return jsonErr(
+        "Worker misconfiguration: CHALLENGES_KV binding is missing",
         500,
       );
     }
@@ -553,8 +539,6 @@ export default {
       switch (url.pathname) {
         case "/register":
           return await handleRegister(request, env);
-        case "/challenge":
-          return await handleChallenge(request, env);
         case "/update":
           return await handleUpdate(request, env);
         default:

@@ -129,6 +129,46 @@
     }
     .close-btn:hover { background: #f3f4f6; }
 
+    /* ── Modal identity row (avatar thumbnail + name + npub) ── */
+    .modal-identity-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      padding: 6px 0 10px;
+      border-bottom: 1px solid #f3f4f6;
+      margin-bottom: 4px;
+    }
+    .modal-identity-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #7c3aed;
+      flex-shrink: 0;
+    }
+    .modal-identity-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow: hidden;
+    }
+    .modal-identity-info strong {
+      font-size: 14px;
+      color: #111827;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .modal-identity-info small {
+      font-size: 10px;
+      color: #6b7280;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+
     .profile-avatar {
       width: 72px;
       height: 72px;
@@ -180,6 +220,19 @@
       cursor: pointer;
       font-family: "SFMono-Regular", Consolas, monospace;
     }
+    .nsec-input {
+      flex: 1;
+      font-size: 11px;
+      padding: 6px 8px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      outline: none;
+      color: #374151;
+      min-width: 0;
+    }
+    .nsec-input:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px #ede9fe; }
     .copy-btn {
       padding: 6px 10px;
       border: 1px solid #e5e7eb;
@@ -296,34 +349,12 @@
 
 <!-- ── Login Button View ── -->
 <div id="view-button" class="view">
-  <div id="login-standard" style="width:100%">
-    <button class="login-btn" id="btn-login-google">
-      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" />
-      Sign in with Google
-    </button>
-  </div>
-  <div id="login-grid" class="social-grid" style="display:none;">
-    <button class="social-btn" data-provider="google">
-      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" />
-      Google
-    </button>
-    <button class="social-btn" data-provider="apple">
-      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 814 1000'%3E%3Cpath d='M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-43.4-150.3-109.2c-52-77.1-95.1-198.4-95.1-313.6 0-197.8 129.1-302.2 256.1-302.2 66 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2z'/%3E%3C/svg%3E" alt="" />
-      Apple
-    </button>
-    <button class="social-btn" data-provider="twitter">
-      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z'/%3E%3C/svg%3E" alt="" />
-      Twitter/X
-    </button>
-    <button class="social-btn" data-provider="email_passwordless">
-      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z'/%3E%3C/svg%3E" alt="" />
-      Email
-    </button>
-  </div>
+  <div id="login-standard" style="width:100%;display:flex;flex-direction:column;gap:8px;"></div>
+  <div id="login-grid" class="social-grid" style="display:none;"></div>
 </div>
 
 <!-- ── Avatar View ── -->
-<div id="view-avatar" class="view">
+<div id="view-avatar" class="view" role="button" tabindex="0" aria-label="Open Nostr profile">
   <img id="avatar-img" src="" alt="Profile avatar" />
 </div>
 
@@ -333,6 +364,16 @@
     <h2>Nostr Profile</h2>
     <button class="close-btn" id="btn-close-modal" aria-label="Close">✕</button>
   </div>
+
+  <!-- Identity row: avatar thumbnail + display name + truncated npub -->
+  <div class="modal-identity-row">
+    <img id="modal-identity-img" class="modal-identity-avatar" src="" alt="" />
+    <div class="modal-identity-info">
+      <strong id="modal-display-name"></strong>
+      <small id="modal-npub-display"></small>
+    </div>
+  </div>
+
   <img class="profile-avatar" id="modal-avatar-img" src="" alt="" />
 
   <div class="field-group">
@@ -363,8 +404,10 @@
   <div class="field-group">
     <label>Secret Key (nsec) — keep private!</label>
     <div class="key-row">
-      <code id="display-nsec" title="Reveal to copy">••••••••••••••••••••</code>
-      <button class="copy-btn" id="btn-reveal-nsec">Reveal &amp; Copy</button>
+      <input id="nsec-input" type="password" readonly autocomplete="off"
+             class="nsec-input" aria-label="Secret key nsec" />
+      <button class="copy-btn" id="nsec-toggle-btn">Show</button>
+      <button class="copy-btn" id="btn-copy-nsec">Copy</button>
     </div>
   </div>
 
@@ -395,16 +438,27 @@
   Pin these CDN scripts with Subresource Integrity (SRI) hashes.
   Generate with: https://www.srihash.org/
   Example: integrity="sha384-<hash>" crossorigin="anonymous"
-
-  Web3Auth v9 No-Modal SDK
-  nostr-tools v2 browser bundle
 -->
-<script src="https://cdn.jsdelivr.net/npm/@web3auth/no-modal@9/dist/noModal.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@web3auth/openlogin-adapter@9/dist/openloginAdapter.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/nostr.bundle.js"></script>
+<script type="module">
+import {
+  SimplePool,
+  finalizeEvent,
+  getPublicKey,
+  nip04,
+  nip44,
+  nip19,
+} from "https://cdn.jsdelivr.net/npm/nostr-tools@2/+esm";
 
-<script>
-/* global Web3AuthNoModal, OpenloginAdapter, NostrTools */
+// Minimal hex ↔ bytes helpers (nostr-tools v2 re-exports may vary by CDN build)
+function hexToBytes(hex) {
+  const arr = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return arr;
+}
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 (async function () {
   "use strict";
 
@@ -413,52 +467,70 @@
   // ─────────────────────────────────────────────────────────────────────────────
 
   /** Hex public key of the server keypair that signs NIP-33 registry events */
-  var ROOT_PUBKEY_HEX = "__ROOT_PUBKEY_HEX__";
+  const ROOT_PUBKEY_HEX = "__ROOT_PUBKEY_HEX__";
 
-  /** Primary relay to query for the NIP-33 registry */
-  var REGISTRY_RELAY  = "wss://relay.damus.io";
+  /** Relays to query for the NIP-33 registry */
+  const REGISTRY_RELAYS = ["wss://relay.damus.io", "wss://relay.nostr.band"];
 
   /** Relays to publish signed profile updates to */
-  var PUBLISH_RELAYS  = [
+  const PUBLISH_RELAYS  = [
     "wss://relay.damus.io",
     "wss://relay.nostr.band",
     "wss://nos.lol",
   ];
 
-  var DEFAULT_AVATAR = "https://robohash.org/nostr?set=set4&size=48x48";
+  const DEFAULT_AVATAR = "https://robohash.org/nostr?set=set4&size=48x48";
 
   // ─────────────────────────────────────────────────────────────────────────────
   // URL params (set by nostr-bridge.js when it builds the iframe src)
   // ─────────────────────────────────────────────────────────────────────────────
-  var urlParams    = new URLSearchParams(location.search);
-  var clientId     = urlParams.get("clientId")     || "";
-  var layout       = urlParams.get("layout")       || "floating";
-  var buttonSize   = urlParams.get("buttonSize")   || "standard";
-  // parentOrigin is provided by nostr-bridge.js as window.location.origin
-  var parentOrigin = urlParams.get("parentOrigin") || "";
+  const urlParams  = new URLSearchParams(location.search);
+  const clientId   = urlParams.get("clientId")   || "";
+  const layout     = urlParams.get("layout")     || "floating";
+  const buttonSize = urlParams.get("buttonSize") || "standard";
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Secure parent-origin derivation
+  // ancestorOrigins is the authoritative source — it cannot be spoofed via URL params.
+  // ─────────────────────────────────────────────────────────────────────────────
+  let _parentOrigin = "";
+  try {
+    if (
+      typeof document.location.ancestorOrigins !== "undefined" &&
+      document.location.ancestorOrigins.length > 0
+    ) {
+      const ancestor = document.location.ancestorOrigins[0];
+      if (ancestor && ancestor !== "null") {
+        _parentOrigin = new URL(ancestor).origin;
+      }
+    }
+  } catch (_) {}
+  // Fallback for browsers without ancestorOrigins (e.g. Firefox in some contexts)
+  if (!_parentOrigin && document.referrer) {
+    try { _parentOrigin = new URL(document.referrer).origin; } catch (_) {}
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // State
   // ─────────────────────────────────────────────────────────────────────────────
-  var privateKeyBytes  = null; // Uint8Array — NEVER sent via postMessage
-  var publicKeyHex     = null;
-  var nsecStr          = null;
-  var npubStr          = null;
-  var web3auth         = null;
-  var userProfile      = {};
-  var nsecRevealed     = false;
+  let privateKeyBytes  = null; // Uint8Array — NEVER sent via postMessage
+  let publicKeyHex     = null;
+  let nsecStr          = null;
+  let npubStr          = null;
+  let web3auth         = null;
+  let userProfile      = {};
 
   /** Pending confirmation: { approve: Function, reject: Function } */
-  var pendingConfirmation = null;
+  let pendingConfirmation = null;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // DOM refs
   // ─────────────────────────────────────────────────────────────────────────────
-  var loadingOverlay  = document.getElementById("loading-overlay");
-  var errorBanner     = document.getElementById("error-banner");
-  var errorMsgEl      = document.getElementById("error-msg");
-  var errorDetailEl   = document.getElementById("error-detail");
-  var viewEls         = {
+  const loadingOverlay  = document.getElementById("loading-overlay");
+  const errorBanner     = document.getElementById("error-banner");
+  const errorMsgEl      = document.getElementById("error-msg");
+  const errorDetailEl   = document.getElementById("error-detail");
+  const viewEls         = {
     button:  document.getElementById("view-button"),
     avatar:  document.getElementById("view-avatar"),
     modal:   document.getElementById("view-modal"),
@@ -490,131 +562,94 @@
     postToParent({ type: "RESIZE", state: resizeState });
   }
 
-  // Safely post to parent — never posts to a null or mismatched origin
+  // Safely post to parent — uses the securely-derived _parentOrigin
   function postToParent(msg) {
-    if (!parentOrigin || parentOrigin === "null") return;
+    if (!_parentOrigin || _parentOrigin === "null") return;
     try {
-      window.parent.postMessage(msg, parentOrigin);
+      window.parent.postMessage(msg, _parentOrigin);
     } catch (_) { /* cross-origin write blocked — ignore */ }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Ancestor origin validation
-  // Ensures this page is actually embedded in the declared parentOrigin
-  // and not opened standalone or in an unexpected parent.
+  // Verifies this page is actually embedded in an iframe (not opened standalone).
+  // The _parentOrigin is derived from ancestorOrigins above, so it is already
+  // authoritative — we just confirm we are inside an iframe here.
   // ─────────────────────────────────────────────────────────────────────────────
   function validateAncestorOrigin() {
-    if (!parentOrigin || parentOrigin === "null") return false;
+    // Must be in an iframe to have a parent origin
+    if (!_parentOrigin) return false;
 
-    // document.ancestorOrigins is a live list of ancestor frame origins
-    if (typeof document.ancestorOrigins !== "undefined") {
-      var ancestors = document.ancestorOrigins;
+    if (typeof document.location.ancestorOrigins !== "undefined") {
+      const ancestors = document.location.ancestorOrigins;
       if (ancestors.length === 0) return false; // standalone — not in an iframe
       if (ancestors[0] === "null") return false; // sandboxed without allow-same-origin
-      if (ancestors[0] !== parentOrigin) return false;
     }
-    // In browsers that don't expose ancestorOrigins we allow through but rely on
-    // the origin-based message filtering below.
     return true;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // NIP-33 Registry check (with session cache)
+  // NIP-33 Registry check (sessionStorage cache + SimplePool)
   // Queries ROOT_PUBKEY's kind:30078 events with d-tag == clientId
-  // and checks that parentOrigin is in the allowed_domains list.
+  // and checks that _parentOrigin is in the allowed_domains list.
   // ─────────────────────────────────────────────────────────────────────────────
-  var _registryCache = null; // session cache
-
-  function queryRegistryRelay(relay, cId) {
-    return new Promise(function (resolve) {
-      var resolved = false;
-      var ws;
-      var timer = setTimeout(function () {
-        if (!resolved) { resolved = true; if (ws) ws.close(); resolve(null); }
-      }, 8000);
-
-      try { ws = new WebSocket(relay); } catch (_) { resolve(null); return; }
-
-      var subId  = "reg_" + Math.random().toString(36).slice(2);
-      var filter = { authors: [ROOT_PUBKEY_HEX], kinds: [30078], "#d": [cId], limit: 1 };
-
-      ws.onopen    = function () { ws.send(JSON.stringify(["REQ", subId, filter])); };
-      ws.onerror   = function () { if (!resolved) { resolved = true; clearTimeout(timer); resolve(null); } };
-      ws.onmessage = function (e) {
-        var msg;
-        try { msg = JSON.parse(e.data); } catch { return; }
-        if (!Array.isArray(msg)) return;
-
-        if (msg[0] === "EVENT" && msg[1] === subId) {
-          var evt = msg[2];
-          // Only trust events actually signed by the root key
-          if (evt.pubkey !== ROOT_PUBKEY_HEX) return;
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timer);
-            ws.close();
-            try { resolve(JSON.parse(evt.content)); }
-            catch (_) { resolve(null); }
-          }
-        }
-        if (msg[0] === "EOSE" && msg[1] === subId) {
-          if (!resolved) { resolved = true; clearTimeout(timer); ws.close(); resolve(null); }
-        }
-      };
-    });
-  }
 
   async function isAuthorized(cId, origin) {
-    if (_registryCache !== null) {
-      return checkDomain(_registryCache, origin);
+    const cacheKey = "__nbr_" + cId;
+    const cached   = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try { return checkDomain(JSON.parse(cached), origin); } catch (_) {}
     }
-    var content = await queryRegistryRelay(REGISTRY_RELAY, cId);
+
+    const pool   = new SimplePool();
+    let content  = null;
+    try {
+      const events = await pool.querySync(
+        REGISTRY_RELAYS,
+        { authors: [ROOT_PUBKEY_HEX], kinds: [30078], "#d": [cId], limit: 1 },
+        { maxWait: 8000 },
+      );
+      if (events.length > 0 && events[0].pubkey === ROOT_PUBKEY_HEX) {
+        content = JSON.parse(events[0].content);
+      }
+    } catch (_) {
+    } finally {
+      pool.close(REGISTRY_RELAYS);
+    }
+
     if (!content) return false;
-    _registryCache = content;
+    sessionStorage.setItem(cacheKey, JSON.stringify(content));
     return checkDomain(content, origin);
   }
 
   function checkDomain(content, origin) {
-    var allowed = content.allowed_domains;
+    const allowed = content.allowed_domains;
     if (!Array.isArray(allowed)) return false;
-    var norm = function (d) {
+    const norm = (d) => {
       try { return new URL(d.startsWith("http") ? d : "https://" + d).origin.toLowerCase(); }
       catch (_) { return d.toLowerCase(); }
     };
-    var target = norm(origin);
-    return allowed.some(function (d) { return norm(d) === target; });
+    const target = norm(origin);
+    return allowed.some((d) => norm(d) === target);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Web3Auth initialization & login
+  // Web3Auth initialization (lazy-loaded @web3auth/modal@9)
   // ─────────────────────────────────────────────────────────────────────────────
   async function initWeb3Auth() {
-    // Web3Auth UMD globals vary by SDK version — adjust as needed
-    var W3A       = window.Web3AuthNoModal   || window["@web3auth/no-modal"];
-    var OLA       = window.OpenloginAdapter  || window["@web3auth/openlogin-adapter"];
+    // Lazy-import: only loaded after the registry check passes to save bandwidth
+    const { Web3Auth } = await import("https://cdn.jsdelivr.net/npm/@web3auth/modal@9/+esm");
 
-    var web3authInstance = new W3A.Web3AuthNoModal({
-      clientId:       clientId,
-      chainConfig:    { chainNamespace: "other" },
+    const instance = new Web3Auth({
+      clientId:        clientId,
+      chainConfig:     { chainNamespace: "other" },
       web3AuthNetwork: "sapphire_mainnet",
-    });
-
-    var openloginAdapter = new OLA.OpenloginAdapter({
-      adapterSettings: {
-        uxMode: "popup",
-        // Configure verifiers to match your Web3Auth dashboard setup
-        loginConfig: {
-          google: {
-            verifier:    "nostr-google", // replace with your verifier name
-            typeOfLogin: "google",
-            clientId:    "",             // your Google OAuth client ID
-          },
-        },
+      uiConfig: {
+        loginMethodsOrder: ["google", "apple", "twitter", "email_passwordless"],
       },
     });
-    web3authInstance.configureAdapter(openloginAdapter);
-    await web3authInstance.init();
-    return web3authInstance;
+    await instance.initModal();
+    return instance;
   }
 
   async function loginWith(provider) {
@@ -625,35 +660,35 @@
   async function extractAndStoreKey() {
     if (!web3auth || !web3auth.provider) throw new Error("No provider after login");
 
-    var rawKey = await web3auth.provider.request({ method: "private_key" });
+    const rawKey = await web3auth.provider.request({ method: "private_key" });
     if (!rawKey || typeof rawKey !== "string") throw new Error("Empty private key");
     if (!/^[0-9a-f]{64}$/i.test(rawKey)) throw new Error("Invalid private key format");
 
-    var NT = window.NostrTools;
     // Store as bytes — avoids keeping a hex string in memory longer than necessary
-    privateKeyBytes = NT.hexToBytes(rawKey.toLowerCase());
-    publicKeyHex    = NT.getPublicKey(privateKeyBytes);
-    nsecStr         = NT.nip19.nsecEncode(privateKeyBytes);
-    npubStr         = NT.nip19.npubEncode(publicKeyHex);
+    privateKeyBytes = hexToBytes(rawKey.toLowerCase());
+    publicKeyHex    = getPublicKey(privateKeyBytes);
+    nsecStr         = nip19.nsecEncode(privateKeyBytes);
+    npubStr         = nip19.npubEncode(publicKeyHex);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Auto-approve policy
-  //   Approved automatically: Kind 1 (notes), Kind 7 (reactions)
-  //   Requires confirmation: everything else + all decrypt operations
+  //   Approved automatically: Kind 1 (notes), Kind 7 (reactions), nip44_encrypt
+  //   Requires confirmation: everything else, including nip04_encrypt (DM consent)
   // ─────────────────────────────────────────────────────────────────────────────
-  var AUTO_APPROVE_KINDS = new Set([1, 7]);
+  const AUTO_APPROVE_KINDS = new Set([1, 7]);
 
   function requiresConfirmation(method, params) {
     if (method === "nip04_decrypt" || method === "nip44_decrypt") return true;
+    if (method === "nip04_encrypt") return true;  // DM encryption warrants explicit consent
     if (method === "sign_event") {
       try {
-        var evt = JSON.parse(params[0]);
+        const evt = JSON.parse(params[0]);
         return !AUTO_APPROVE_KINDS.has(evt.kind);
       } catch (_) { return true; }
     }
-    // Encrypt operations: auto-approve (plaintext already known to the parent)
-    if (method === "nip04_encrypt" || method === "nip44_encrypt") return false;
+    // nip44_encrypt: auto-approve (plaintext already known to the parent)
+    if (method === "nip44_encrypt") return false;
     return true; // unknown method — prompt
   }
 
@@ -661,34 +696,32 @@
   // Cryptographic operations (all operate on the in-memory privateKeyBytes)
   // ─────────────────────────────────────────────────────────────────────────────
   async function processRpc(method, params) {
-    var NT = window.NostrTools;
-
     if (method === "get_public_key") {
       return publicKeyHex;
     }
 
     if (method === "sign_event") {
-      var unsignedEvent = JSON.parse(params[0]);
-      var signedEvent   = NT.finalizeEvent(unsignedEvent, privateKeyBytes);
+      const unsignedEvent = JSON.parse(params[0]);
+      const signedEvent   = finalizeEvent(unsignedEvent, privateKeyBytes);
       return JSON.stringify(signedEvent);
     }
 
     if (method === "nip04_encrypt") {
-      return await NT.nip04.encrypt(NT.bytesToHex(privateKeyBytes), params[0], params[1]);
+      return await nip04.encrypt(bytesToHex(privateKeyBytes), params[0], params[1]);
     }
 
     if (method === "nip04_decrypt") {
-      return await NT.nip04.decrypt(NT.bytesToHex(privateKeyBytes), params[0], params[1]);
+      return await nip04.decrypt(bytesToHex(privateKeyBytes), params[0], params[1]);
     }
 
     if (method === "nip44_encrypt") {
-      var ck44e = NT.nip44.v2.utils.getConversationKey(privateKeyBytes, params[0]);
-      return NT.nip44.v2.encrypt(params[1], ck44e);
+      const ck = nip44.v2.utils.getConversationKey(privateKeyBytes, params[0]);
+      return nip44.v2.encrypt(params[1], ck);
     }
 
     if (method === "nip44_decrypt") {
-      var ck44d = NT.nip44.v2.utils.getConversationKey(privateKeyBytes, params[0]);
-      return NT.nip44.v2.decrypt(params[1], ck44d);
+      const ck = nip44.v2.utils.getConversationKey(privateKeyBytes, params[0]);
+      return nip44.v2.decrypt(params[1], ck);
     }
 
     throw new Error("Unknown method: " + method);
@@ -697,11 +730,11 @@
   // ─────────────────────────────────────────────────────────────────────────────
   // Confirmation UI
   // ─────────────────────────────────────────────────────────────────────────────
-  var CONFIRM_TITLES = {
+  const CONFIRM_TITLES = {
+    nip04_encrypt:  "Allow app to encrypt a direct message?",
     nip04_decrypt:  "Allow app to decrypt a direct message?",
-    nip44_decrypt:  "Allow app to decrypt a sealed message?",
-    nip04_encrypt:  "Allow app to encrypt a message?",
     nip44_encrypt:  "Allow app to encrypt a sealed message?",
+    nip44_decrypt:  "Allow app to decrypt a sealed message?",
     sign_event:     "Approve event signature?",
   };
 
@@ -751,8 +784,8 @@
     // 1. Reject null origins unconditionally
     if (!event.origin || event.origin === "null") return;
 
-    // 2. Only accept messages from the declared parent origin
-    if (event.origin !== parentOrigin) return;
+    // 2. Only accept messages from the authoritative parent origin
+    if (event.origin !== _parentOrigin) return;
 
     // 3. Only accept from window.parent (not from nested frames or popups)
     if (event.source !== window.parent) return;
@@ -791,25 +824,37 @@
   // Profile UI helpers
   // ─────────────────────────────────────────────────────────────────────────────
   function refreshAvatarUI() {
-    var pic = userProfile.picture || DEFAULT_AVATAR;
-    document.getElementById("avatar-img").src       = pic;
-    document.getElementById("modal-avatar-img").src = pic;
+    const pic = userProfile.picture || DEFAULT_AVATAR;
+    document.getElementById("avatar-img").src           = pic;
+    document.getElementById("modal-avatar-img").src     = pic;
+    document.getElementById("modal-identity-img").src   = pic;
+    document.getElementById("modal-display-name").textContent = userProfile.name || npubStr || "";
+    document.getElementById("modal-npub-display").textContent = npubStr || "";
     document.getElementById("display-npub").textContent = npubStr || "";
   }
 
-  // Avatar click → open modal
-  document.getElementById("view-avatar").addEventListener("click", function () {
+  // Avatar click/keyboard → open modal
+  function openModal() {
     document.getElementById("field-name").value    = userProfile.name    || "";
     document.getElementById("field-picture").value = userProfile.picture || "";
     document.getElementById("field-about").value   = userProfile.about   || "";
     document.getElementById("field-lud16").value   = userProfile.lud16   || "";
-    // Reset nsec display
-    document.getElementById("display-nsec").textContent = "••••••••••••••••••••";
-    document.getElementById("btn-reveal-nsec").textContent = "Reveal & Copy";
-    nsecRevealed = false;
+    // Populate nsec password input and reset toggle
+    const nsecInput  = document.getElementById("nsec-input");
+    const nsecToggle = document.getElementById("nsec-toggle-btn");
+    nsecInput.value     = nsecStr || "";
+    nsecInput.type      = "password";
+    nsecToggle.textContent = "Show";
     document.getElementById("save-status").textContent = "";
     document.getElementById("save-status").className   = "status-msg";
     showView("modal");
+  }
+
+  document.getElementById("view-avatar").addEventListener("click", openModal);
+
+  // Keyboard accessibility for avatar (Enter / Space)
+  document.getElementById("view-avatar").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openModal(); }
   });
 
   document.getElementById("btn-close-modal").addEventListener("click", function () {
@@ -825,58 +870,67 @@
     }).catch(function () {});
   });
 
-  // Reveal / copy nsec (two-step: reveal first, then copy)
-  document.getElementById("btn-reveal-nsec").addEventListener("click", function () {
-    var btn = document.getElementById("btn-reveal-nsec");
-    var codeEl = document.getElementById("display-nsec");
-    if (!nsecRevealed) {
-      codeEl.textContent = nsecStr || "";
-      btn.textContent    = "Copy";
-      nsecRevealed       = true;
+  // nsec toggle: Show / Hide
+  document.getElementById("nsec-toggle-btn").addEventListener("click", function () {
+    const input = document.getElementById("nsec-input");
+    const btn   = document.getElementById("nsec-toggle-btn");
+    if (input.type === "password") {
+      input.type      = "text";
+      btn.textContent = "Hide";
+      // Auto-re-hide after 10 s for safety
+      setTimeout(function () {
+        if (input.type === "text") { input.type = "password"; btn.textContent = "Show"; }
+      }, 10000);
     } else {
-      navigator.clipboard.writeText(nsecStr || "").then(function () {
-        btn.textContent = "Copied!";
-        setTimeout(function () {
-          // Re-hide after 5s for safety
-          codeEl.textContent = "••••••••••••••••••••";
-          btn.textContent    = "Reveal & Copy";
-          nsecRevealed       = false;
-        }, 5000);
-      }).catch(function () {});
+      input.type      = "password";
+      btn.textContent = "Show";
     }
+  });
+
+  // nsec copy
+  document.getElementById("btn-copy-nsec").addEventListener("click", function () {
+    const btn = document.getElementById("btn-copy-nsec");
+    navigator.clipboard.writeText(nsecStr || "").then(function () {
+      btn.textContent = "Copied!";
+      setTimeout(function () { btn.textContent = "Copy"; }, 2000);
+    }).catch(function () {});
   });
 
   // Save profile
   document.getElementById("btn-save-profile").addEventListener("click", async function () {
+    const btn = document.getElementById("btn-save-profile");
+    btn.disabled    = true;
+    btn.textContent = "Saving…";
+
     userProfile.name    = document.getElementById("field-name").value.trim();
     userProfile.picture = document.getElementById("field-picture").value.trim();
     userProfile.about   = document.getElementById("field-about").value.trim();
     userProfile.lud16   = document.getElementById("field-lud16").value.trim();
 
-    var statusEl = document.getElementById("save-status");
-    statusEl.textContent = "Publishing…";
+    const statusEl = document.getElementById("save-status");
+    statusEl.textContent = "";
     statusEl.className   = "status-msg";
 
-    var NT = window.NostrTools;
-    var metadataEvent = NT.finalizeEvent({
+    const metadataEvent = finalizeEvent({
       kind:       0,
       created_at: Math.floor(Date.now() / 1000),
       tags:       [],
       content:    JSON.stringify(userProfile),
     }, privateKeyBytes);
 
-    var results = await Promise.allSettled(
-      PUBLISH_RELAYS.map(function (r) { return publishToRelay(r, metadataEvent); })
-    );
-    var ok = results.filter(function (r) { return r.status === "fulfilled"; }).length;
-
-    if (ok > 0) {
-      statusEl.textContent = "Profile saved to " + ok + "/" + PUBLISH_RELAYS.length + " relays.";
+    try {
+      await Promise.any(PUBLISH_RELAYS.map(function (r) { return publishToRelay(r, metadataEvent); }));
+      statusEl.textContent = "Profile saved!";
       statusEl.className   = "status-msg success";
       refreshAvatarUI();
-    } else {
+      btn.disabled    = false;
+      btn.textContent = "Saved!";
+      setTimeout(function () { btn.textContent = "Save Profile"; }, 2000);
+    } catch (_) {
       statusEl.textContent = "Failed to publish. Check your connection.";
       statusEl.className   = "status-msg error";
+      btn.disabled    = false;
+      btn.textContent = "Save Profile";
     }
     setTimeout(function () {
       statusEl.textContent = "";
@@ -884,14 +938,93 @@
     }, 4000);
   });
 
+  // Fetch NIP-01 profile metadata via SimplePool (best-effort)
+  async function fetchProfile(pubkeyHex) {
+    const pool = new SimplePool();
+    let events = [];
+    try {
+      events = await pool.querySync(
+        PUBLISH_RELAYS,
+        { authors: [pubkeyHex], kinds: [0], limit: 1 },
+        { maxWait: 5000 },
+      );
+    } catch (_) {
+    } finally {
+      pool.close(PUBLISH_RELAYS);
+    }
+    if (!events.length) return null;
+    try { return JSON.parse(events[0].content); } catch (_) { return null; }
+  }
+
+  // ── Social login button system ────────────────────────────────────────────────
+  const SOCIAL_PROVIDERS = [
+    {
+      id: "google",
+      label: "Sign in with Google",
+      gridLabel: "Google",
+      iconHtml: `<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style="width:20px;height:20px;flex-shrink:0" />`,
+    },
+    {
+      id: "apple",
+      label: "Sign in with Apple",
+      gridLabel: "Apple",
+      iconHtml: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 814 1000" style="width:18px;height:18px;flex-shrink:0"><path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-43.4-150.3-109.2c-52-77.1-95.1-198.4-95.1-313.6 0-197.8 129.1-302.2 256.1-302.2 66 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2z"/></svg>`,
+    },
+    {
+      id: "twitter",
+      label: "Sign in with Twitter/X",
+      gridLabel: "Twitter/X",
+      iconHtml: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="width:18px;height:18px;flex-shrink:0"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>`,
+    },
+    {
+      id: "email_passwordless",
+      label: "Sign in with Email",
+      gridLabel: "Email",
+      iconHtml: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="width:18px;height:18px;flex-shrink:0"><path fill="#6b7280" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg>`,
+    },
+  ];
+
+  function makeSocialBtn(provider, className, label) {
+    const btn     = document.createElement("button");
+    btn.className = className;
+    btn.dataset.provider = provider.id;
+    btn.innerHTML = provider.iconHtml + " " + label;
+    btn.addEventListener("click", function () { handleLogin(provider.id); });
+    return btn;
+  }
+
+  function renderSocialButtons(bSize) {
+    const standardEl = document.getElementById("login-standard");
+    const gridEl     = document.getElementById("login-grid");
+    standardEl.innerHTML = "";
+    gridEl.innerHTML     = "";
+
+    if (bSize === "large_social_grid") {
+      standardEl.style.display = "none";
+      gridEl.style.display     = "grid";
+      for (const p of SOCIAL_PROVIDERS) {
+        gridEl.appendChild(makeSocialBtn(p, "social-btn", p.gridLabel));
+      }
+    } else {
+      // Standard: Google + Email only (most common flows)
+      standardEl.style.display = "flex";
+      gridEl.style.display     = "none";
+      const subset = SOCIAL_PROVIDERS.filter(p => p.id === "google" || p.id === "email_passwordless");
+      for (const p of subset) {
+        standardEl.appendChild(makeSocialBtn(p, "login-btn", p.label));
+      }
+    }
+  }
+
+  // ── Relay publish helper (single relay) ──────────────────────────────────────
   function publishToRelay(relayUrl, event) {
     return new Promise(function (resolve, reject) {
-      var ws;
-      var timer = setTimeout(function () { if (ws) ws.close(); reject(new Error("Timeout")); }, 8000);
+      let ws;
+      const timer = setTimeout(function () { if (ws) ws.close(); reject(new Error("Timeout")); }, 8000);
       try { ws = new WebSocket(relayUrl); } catch (e) { reject(e); return; }
       ws.onopen    = function () { ws.send(JSON.stringify(["EVENT", event])); };
       ws.onmessage = function (e) {
-        var msg; try { msg = JSON.parse(e.data); } catch { return; }
+        let msg; try { msg = JSON.parse(e.data); } catch { return; }
         if (Array.isArray(msg) && msg[0] === "OK") {
           clearTimeout(timer); ws.close();
           msg[2] !== false ? resolve() : reject(new Error(msg[3] || "Rejected"));
@@ -901,68 +1034,30 @@
     });
   }
 
-  // Logout
-  document.getElementById("btn-logout").addEventListener("click", async function () {
-    try { if (web3auth) await web3auth.logout(); } catch (_) {}
-    // Scrub key material from memory
-    if (privateKeyBytes) privateKeyBytes.fill(0);
-    privateKeyBytes = null; publicKeyHex = null; nsecStr = null; npubStr = null;
-    userProfile = {}; nsecRevealed = false;
-    showView("button");
-    postToParent({ type: "AUTH_STATE", loggedIn: false, pubkey: null });
-  });
-
-  // Login button handlers
+  // ── Login / Logout ────────────────────────────────────────────────────────────
   async function handleLogin(provider) {
     try {
       await loginWith(provider);
-      // Fetch profile metadata from relays (best-effort)
       userProfile = await fetchProfile(publicKeyHex) || {};
       refreshAvatarUI();
       showView("avatar");
-      // AUTH_SUCCESS: user actively completed an OAuth flow
       postToParent({ type: "AUTH_SUCCESS", pubkey: publicKeyHex });
     } catch (err) {
       console.error("Login failed:", err);
-      // Surface error briefly in the button area instead of crashing the whole iframe
-      var statusEl = document.getElementById("save-status");
+      const statusEl = document.getElementById("save-status");
       if (statusEl) { statusEl.textContent = "Login failed: " + (err.message || err); }
     }
   }
 
-  document.getElementById("btn-login-google").addEventListener("click", function () {
-    handleLogin("google");
+  document.getElementById("btn-logout").addEventListener("click", async function () {
+    try { if (web3auth) await web3auth.logout(); } catch (_) {}
+    if (privateKeyBytes) privateKeyBytes.fill(0);
+    privateKeyBytes = null; publicKeyHex = null; nsecStr = null; npubStr = null;
+    userProfile = {};
+    showView("button");
+    renderSocialButtons(buttonSize);
+    postToParent({ type: "AUTH_STATE", loggedIn: false, pubkey: null });
   });
-  document.querySelectorAll(".social-btn[data-provider]").forEach(function (btn) {
-    btn.addEventListener("click", function () { handleLogin(btn.dataset.provider); });
-  });
-
-  // Fetch NIP-01 profile metadata from relays (best-effort, for auto-populating the form)
-  function fetchProfile(pubkeyHex) {
-    return new Promise(function (resolve) {
-      var resolved = false;
-      var ws;
-      var timer = setTimeout(function () { if (ws) ws.close(); if (!resolved) { resolved = true; resolve(null); } }, 5000);
-      var subId = "prof_" + Math.random().toString(36).slice(2);
-      try { ws = new WebSocket(REGISTRY_RELAY); } catch (_) { resolve(null); return; }
-      ws.onopen = function () {
-        ws.send(JSON.stringify(["REQ", subId, { authors: [pubkeyHex], kinds: [0], limit: 1 }]));
-      };
-      ws.onmessage = function (e) {
-        var msg; try { msg = JSON.parse(e.data); } catch { return; }
-        if (Array.isArray(msg) && msg[0] === "EVENT" && msg[1] === subId && msg[2].kind === 0) {
-          if (!resolved) {
-            resolved = true; clearTimeout(timer); ws.close();
-            try { resolve(JSON.parse(msg[2].content)); } catch { resolve(null); }
-          }
-        }
-        if (Array.isArray(msg) && msg[0] === "EOSE") {
-          if (!resolved) { resolved = true; clearTimeout(timer); ws.close(); resolve(null); }
-        }
-      };
-      ws.onerror = function () { if (!resolved) { resolved = true; clearTimeout(timer); resolve(null); } };
-    });
-  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Bootstrap
@@ -983,23 +1078,20 @@
       return;
     }
 
-    // 3. Apply button-size variant
-    if (buttonSize === "large_social_grid") {
-      document.getElementById("login-standard").style.display = "none";
-      document.getElementById("login-grid").style.display     = "grid";
-    }
+    // 3. Render social buttons for the configured layout
+    renderSocialButtons(buttonSize);
 
-    // 4. Validate domain against NIP-33 registry
-    var authorized = await isAuthorized(clientId, parentOrigin);
+    // 4. Validate domain against NIP-33 registry (uses _parentOrigin, not URL param)
+    const authorized = await isAuthorized(clientId, _parentOrigin);
     if (!authorized) {
       showError(
         "Domain not authorized for this Client ID.",
-        parentOrigin + " is not registered for clientId: " + clientId
+        _parentOrigin + " is not registered for clientId: " + clientId
       );
       return;
     }
 
-    // 5. Initialize Web3Auth
+    // 5. Initialize Web3Auth (lazy-loaded)
     try {
       web3auth = await initWeb3Auth();
     } catch (err) {
@@ -1015,7 +1107,6 @@
         refreshAvatarUI();
         hideLoading();
         showView("avatar");
-        // AUTH_STATE (passive, on load): inform parent the session is already active
         postToParent({ type: "AUTH_STATE", loggedIn: true, pubkey: publicKeyHex });
         return;
       } catch (_) { /* fall through to login screen */ }
@@ -1024,7 +1115,6 @@
     // 7. No active session — show login button
     hideLoading();
     showView("button");
-    // AUTH_STATE (passive, on load): inform parent no session is active
     postToParent({ type: "AUTH_STATE", loggedIn: false, pubkey: null });
   }
 

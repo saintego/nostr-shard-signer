@@ -9,7 +9,7 @@ A cross-origin iframe authentication system for Nostr. Bridges a Web3Auth MPC OA
 | Parent page JS reading your nsec | Key lives only in a cross-origin iframe; Same-Origin Policy makes it unreachable |
 | Browser extension / XSS on parent page | Same isolation — the iframe context is physically separate |
 | Domain spoofing to steal Web3Auth quota | NIP-33 registry on Nostr validates every (clientId, domain) pair before the iframe renders |
-| Rogue iframe injected by attacker | `event.source === window.parent` check + pinned `parentOrigin` from URL params + `document.ancestorOrigins` validation |
+| Rogue iframe injected by attacker | `event.source === window.parent` check + `_parentOrigin` derived from `document.ancestorOrigins` (not URL params) |
 | null-origin postMessage attacks | All `window.addEventListener("message")` handlers reject `event.origin === "null"` unconditionally |
 
 > **For users who require zero client-side key reconstruction**, use [nsec.app](https://nsec.app) or a self-hosted NIP-46 bunker instead.
@@ -40,9 +40,10 @@ A cross-origin iframe authentication system for Nostr. Bridges a Web3Auth MPC OA
                         ↑
 ┌─────────────────────────────────────────────┐
 │  registrar-worker.js  (Cloudflare Worker)   │
-│  POST /register  POST /challenge  POST /update│
-│  KV: claim:{clientId} → { npub, domains }   │
-│  Publishes kind:30078 events to Nostr relays │
+│  POST /register  POST /update (two-phase)   │
+│  REGISTRY_KV: claim:{clientId}              │
+│  CHALLENGES_KV: challenge nonces (TTL 5m)   │
+│  Publishes kind:30078 events to Nostr relays│
 └─────────────────────────────────────────────┘
 ```
 
@@ -85,24 +86,26 @@ const {generateSecretKey, getPublicKey} = require('nostr-tools');
 const sk = generateSecretKey();
 const pk = getPublicKey(sk);
 const skHex = Buffer.from(sk).toString('hex');
-console.log('ROOT_PRIVKEY_HEX =', skHex);
-console.log('ROOT_PUBKEY_HEX  =', pk);
+console.log('ROOT_PRIVATE_KEY_HEX =', skHex);
+console.log('ROOT_PUBKEY_HEX      =', pk);
 "
 ```
 
 ### 2. Configure `signer.html`
 
-Replace the placeholder in `bunker/signer.html`:
+Replace the placeholder constant in `bunker/signer.html`:
 
 ```js
-var ROOT_PUBKEY_HEX = "__ROOT_PUBKEY_HEX__";
+const ROOT_PUBKEY_HEX = "__ROOT_PUBKEY_HEX__";
 // → your actual hex public key, e.g.:
-var ROOT_PUBKEY_HEX = "a3b2...";
+const ROOT_PUBKEY_HEX = "a3b2...";
 ```
 
 Optionally adjust:
-- `REGISTRY_RELAY` — relay that hosts your NIP-33 events
+- `REGISTRY_RELAYS` — array of relays that host your NIP-33 events
 - `PUBLISH_RELAYS` — relays to broadcast profile updates to
+
+`signer.html` uses ESM (`<script type="module">`) with nostr-tools v2 and Web3Auth modal@9 loaded from CDN — no bundler needed.
 
 ### 3. Deploy the bunker (signer.html)
 
@@ -120,7 +123,7 @@ git subtree push --prefix bunker origin gh-pages
 cd bunker && vercel --prod
 ```
 
-Update `DEFAULT_BUNKER_ORIGIN` in `nostr-bridge.js` to match the deployed URL.
+Note the deployed URL — it must be passed as `bunkerOrigin` when calling `NostrBridge.init()` (required, no default).
 
 ### 4. Deploy the Cloudflare Worker
 
@@ -130,13 +133,15 @@ cd registrar
 # Install dependencies
 npm install
 
-# Create the KV namespace
-wrangler kv:namespace create "REGISTRY"
-# → Copy the returned id into wrangler.toml
+# Create both KV namespaces
+wrangler kv:namespace create "REGISTRY_KV"
+# → Copy the returned id into wrangler.toml [[kv_namespaces]] binding = "REGISTRY_KV"
+wrangler kv:namespace create "CHALLENGES_KV"
+# → Copy the returned id into wrangler.toml [[kv_namespaces]] binding = "CHALLENGES_KV"
 
 # Store the private key as a secret (never commit it)
-wrangler secret put ROOT_PRIVKEY_HEX
-# → Paste ROOT_PRIVKEY_HEX when prompted
+wrangler secret put ROOT_PRIVATE_KEY_HEX
+# → Paste the hex private key when prompted
 
 # Deploy
 npm run deploy
@@ -163,13 +168,15 @@ A successful response returns the Nostr event ID of the published NIP-33 record:
 
 ### 6. Integrate `nostr-bridge.js` into your app
 
+`bunkerOrigin` is **required** — NostrBridge throws if it is omitted.
+
 ```html
 <!-- In your parent app's <head> -->
 <script src="https://cdn.yourdomain.com/nostr-bridge.js"></script>
 <script>
   NostrBridge.init({
     clientId:    "YOUR_WEB3AUTH_CLIENT_ID",
-    bunkerOrigin:"https://bunker.yourdomain.com",
+    bunkerOrigin:"https://bunker.yourdomain.com",  // required
     layout:      "floating",   // or "in-place"
     buttonSize:  "standard",   // or "large_social_grid"
     forceIframe: false,        // true = skip native extension check
@@ -189,26 +196,29 @@ const signed = await window.nostr.signEvent({ kind: 1, content: "Hello Nostr!", 
 
 ## Updating Allowed Domains
 
-To add or remove domains from a registered clientId, use the two-step ownership proof flow:
+To add or remove domains from a registered clientId, use the two-phase `/update` flow:
 
 ```bash
-# Step 1: get a nonce
-NONCE=$(curl -s -X POST https://<worker>/challenge \
+# Phase 1: request a nonce (no nonce/signedEvent body → returns challenge)
+NONCE=$(curl -s -X POST https://<worker>/update \
   -H "Content-Type: application/json" \
   -d '{"clientId":"YOUR_CLIENT_ID","npub":"npub1..."}' | jq -r .nonce)
 
-# Step 2: sign the nonce with your Nostr key (using nak or any NIP-01 signer)
-PROOF=$(nak event --kind 27235 --content "$NONCE" --sec <your_nsec>)
+# Phase 2: sign the nonce with your Nostr key (using nak or any NIP-01 signer)
+SIGNED=$(nak event --kind 27235 --content "$NONCE" --sec <your_nsec>)
 
-# Step 3: submit the update
+# Submit the update with the signed event
 curl -X POST https://<worker>/update \
   -H "Content-Type: application/json" \
   -d "{
-    \"clientId\":   \"YOUR_CLIENT_ID\",
-    \"domains\":    [\"https://yourapp.com\", \"https://staging.yourapp.com\"],
-    \"proofEvent\": $PROOF
+    \"clientId\":    \"YOUR_CLIENT_ID\",
+    \"nonce\":       \"$NONCE\",
+    \"domains\":     [\"https://yourapp.com\", \"https://staging.yourapp.com\"],
+    \"signedEvent\": $SIGNED
   }"
 ```
+
+The nonce is stored in `CHALLENGES_KV` with a 5-minute TTL and deleted after use.
 
 ---
 
@@ -264,9 +274,9 @@ Claim a new clientId. First-come, first-served. The same npub can add more domai
 { "error": "clientId is already claimed by a different npub" }
 ```
 
-### `POST /challenge`
+### `POST /update` (two-phase)
 
-Get a one-time nonce (expires in 5 minutes) to prove ownership before `/update`.
+**Phase 1** — request a nonce (omit `nonce` and `signedEvent`):
 
 ```jsonc
 // Request
@@ -276,35 +286,36 @@ Get a one-time nonce (expires in 5 minutes) to prove ownership before `/update`.
 { "ok": true, "nonce": "<64 hex chars>", "expiresIn": 300 }
 ```
 
-### `POST /update`
-
-Replace the allowed_domains list after proving ownership via a signed nonce event (kind: 27235).
+**Phase 2** — submit the update with proof:
 
 ```jsonc
 // Request
 {
   "clientId":   "string",
+  "nonce":      "<64 hex chars from Phase 1>",
   "domains":    ["https://app.example.com"],
-  "proofEvent": { /* signed NIP-01 kind:27235 event with content = nonce */ }
+  "signedEvent": { /* signed NIP-01 kind:27235 event with content = nonce */ }
 }
 
 // Response
 { "ok": true, "event": "<nostr_event_id>", "domains": [...], "published": 3, "total": 3 }
 ```
 
+Nonces are stored with a 5-minute TTL and consumed on first use.
+
 ---
 
 ## Production Hardening Checklist
 
 - [ ] Replace `__ROOT_PUBKEY_HEX__` in `signer.html`
-- [ ] Set `DEFAULT_BUNKER_ORIGIN` in `nostr-bridge.js` to your actual bunker URL
-- [ ] Run `wrangler secret put ROOT_PRIVKEY_HEX` — never commit the private key
-- [ ] Replace the KV namespace ID placeholder in `wrangler.toml`
+- [ ] Pass `bunkerOrigin` (deployed signer.html URL) to `NostrBridge.init()` — it is required
+- [ ] Run `wrangler secret put ROOT_PRIVATE_KEY_HEX` — never commit the private key
+- [ ] Create both KV namespaces (`REGISTRY_KV`, `CHALLENGES_KV`) and update `wrangler.toml` IDs
 - [ ] Add SRI hashes to CDN `<script>` tags in `signer.html`
 - [ ] Restrict `Access-Control-Allow-Origin` in `registrar-worker.js` to your admin origins
-- [ ] Configure `REGISTRY_RELAY` to a relay you control or trust for fast registry lookups
+- [ ] Configure `REGISTRY_RELAYS` in `signer.html` to relays you control or trust
 - [ ] Set up Cloudflare Rate Limiting rules on the registrar endpoints
-- [ ] Configure your Web3Auth dashboard verifiers to match the `loginConfig` in `signer.html`
+- [ ] Configure your Web3Auth dashboard verifiers to match your `clientId`
 
 ---
 

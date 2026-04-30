@@ -2,15 +2,21 @@ name = "nostr-shard-registrar"
 main = "registrar-worker.js"
 compatibility_date = "2024-01-01"
 
-# ── KV Namespace ────────────────────────────────────────────────────────────────
-# Create with: wrangler kv:namespace create "REGISTRY"
-# Then paste the returned id below.
+# ── KV Namespaces ───────────────────────────────────────────────────────────────
+# Create with:
+#   wrangler kv:namespace create "REGISTRY"
+#   wrangler kv:namespace create "CHALLENGES"
+# Then paste the returned ids below.
 [[kv_namespaces]]
-binding = "KV_NAMESPACE"
-id      = "__REPLACE_WITH_KV_NAMESPACE_ID__"
+binding = "REGISTRY_KV"
+id      = "__REPLACE_WITH_REGISTRY_KV_ID__"
+
+[[kv_namespaces]]
+binding = "CHALLENGES_KV"
+id      = "__REPLACE_WITH_CHALLENGES_KV_ID__"
 
 # ── Environment variables ───────────────────────────────────────────────────────
-# Set secrets with: wrangler secret put ROOT_PRIVKEY_HEX
+# Set secrets with: wrangler secret put ROOT_PRIVATE_KEY_HEX
 # Never commit the actual private key to source control.
 [vars]
 RELAY_URLS = "wss://relay.damus.io,wss://relay.nostr.band,wss://nos.lol"
