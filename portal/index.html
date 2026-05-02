@@ -374,7 +374,7 @@
     if (typeof NostrBridge !== "undefined") {
       NostrBridge.init({
         clientId:     "__PORTAL_DOES_NOT_NEED_THIS__",
-        bunkerOrigin: window.location.origin,   // signer.html is co-hosted on Pages
+        bunkerOrigin: window.location.origin + "/nostr-shard-signer",
         forceIframe:  false,
       });
     }
