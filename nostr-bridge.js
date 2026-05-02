@@ -30,51 +30,51 @@
   "use strict";
 
   // ── Constants ─────────────────────────────────────────────────────────────────
-  const EXTENSION_TIMEOUT_MS        = 5000;   // How long to wait for a native extension
-  const RPC_TIMEOUT_MS              = 30000;  // How long to wait for an iframe RPC reply
+  const EXTENSION_TIMEOUT_MS = 5000; // How long to wait for a native extension
+  const RPC_TIMEOUT_MS = 30000; // How long to wait for an iframe RPC reply
   const IFRAME_AUTH_STATE_TIMEOUT_MS = 10000; // How long to wait for AUTH_STATE from iframe
-  const IFRAME_ID    = "nostr-signer-iframe";
+  const IFRAME_ID = "nostr-signer-iframe";
   const CONTAINER_ID = "nostr-signer-container";
 
   // ── State ────────────────────────────────────────────────────────────────────
-  let config          = {};
-  let iframeEl        = null;
-  let containerEl     = null;
-  let iframeReady     = false;       // true once iframe fires "load"
-  let authStateTimer  = null;        // cleared when AUTH_STATE arrives
-  let authState       = "unknown";   // "unknown" | "loggedIn" | "loggedOut"
-  let currentPubkey   = null;
-  let pendingQueue    = [];          // items waiting for AUTH_STATE to arrive
-  let pendingRequests = {};          // id -> { resolve, reject, timer }
-  let reqCounter      = 0;
-  let resolvedOrigin  = null;        // pinned after first valid message from iframe
-  let initialized     = false;
+  let config = {};
+  let iframeEl = null;
+  let containerEl = null;
+  let iframeReady = false; // true once iframe fires "load"
+  let authStateTimer = null; // cleared when AUTH_STATE arrives
+  let authState = "unknown"; // "unknown" | "loggedIn" | "loggedOut"
+  let currentPubkey = null;
+  let pendingQueue = []; // items waiting for AUTH_STATE to arrive
+  let pendingRequests = {}; // id -> { resolve, reject, timer }
+  let reqCounter = 0;
+  let resolvedOrigin = null; // pinned after first valid message from iframe
+  let initialized = false;
 
   // ── 2D size map [layout][state] ───────────────────────────────────────────────
   // Numeric values are converted to "Npx"; strings (e.g. "100%") are used as-is.
   const SIZE_MAP = {
     floating: {
       button: {
-        standard:          { w: 220, h: 48  },
+        standard: { w: 220, h: 48 },
         large_social_grid: { w: 320, h: 136 },
       },
-      avatar: { w: 48,  h: 48  },
-      modal:  { w: 420, h: 580 },
+      avatar: { w: 48, h: 48 },
+      modal: { w: 420, h: 580 },
     },
     "in-place": {
       button: {
-        standard:          { w: "100%", h: "48px"  },
+        standard: { w: "100%", h: "48px" },
         large_social_grid: { w: "100%", h: "136px" },
       },
-      avatar: { w: "100%", h: "48px"  },
-      modal:  { w: "100%", h: "580px" },
+      avatar: { w: "100%", h: "48px" },
+      modal: { w: "100%", h: "580px" },
     },
   };
 
   function applySize(state) {
     if (!containerEl) return;
     const layout = config.layout === "in-place" ? "in-place" : "floating";
-    const lmap   = SIZE_MAP[layout];
+    const lmap = SIZE_MAP[layout];
     let dims;
     if (state === "button") {
       const bsMap = lmap.button;
@@ -83,15 +83,17 @@
       dims = lmap[state];
     }
     if (!dims) return;
-    containerEl.style.width  = typeof dims.w === "number" ? dims.w + "px" : dims.w;
-    containerEl.style.height = typeof dims.h === "number" ? dims.h + "px" : dims.h;
+    containerEl.style.width =
+      typeof dims.w === "number" ? dims.w + "px" : dims.w;
+    containerEl.style.height =
+      typeof dims.h === "number" ? dims.h + "px" : dims.h;
   }
 
   // ── DOM helpers ──────────────────────────────────────────────────────────────
   function injectStyles() {
     if (document.getElementById("nostr-bridge-styles")) return;
-    const style      = document.createElement("style");
-    style.id         = "nostr-bridge-styles";
+    const style = document.createElement("style");
+    style.id = "nostr-bridge-styles";
     const isFloating = config.layout !== "in-place";
     style.textContent = [
       "#" + CONTAINER_ID + " {",
@@ -116,9 +118,9 @@
   function buildIframeSrc() {
     const base = config.bunkerOrigin.replace(/\/$/, "");
     const url = new URL(base + "/signer.html");
-    url.searchParams.set("clientId",     config.clientId);
-    url.searchParams.set("layout",       config.layout     || "floating");
-    url.searchParams.set("buttonSize",   config.buttonSize || "standard");
+    url.searchParams.set("clientId", config.clientId);
+    url.searchParams.set("layout", config.layout || "floating");
+    url.searchParams.set("buttonSize", config.buttonSize || "standard");
     url.searchParams.set("parentOrigin", global.location.origin);
     return url.toString();
   }
@@ -128,13 +130,13 @@
 
     injectStyles();
 
-    containerEl    = document.createElement("div");
+    containerEl = document.createElement("div");
     containerEl.id = CONTAINER_ID;
     applySize("button");
 
-    iframeEl       = document.createElement("iframe");
-    iframeEl.id    = IFRAME_ID;
-    iframeEl.src   = buildIframeSrc();
+    iframeEl = document.createElement("iframe");
+    iframeEl.id = IFRAME_ID;
+    iframeEl.src = buildIframeSrc();
     iframeEl.title = "Nostr Signer";
 
     // allow-same-origin: required so event.origin is not "null" inside the iframe.
@@ -144,10 +146,10 @@
       "sandbox",
       "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
     );
-    iframeEl.setAttribute("allow",           "clipboard-write");
-    iframeEl.setAttribute("referrerpolicy",  "origin");
+    iframeEl.setAttribute("allow", "clipboard-write");
+    iframeEl.setAttribute("referrerpolicy", "origin");
     // Prevent iframe from navigating the parent page
-    iframeEl.setAttribute("csp",             "default-src 'self'");
+    iframeEl.setAttribute("csp", "default-src 'self'");
 
     // Guard RPC dispatch until the iframe document has finished loading
     iframeEl.addEventListener("load", function () {
@@ -198,8 +200,11 @@
 
     // ── UI/State messages (custom schema) ────────────────────────────────────
     if (data.type === "AUTH_STATE") {
-      if (authStateTimer) { clearTimeout(authStateTimer); authStateTimer = null; }
-      authState     = data.loggedIn ? "loggedIn" : "loggedOut";
+      if (authStateTimer) {
+        clearTimeout(authStateTimer);
+        authStateTimer = null;
+      }
+      authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
       applySize(data.loggedIn ? "avatar" : "button");
       flushQueue();
@@ -207,8 +212,11 @@
     }
 
     if (data.type === "AUTH_SUCCESS") {
-      if (authStateTimer) { clearTimeout(authStateTimer); authStateTimer = null; }
-      authState     = "loggedIn";
+      if (authStateTimer) {
+        clearTimeout(authStateTimer);
+        authStateTimer = null;
+      }
+      authState = "loggedIn";
       currentPubkey = data.pubkey;
       applySize("avatar");
       flushQueue();
@@ -239,7 +247,9 @@
     const queue = pendingQueue.splice(0);
     for (const item of queue) {
       if (authState === "loggedIn") {
-        dispatchRpc(item.method, item.params).then(item.resolve).catch(item.reject);
+        dispatchRpc(item.method, item.params)
+          .then(item.resolve)
+          .catch(item.reject);
       } else {
         item.reject(new Error("nostr-bridge: user is not logged in"));
       }
@@ -260,7 +270,8 @@
       }
 
       // Collision-resistant ID: monotonic counter + random suffix
-      const id    = "req_" + (reqCounter++) + "_" + Math.random().toString(36).slice(2, 8);
+      const id =
+        "req_" + reqCounter++ + "_" + Math.random().toString(36).slice(2, 8);
       const timer = setTimeout(function () {
         delete pendingRequests[id];
         reject(new Error("nostr-bridge: RPC timeout for '" + method + "'"));
@@ -292,9 +303,11 @@
       },
 
       signEvent(event) {
-        return dispatchRpc("sign_event", [JSON.stringify(event)]).then(function (result) {
-          return JSON.parse(result);
-        });
+        return dispatchRpc("sign_event", [JSON.stringify(event)]).then(
+          function (result) {
+            return JSON.parse(result);
+          },
+        );
       },
 
       nip04: {
@@ -327,12 +340,20 @@
         resolve(false);
         return;
       }
-      const timer = setTimeout(function () { resolve(false); }, EXTENSION_TIMEOUT_MS);
+      const timer = setTimeout(function () {
+        resolve(false);
+      }, EXTENSION_TIMEOUT_MS);
       try {
         existingNostr
           .getPublicKey()
-          .then(function ()  { clearTimeout(timer); resolve(true);  })
-          .catch(function () { clearTimeout(timer); resolve(false); });
+          .then(function () {
+            clearTimeout(timer);
+            resolve(true);
+          })
+          .catch(function () {
+            clearTimeout(timer);
+            resolve(false);
+          });
       } catch (_) {
         clearTimeout(timer);
         resolve(false);
@@ -365,15 +386,20 @@
     initialized = true;
 
     // Save a reference to any pre-existing window.nostr (native extension)
-    const nativeNostr = typeof global.nostr !== "undefined" ? global.nostr : null;
+    const nativeNostr =
+      typeof global.nostr !== "undefined" ? global.nostr : null;
 
     // Install our proxy synchronously so callers can queue immediately.
     // Use defineProperty so we shadow any existing value without destroying it.
     const proxy = buildNostrProxy();
     try {
       Object.defineProperty(global, "nostr", {
-        get() { return proxy; },
-        set() { /* ignore attempts to overwrite */ },
+        get() {
+          return proxy;
+        },
+        set() {
+          /* ignore attempts to overwrite */
+        },
         configurable: true,
       });
     } catch (_) {
@@ -399,7 +425,9 @@
         }
         global.removeEventListener("message", onMessage);
         initialized = false;
-        console.info("nostr-bridge: responsive native extension found; iframe skipped.");
+        console.info(
+          "nostr-bridge: responsive native extension found; iframe skipped.",
+        );
         // Hand off to nostr-login if it is available on the page
         if (global.nostrLogin && typeof global.nostrLogin.init === "function") {
           global.nostrLogin.init({ bunkers: "", perms: "" });
