@@ -4,13 +4,13 @@ A cross-origin iframe authentication system for Nostr. Bridges a Web3Auth MPC OA
 
 ## Security Model
 
-| Threat | Mitigation |
-|--------|-----------|
-| Parent page JS reading your nsec | Key lives only in a cross-origin iframe; Same-Origin Policy makes it unreachable |
-| Browser extension / XSS on parent page | Same isolation — the iframe context is physically separate |
-| Domain spoofing to steal Web3Auth quota | NIP-33 registry on Nostr validates every (clientId, domain) pair before the iframe renders |
-| Rogue iframe injected by attacker | `event.source === window.parent` check + `_parentOrigin` derived from `document.ancestorOrigins` (not URL params) |
-| null-origin postMessage attacks | All `window.addEventListener("message")` handlers reject `event.origin === "null"` unconditionally |
+| Threat                                  | Mitigation                                                                                                        |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Parent page JS reading your nsec        | Key lives only in a cross-origin iframe; Same-Origin Policy makes it unreachable                                  |
+| Browser extension / XSS on parent page  | Same isolation — the iframe context is physically separate                                                        |
+| Domain spoofing to steal Web3Auth quota | NIP-33 registry on Nostr validates every (clientId, domain) pair before the iframe renders                        |
+| Rogue iframe injected by attacker       | `event.source === window.parent` check + `_parentOrigin` derived from `document.ancestorOrigins` (not URL params) |
+| null-origin postMessage attacks         | All `window.addEventListener("message")` handlers reject `event.origin === "null"` unconditionally                |
 
 > **For users who require zero client-side key reconstruction**, use [nsec.app](https://nsec.app) or a self-hosted NIP-46 bunker instead.
 
@@ -89,11 +89,11 @@ nostr-shard-signer/
 
 On every push to `main`, GitHub Actions publishes three assets to GitHub Pages and deploys the Cloudflare Worker:
 
-| URL | Asset |
-|-----|-------|
-| `https://<user>.github.io/nostr-shard-signer/nostr-bridge.js` | CDN bundle |
-| `https://<user>.github.io/nostr-shard-signer/signer.html` | iframe bunker |
-| `https://<user>.github.io/nostr-shard-signer/portal/` | Developer registration portal |
+| URL                                                           | Asset                         |
+| ------------------------------------------------------------- | ----------------------------- |
+| `https://<user>.github.io/nostr-shard-signer/nostr-bridge.js` | CDN bundle                    |
+| `https://<user>.github.io/nostr-shard-signer/signer.html`     | iframe bunker                 |
+| `https://<user>.github.io/nostr-shard-signer/portal/`         | Developer registration portal |
 
 ---
 
@@ -127,6 +127,7 @@ const ROOT_PUBKEY_HEX = "a3b2...";
 ```
 
 Optionally adjust:
+
 - `REGISTRY_RELAYS` — array of relays that host your NIP-33 events
 - `PUBLISH_RELAYS` — relays to broadcast profile updates to
 
@@ -152,10 +153,10 @@ wrangler secret put ROOT_PRIVATE_KEY_HEX
 
 In **Settings → Secrets → Actions**, add:
 
-| Secret | Value |
-|--------|-------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with `Workers:Edit` permission |
-| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID |
+| Secret                  | Value                                               |
+| ----------------------- | --------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | Cloudflare API token with `Workers:Edit` permission |
+| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID                          |
 
 #### e. Enable GitHub Pages
 
@@ -215,11 +216,11 @@ A successful response returns the Nostr event ID of the published NIP-33 record:
 <script src="https://cdn.yourdomain.com/nostr-bridge.js"></script>
 <script>
   NostrBridge.init({
-    clientId:    "YOUR_WEB3AUTH_CLIENT_ID",
-    bunkerOrigin:"https://bunker.yourdomain.com",  // required
-    layout:      "floating",   // or "in-place"
-    buttonSize:  "standard",   // or "large_social_grid"
-    forceIframe: false,        // true = skip native extension check
+    clientId: "YOUR_WEB3AUTH_CLIENT_ID",
+    bunkerOrigin: "https://bunker.yourdomain.com", // required
+    layout: "floating", // or "in-place"
+    buttonSize: "standard", // or "large_social_grid"
+    forceIframe: false, // true = skip native extension check
   });
 </script>
 ```
@@ -229,7 +230,12 @@ A successful response returns the Nostr event ID of the published NIP-33 record:
 ```js
 // Works immediately — queued if iframe hasn't reported AUTH_STATE yet
 const pubkey = await window.nostr.getPublicKey();
-const signed = await window.nostr.signEvent({ kind: 1, content: "Hello Nostr!", tags: [], created_at: Math.floor(Date.now()/1000) });
+const signed = await window.nostr.signEvent({
+  kind: 1,
+  content: "Hello Nostr!",
+  tags: [],
+  created_at: Math.floor(Date.now() / 1000),
+});
 ```
 
 ---
@@ -270,11 +276,11 @@ The nonce is stored in `CHALLENGES_KV` with a 5-minute TTL and deleted after use
 
 ### UI/State (custom schema, iframe → parent)
 
-| Message | When sent |
-|---------|-----------|
+| Message                                                        | When sent                              |
+| -------------------------------------------------------------- | -------------------------------------- |
 | `{ type: "AUTH_STATE", loggedIn: bool, pubkey: string\|null }` | On iframe load (passive session check) |
-| `{ type: "AUTH_SUCCESS", pubkey: string }` | After user completes OAuth flow |
-| `{ type: "RESIZE", state: "button"\|"avatar"\|"modal" }` | On every view transition |
+| `{ type: "AUTH_SUCCESS", pubkey: string }`                     | After user completes OAuth flow        |
+| `{ type: "RESIZE", state: "button"\|"avatar"\|"modal" }`       | On every view transition               |
 
 ### Crypto requests (NIP-46 RPC, parent → iframe)
 
@@ -293,11 +299,11 @@ Supported methods: `get_public_key`, `sign_event`, `nip04_encrypt`, `nip04_decry
 
 ### Auto-approve policy
 
-| Action | Behaviour |
-|--------|-----------|
-| Kind 1 (notes), Kind 7 (reactions) | Auto-approved |
+| Action                                                             | Behaviour          |
+| ------------------------------------------------------------------ | ------------------ |
+| Kind 1 (notes), Kind 7 (reactions)                                 | Auto-approved      |
 | Kind 0 (profile), Kind 9734 (zaps), Kind 4/44 (DMs), unknown kinds | Confirmation modal |
-| Any decrypt operation | Confirmation modal |
+| Any decrypt operation                                              | Confirmation modal |
 
 ---
 
@@ -352,6 +358,7 @@ Nonces are stored with a 5-minute TTL and consumed on first use.
 ## Production Hardening Checklist
 
 **One-time setup**
+
 - [ ] Replace `__ROOT_PUBKEY_HEX__` in `signer.html`
 - [ ] Run `wrangler secret put ROOT_PRIVATE_KEY_HEX` — never commit the private key
 - [ ] Create both KV namespaces (`REGISTRY_KV`, `CHALLENGES_KV`) and update `wrangler.toml` IDs
@@ -360,6 +367,7 @@ Nonces are stored with a 5-minute TTL and consumed on first use.
 - [ ] Update `REGISTRAR_URL` in `portal/index.html` to your deployed Worker URL
 
 **After first deploy**
+
 - [ ] Pass `bunkerOrigin` (your Pages `signer.html` URL) to `NostrBridge.init()` — it is required
 - [ ] Add SRI hashes to CDN `<script>` tags in `signer.html`
 - [ ] Restrict `Access-Control-Allow-Origin` in `registrar-worker.js` to your admin origins

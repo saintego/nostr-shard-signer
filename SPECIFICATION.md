@@ -17,7 +17,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 
 | Component        | Role                                                                                                                                                                                                                                                                                                                                               |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **The Sandbox**  | The private key is extracted and held only inside a secure universal iframe hosted on GitHub Pages (`<user>.github.io/nostr-shard-signer/signer.html`).                                                                                                                                                                                           |
+| **The Sandbox**  | The private key is extracted and held only inside a secure universal iframe hosted on GitHub Pages (`<user>.github.io/nostr-shard-signer/signer.html`).                                                                                                                                                                                            |
 | **The Registry** | The iframe prevents domain-spoofing by querying a hardcoded Root Pubkey's NIP-33 events to verify if the parent's domain is authorized to use the provided Web3Auth `clientId`.                                                                                                                                                                    |
 | **The Bridge**   | The parent app uses a comprehensive JS bundle that natively integrates `window.nostr.js` or `nostr-login`. Standard extensions (Alby), mobile signers (Amber), and remote bunkers (NIP-46) are all supported alongside the hidden iframe bunker. The bundle acts as a traffic router, forwarding signature requests to whichever signer is active. |
 | **The UI**       | The iframe manages its own visual state, communicating with the parent script to resize its container based on user interaction.                                                                                                                                                                                                                   |
@@ -136,6 +136,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 **Responsibility:** A lightweight Cloudflare Worker API that securely binds developers' Client IDs to their allowed domains, publishing the authoritative record as NIP-33 events on Nostr relays.
 
 **Storage model:**
+
 - **Source of truth:** NIP-33 kind:30078 events on Nostr relays (queried by `signer.html` at runtime).
 - **`REGISTRY_KV`:** Short-lived mutex (60-second TTL) used only to prevent concurrent duplicate registrations. Not permanent storage — once the relay propagates the NIP-33 event, KV entries expire and future checks go directly to the relay.
 - **`CHALLENGES_KV`:** Stores one-time nonces (5-minute TTL). Deleted on first use. Could be replaced with stateless HMAC tokens to eliminate this namespace entirely.
@@ -176,6 +177,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 **Responsibility:** A browser UI hosted on GitHub Pages that lets developers register and manage their clientIds without using the command line.
 
 **Stack:**
+
 - `nostr-bridge.js` (co-hosted) injects `window.nostr` — works with Alby, any NIP-07 extension, or NIP-46 remote signers.
 - `@nostr-post` CDN bundle provides the `NostrSigner` helper for NIP-07 auth.
 - Plain HTML/CSS/JS — no build step, no framework.
@@ -255,9 +257,9 @@ GitHub Actions (push to main)
 
 **Required GitHub secrets:**
 
-| Secret | Purpose |
-|--------|---------|
-| `CLOUDFLARE_API_TOKEN` | Authorizes `wrangler deploy` |
+| Secret                  | Purpose                                |
+| ----------------------- | -------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | Authorizes `wrangler deploy`           |
 | `CLOUDFLARE_ACCOUNT_ID` | Targets the correct Cloudflare account |
 
 `ROOT_PRIVATE_KEY_HEX` is stored as a **Cloudflare Worker secret** (via `wrangler secret put`) — it is never in GitHub and never in code.
