@@ -37,6 +37,7 @@ jobs:
           cp nostr-bridge.js _site/nostr-bridge.js
           cp bunker/signer.html _site/signer.html
           cp portal/index.html _site/portal/index.html
+          cp portal/index.html _site/index.html
 
       - uses: actions/configure-pages@v5
 
