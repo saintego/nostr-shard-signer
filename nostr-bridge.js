@@ -114,7 +114,8 @@
   }
 
   function buildIframeSrc() {
-    const url = new URL("/signer.html", config.bunkerOrigin);
+    const base = config.bunkerOrigin.replace(/\/$/, "");
+    const url = new URL(base + "/signer.html");
     url.searchParams.set("clientId",     config.clientId);
     url.searchParams.set("layout",       config.layout     || "floating");
     url.searchParams.set("buttonSize",   config.buttonSize || "standard");
