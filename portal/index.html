@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nostr Shard Signer — Developer Portal</title>
+
+  <!-- nostr-bridge injects window.nostr (Alby / NIP-46 / Web3Auth iframe fallback) -->
+  <script src="../nostr-bridge.js"></script>
+
+  <!-- nostr-post CDN: signer helper + web components -->
+  <script type="module" src="https://saintego.github.io/nostr-post/nostr-post.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, sans-serif;
+      background: #0d0d0d;
+      color: #e8e8e8;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2.5rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    header h1 span {
+      color: #a78bfa;
+    }
+
+    #auth-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.875rem;
+    }
+
+    #pubkey-display {
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: #a78bfa;
+      background: #1a1a2e;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      display: none;
+    }
+
+    #login-btn, .btn-primary, .btn-secondary {
+      padding: 0.5rem 1.25rem;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+
+    #login-btn:hover, .btn-primary:hover, .btn-secondary:hover { opacity: 0.85; }
+
+    #login-btn, .btn-primary {
+      background: #7c3aed;
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: #1e1e2e;
+      color: #e8e8e8;
+      border: 1px solid #333;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1.5rem;
+      background: #111;
+      padding: 0.25rem;
+      border-radius: 8px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 0.5rem;
+      background: transparent;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+
+    .tab-btn.active {
+      background: #1e1e2e;
+      color: #e8e8e8;
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .card p {
+      font-size: 0.8125rem;
+      color: #888;
+      margin-bottom: 1.25rem;
+      line-height: 1.5;
+    }
+
+    label {
+      display: block;
+      font-size: 0.8125rem;
+      color: #aaa;
+      margin-bottom: 0.35rem;
+      margin-top: 0.75rem;
+    }
+
+    label:first-of-type { margin-top: 0; }
+
+    input[type="text"], input[type="url"], textarea {
+      width: 100%;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      color: #e8e8e8;
+      border-radius: 6px;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+    }
+
+    input:focus, textarea:focus { border-color: #7c3aed; }
+
+    textarea { resize: vertical; min-height: 80px; }
+
+    .domain-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .domain-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .domain-row input { flex: 1; }
+
+    .domain-row button {
+      background: #1e1e2e;
+      border: 1px solid #333;
+      color: #e8e8e8;
+      border-radius: 6px;
+      padding: 0 0.75rem;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+    }
+
+    .add-domain-btn {
+      background: transparent;
+      border: 1px dashed #444;
+      color: #888;
+      border-radius: 6px;
+      padding: 0.5rem;
+      cursor: pointer;
+      width: 100%;
+      font-size: 0.8125rem;
+      margin-bottom: 1rem;
+      transition: all 0.15s;
+    }
+
+    .add-domain-btn:hover { border-color: #7c3aed; color: #a78bfa; }
+
+    .form-footer {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 1.25rem;
+    }
+
+    .notice {
+      background: #1a1a2e;
+      border: 1px solid #2d2d5e;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.8125rem;
+      color: #a78bfa;
+      margin-bottom: 1rem;
+    }
+
+    .notice.warning {
+      background: #1e1500;
+      border-color: #5e4500;
+      color: #d4a017;
+    }
+
+    .notice.success {
+      background: #001a12;
+      border-color: #004d33;
+      color: #00c97a;
+    }
+
+    .notice.error {
+      background: #1a0000;
+      border-color: #5e0000;
+      color: #ff6b6b;
+    }
+
+    #result-register, #result-update { display: none; }
+
+    code {
+      font-family: monospace;
+      font-size: 0.8125rem;
+      background: #0d0d0d;
+      padding: 0.15rem 0.35rem;
+      border-radius: 3px;
+    }
+
+    .step-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.4rem;
+      height: 1.4rem;
+      border-radius: 50%;
+      background: #7c3aed;
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 700;
+      margin-right: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .step-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      color: #888;
+      margin-bottom: 0.5rem;
+    }
+
+    #gate-logged-out {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #555;
+    }
+
+    #gate-logged-out h2 { font-size: 1.125rem; margin-bottom: 0.5rem; color: #888; }
+
+    #spinner {
+      display: none;
+      font-size: 0.8125rem;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Nostr Shard Signer <span>Portal</span></h1>
+      <div id="auth-bar">
+        <span id="pubkey-display"></span>
+        <button id="login-btn">Connect Nostr</button>
+      </div>
+    </header>
+
+    <!-- shown when not connected -->
+    <div id="gate-logged-out">
+      <h2>Connect your Nostr key to continue</h2>
+      <p>Use Alby, any NIP-07 extension, or a NIP-46 remote signer.<br>Your key never leaves your signer.</p>
+    </div>
+
+    <!-- shown when connected -->
+    <div id="app" style="display:none">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="register">Register clientId</button>
+        <button class="tab-btn" data-tab="update">Update Domains</button>
+      </div>
+
+      <!-- ── REGISTER PANEL ─────────────────────────────────────── -->
+      <div id="tab-register" class="panel active">
+        <div class="card">
+          <h2>Register a new clientId</h2>
+          <p>Binds your Web3Auth <code>clientId</code> to an allowed domain. First-come first-served — the claim is published as a NIP-33 event signed by the registry root key.</p>
+
+          <label for="reg-client-id">Web3Auth Client ID</label>
+          <input type="text" id="reg-client-id" placeholder="BHt7mDXi..." autocomplete="off" spellcheck="false" />
+
+          <label for="reg-domain">Allowed Domain</label>
+          <input type="url" id="reg-domain" placeholder="https://yourapp.com" />
+
+          <div class="form-footer">
+            <button class="btn-primary" id="btn-register">Register</button>
+          </div>
+        </div>
+
+        <div id="result-register"></div>
+      </div>
+
+      <!-- ── UPDATE PANEL ──────────────────────────────────────── -->
+      <div id="tab-update" class="panel">
+        <div class="card">
+          <h2>Update allowed domains</h2>
+          <p>Two-phase ownership proof: a nonce is issued, you sign it with the npub that owns the <code>clientId</code>, then the domain list is replaced atomically.</p>
+
+          <div class="step-row"><span class="step-badge">1</span>Enter your clientId and fetch a challenge nonce.</div>
+          <div class="step-row"><span class="step-badge">2</span>Your connected Nostr key signs the nonce (kind 27235).</div>
+          <div class="step-row"><span class="step-badge">3</span>The signed event is submitted as proof — domains are updated.</div>
+
+          <label for="upd-client-id">Web3Auth Client ID</label>
+          <input type="text" id="upd-client-id" placeholder="BHt7mDXi..." autocomplete="off" spellcheck="false" />
+
+          <label>Allowed Domains</label>
+          <div id="domain-list" class="domain-list">
+            <div class="domain-row">
+              <input type="url" placeholder="https://yourapp.com" />
+              <button class="remove-domain" title="Remove">×</button>
+            </div>
+          </div>
+          <button class="add-domain-btn" id="btn-add-domain">+ Add domain</button>
+
+          <div class="form-footer">
+            <button class="btn-primary" id="btn-update">Sign &amp; Update</button>
+          </div>
+        </div>
+
+        <div id="result-update"></div>
+      </div>
+    </div><!-- /app -->
+  </div><!-- /container -->
+
+  <script type="module">
+    // ── Config ──────────────────────────────────────────────────────────────────
+    // Replace with your deployed registrar Worker URL.
+    const REGISTRAR_URL = "https://nostr-shard-registrar.__ACCOUNT__.workers.dev";
+
+    // NostrBridge is loaded via the inline script above.
+    // We use forceIframe:false so a real Nostr extension (Alby, etc.) takes priority.
+    // The portal itself does NOT need a Web3Auth clientId — it uses whatever signer
+    // the developer already has connected.
+    if (typeof NostrBridge !== "undefined") {
+      NostrBridge.init({
+        clientId:     "__PORTAL_DOES_NOT_NEED_THIS__",
+        bunkerOrigin: window.location.origin,   // signer.html is co-hosted on Pages
+        forceIframe:  false,
+      });
+    }
+
+    // ── DOM refs ────────────────────────────────────────────────────────────────
+    const loginBtn       = document.getElementById("login-btn");
+    const pubkeyDisplay  = document.getElementById("pubkey-display");
+    const gateLoggedOut  = document.getElementById("gate-logged-out");
+    const app            = document.getElementById("app");
+    const btnRegister    = document.getElementById("btn-register");
+    const btnUpdate      = document.getElementById("btn-update");
+    const btnAddDomain   = document.getElementById("btn-add-domain");
+    const domainList     = document.getElementById("domain-list");
+    const resultRegister = document.getElementById("result-register");
+    const resultUpdate   = document.getElementById("result-update");
+
+    // ── nostr-post signer (NIP-07 via window.nostr) ─────────────────────────────
+    // @nostr-post/signer is bundled inside the CDN build.
+    // We wait for the module to register before using it.
+    let _pubkey = null;
+
+    function shortPubkey(hex) {
+      return hex.slice(0, 8) + "…" + hex.slice(-6);
+    }
+
+    async function connectNostr() {
+      if (!window.nostr) {
+        showResult(resultRegister, "error", "No Nostr signer found. Install Alby or another NIP-07 extension.");
+        return;
+      }
+      try {
+        _pubkey = await window.nostr.getPublicKey();
+        pubkeyDisplay.textContent = shortPubkey(_pubkey);
+        pubkeyDisplay.style.display = "inline";
+        loginBtn.textContent = "Disconnect";
+        loginBtn.onclick = disconnectNostr;
+        gateLoggedOut.style.display = "none";
+        app.style.display = "block";
+      } catch (e) {
+        showResult(resultRegister, "error", "Login rejected: " + e.message);
+      }
+    }
+
+    function disconnectNostr() {
+      _pubkey = null;
+      pubkeyDisplay.style.display = "none";
+      loginBtn.textContent = "Connect Nostr";
+      loginBtn.onclick = connectNostr;
+      app.style.display = "none";
+      gateLoggedOut.style.display = "block";
+    }
+
+    loginBtn.onclick = connectNostr;
+
+    // Auto-connect if window.nostr is already available and has a session
+    window.addEventListener("message", (e) => {
+      if (e.data?.type === "AUTH_STATE" && e.data.loggedIn && e.data.pubkey && !_pubkey) {
+        _pubkey = e.data.pubkey;
+        pubkeyDisplay.textContent = shortPubkey(_pubkey);
+        pubkeyDisplay.style.display = "inline";
+        loginBtn.textContent = "Disconnect";
+        loginBtn.onclick = disconnectNostr;
+        gateLoggedOut.style.display = "none";
+        app.style.display = "block";
+      }
+    });
+
+    // ── Tabs ─────────────────────────────────────────────────────────────────────
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+      });
+    });
+
+    // ── Domain list helpers ───────────────────────────────────────────────────────
+    function addDomainRow(value = "") {
+      const row = document.createElement("div");
+      row.className = "domain-row";
+      row.innerHTML = `
+        <input type="url" placeholder="https://yourapp.com" value="${escapeHtml(value)}" />
+        <button class="remove-domain" title="Remove">×</button>
+      `;
+      row.querySelector(".remove-domain").onclick = () => {
+        if (domainList.children.length > 1) row.remove();
+      };
+      domainList.appendChild(row);
+    }
+
+    btnAddDomain.onclick = () => addDomainRow();
+
+    // wire up existing remove buttons
+    domainList.querySelectorAll(".remove-domain").forEach(btn => {
+      btn.onclick = () => {
+        if (domainList.children.length > 1) btn.closest(".domain-row").remove();
+      };
+    });
+
+    function getDomains() {
+      return Array.from(domainList.querySelectorAll("input[type=url]"))
+        .map(i => i.value.trim())
+        .filter(Boolean);
+    }
+
+    // ── Register ──────────────────────────────────────────────────────────────────
+    btnRegister.onclick = async () => {
+      const clientId = document.getElementById("reg-client-id").value.trim();
+      const domain   = document.getElementById("reg-domain").value.trim();
+
+      if (!clientId || !domain) {
+        showResult(resultRegister, "warning", "Client ID and domain are both required.");
+        return;
+      }
+      if (!_pubkey) {
+        showResult(resultRegister, "warning", "Connect your Nostr key first.");
+        return;
+      }
+
+      // Convert hex pubkey to npub using nostr-post's bundled nostr-tools
+      let npub;
+      try {
+        const { nip19 } = await import("https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js");
+        npub = nip19.npubEncode(_pubkey);
+      } catch {
+        npub = _pubkey; // fallback: send hex, Worker accepts both
+      }
+
+      btnRegister.disabled = true;
+      btnRegister.textContent = "Registering…";
+      showResult(resultRegister, "info", "Publishing to Nostr relays…");
+
+      try {
+        const res = await fetch(`${REGISTRAR_URL}/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId, npub, domain }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          showResult(resultRegister, "error", data.error || "Registration failed.");
+        } else {
+          showResult(resultRegister, "success",
+            `✓ Registered! Event ID: <code>${data.event}</code><br>
+             Published to ${data.published}/${data.total} relays.`
+          );
+        }
+      } catch (e) {
+        showResult(resultRegister, "error", "Network error: " + e.message);
+      } finally {
+        btnRegister.disabled = false;
+        btnRegister.textContent = "Register";
+      }
+    };
+
+    // ── Update (two-phase) ────────────────────────────────────────────────────────
+    btnUpdate.onclick = async () => {
+      const clientId = document.getElementById("upd-client-id").value.trim();
+      const domains  = getDomains();
+
+      if (!clientId) {
+        showResult(resultUpdate, "warning", "Client ID is required.");
+        return;
+      }
+      if (domains.length === 0) {
+        showResult(resultUpdate, "warning", "Add at least one domain.");
+        return;
+      }
+      if (!_pubkey) {
+        showResult(resultUpdate, "warning", "Connect your Nostr key first.");
+        return;
+      }
+
+      let npub;
+      try {
+        const { nip19 } = await import("https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js");
+        npub = nip19.npubEncode(_pubkey);
+      } catch {
+        npub = _pubkey;
+      }
+
+      btnUpdate.disabled = true;
+      btnUpdate.textContent = "Fetching nonce…";
+
+      try {
+        // Phase 1 — get nonce
+        const phase1 = await fetch(`${REGISTRAR_URL}/update`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId, npub }),
+        });
+        const { nonce, error: e1 } = await phase1.json();
+        if (!phase1.ok) {
+          showResult(resultUpdate, "error", e1 || "Failed to get challenge nonce.");
+          return;
+        }
+
+        showResult(resultUpdate, "info", "Nonce received. Waiting for Nostr signature…");
+        btnUpdate.textContent = "Signing…";
+
+        // Phase 2 — sign nonce with connected Nostr key (kind 27235)
+        const unsignedEvent = {
+          kind: 27235,
+          content: nonce,
+          tags: [],
+          created_at: Math.floor(Date.now() / 1000),
+          pubkey: _pubkey,
+        };
+
+        let signedEvent;
+        try {
+          signedEvent = await window.nostr.signEvent(unsignedEvent);
+        } catch (sigErr) {
+          showResult(resultUpdate, "error", "Signing rejected: " + sigErr.message);
+          return;
+        }
+
+        btnUpdate.textContent = "Submitting…";
+        showResult(resultUpdate, "info", "Submitting proof and updating domains…");
+
+        // Phase 2 submit
+        const phase2 = await fetch(`${REGISTRAR_URL}/update`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId, nonce, domains, signedEvent }),
+        });
+        const data2 = await phase2.json();
+
+        if (!phase2.ok) {
+          showResult(resultUpdate, "error", data2.error || "Update failed.");
+        } else {
+          showResult(resultUpdate, "success",
+            `✓ Domains updated! Event ID: <code>${data2.event}</code><br>
+             Domains: ${data2.domains.join(", ")}`
+          );
+        }
+      } catch (e) {
+        showResult(resultUpdate, "error", "Network error: " + e.message);
+      } finally {
+        btnUpdate.disabled = false;
+        btnUpdate.textContent = "Sign & Update";
+      }
+    };
+
+    // ── Helpers ───────────────────────────────────────────────────────────────────
+    function showResult(el, type, html) {
+      el.style.display = "block";
+      el.className = "notice " + type;
+      el.innerHTML = html;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
+  </script>
+</body>
+</html>

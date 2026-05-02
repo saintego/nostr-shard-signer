@@ -26,7 +26,7 @@ A cross-origin iframe authentication system for Nostr. Bridges a Web3Auth MPC OA
 │  window.nostr  ← Proxy object               │
 │                                             │
 │  ┌───────────────────────────────────────┐  │
-│  │ <iframe src="bunker.yourdomain.com">  │  │
+│  │ <iframe src="<pages>/signer.html">    │  │
 │  │                                       │  │
 │  │  signer.html                          │  │
 │  │  ├─ Web3Auth MPC login UI             │  │
@@ -41,9 +41,19 @@ A cross-origin iframe authentication system for Nostr. Bridges a Web3Auth MPC OA
 ┌─────────────────────────────────────────────┐
 │  registrar-worker.js  (Cloudflare Worker)   │
 │  POST /register  POST /update (two-phase)   │
-│  REGISTRY_KV: claim:{clientId}              │
-│  CHALLENGES_KV: challenge nonces (TTL 5m)   │
-│  Publishes kind:30078 events to Nostr relays│
+│  REGISTRY_KV: short-lived mutex (60s TTL)   │
+│  CHALLENGES_KV: nonces (TTL 5m)             │
+│  Source of truth: NIP-33 events on relays   │
+└─────────────────────────────────────────────┘
+                        ↑
+         register/update via UI or curl
+                        ↑
+┌─────────────────────────────────────────────┐
+│  portal/index.html  (GitHub Pages)          │
+│  ├─ nostr-bridge.js → window.nostr          │
+│  ├─ Connect Nostr key (Alby / NIP-07)       │
+│  ├─ Register tab: clientId + domain         │
+│  └─ Update tab: sign nonce (kind 27235)     │
 └─────────────────────────────────────────────┘
 ```
 
@@ -63,20 +73,35 @@ The iframe resizes its container by sending `{ type: "RESIZE", state: "button" |
 
 ```
 nostr-shard-signer/
-├── nostr-bridge.js        # Parent wrapper — injects iframe, proxies window.nostr
+├── nostr-bridge.js          # Parent wrapper — injects iframe, proxies window.nostr
 ├── bunker/
-│   └── signer.html        # Secure bunker — holds key, signs events, renders UI
-└── registrar/
-    ├── registrar-worker.js  # Cloudflare Worker — NIP-33 registry API
-    ├── wrangler.toml        # Worker configuration
-    └── package.json
+│   └── signer.html          # Secure bunker — holds key, signs events, renders UI
+├── portal/
+│   └── index.html           # Developer portal — register/update clientIds via UI
+├── registrar/
+│   ├── registrar-worker.js  # Cloudflare Worker — NIP-33 registry API
+│   ├── wrangler.toml        # Worker configuration
+│   └── package.json
+└── .github/
+    └── workflows/
+        └── deploy.yml       # CI/CD — Pages + Cloudflare Worker on push to main
 ```
+
+On every push to `main`, GitHub Actions publishes three assets to GitHub Pages and deploys the Cloudflare Worker:
+
+| URL | Asset |
+|-----|-------|
+| `https://<user>.github.io/nostr-shard-signer/nostr-bridge.js` | CDN bundle |
+| `https://<user>.github.io/nostr-shard-signer/signer.html` | iframe bunker |
+| `https://<user>.github.io/nostr-shard-signer/portal/` | Developer registration portal |
 
 ---
 
 ## Deployment
 
-### 1. Generate the root keypair
+### 1. One-time setup
+
+#### a. Generate the root keypair
 
 The root keypair signs all NIP-33 registry events. Keep the private key secret; only the public key is embedded in `signer.html`.
 
@@ -91,7 +116,7 @@ console.log('ROOT_PUBKEY_HEX      =', pk);
 "
 ```
 
-### 2. Configure `signer.html`
+#### b. Configure `signer.html`
 
 Replace the placeholder constant in `bunker/signer.html`:
 
@@ -107,48 +132,63 @@ Optionally adjust:
 
 `signer.html` uses ESM (`<script type="module">`) with nostr-tools v2 and Web3Auth modal@9 loaded from CDN — no bundler needed.
 
-### 3. Deploy the bunker (signer.html)
-
-Host `bunker/signer.html` on any static HTTPS host. The origin must be consistent — every parent app will iframe this URL.
-
-**GitHub Pages example:**
-```bash
-# From the bunker/ directory:
-git subtree push --prefix bunker origin gh-pages
-# Serve at: https://<user>.github.io/nostr-shard-signer/signer.html
-```
-
-**Vercel example:**
-```bash
-cd bunker && vercel --prod
-```
-
-Note the deployed URL — it must be passed as `bunkerOrigin` when calling `NostrBridge.init()` (required, no default).
-
-### 4. Deploy the Cloudflare Worker
+#### c. Create the Cloudflare KV namespaces (once)
 
 ```bash
 cd registrar
-
-# Install dependencies
 npm install
 
-# Create both KV namespaces
 wrangler kv:namespace create "REGISTRY_KV"
-# → Copy the returned id into wrangler.toml [[kv_namespaces]] binding = "REGISTRY_KV"
+# → Copy the returned id into wrangler.toml  binding = "REGISTRY_KV"
 wrangler kv:namespace create "CHALLENGES_KV"
-# → Copy the returned id into wrangler.toml [[kv_namespaces]] binding = "CHALLENGES_KV"
+# → Copy the returned id into wrangler.toml  binding = "CHALLENGES_KV"
 
-# Store the private key as a secret (never commit it)
+# Store the private key as a Cloudflare secret — never commit it
 wrangler secret put ROOT_PRIVATE_KEY_HEX
-# → Paste the hex private key when prompted
-
-# Deploy
-npm run deploy
-# → Worker live at: https://nostr-shard-registrar.<account>.workers.dev
+# → Paste ROOT_PRIVATE_KEY_HEX when prompted
 ```
 
-### 5. Register your first clientId
+#### d. Add GitHub repository secrets
+
+In **Settings → Secrets → Actions**, add:
+
+| Secret | Value |
+|--------|-------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with `Workers:Edit` permission |
+| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID |
+
+#### e. Enable GitHub Pages
+
+In **Settings → Pages**, set source to **GitHub Actions**.
+
+#### f. Update the portal registrar URL
+
+In `portal/index.html`, replace the placeholder:
+
+```js
+const REGISTRAR_URL = "https://nostr-shard-registrar.__ACCOUNT__.workers.dev";
+```
+
+### 2. Automated deploy (push to `main`)
+
+After the one-time setup, every push to `main` automatically:
+
+1. Publishes `nostr-bridge.js`, `signer.html`, and `portal/index.html` to GitHub Pages
+2. Deploys `registrar-worker.js` to Cloudflare Workers
+
+```
+https://<user>.github.io/nostr-shard-signer/nostr-bridge.js   ← CDN bundle
+https://<user>.github.io/nostr-shard-signer/signer.html        ← iframe bunker
+https://<user>.github.io/nostr-shard-signer/portal/            ← developer portal
+```
+
+### 3. Register your first clientId
+
+**Option A — Portal UI** (recommended)
+
+Open `https://<user>.github.io/nostr-shard-signer/portal/`, connect your Nostr key (Alby or any NIP-07 extension), fill in your `clientId` and domain, and click **Register**.
+
+**Option B — curl**
 
 ```bash
 curl -X POST https://nostr-shard-registrar.<account>.workers.dev/register \
@@ -166,7 +206,7 @@ A successful response returns the Nostr event ID of the published NIP-33 record:
 { "ok": true, "event": "abc123...", "published": 3, "total": 3 }
 ```
 
-### 6. Integrate `nostr-bridge.js` into your app
+### 4. Integrate `nostr-bridge.js` into your app
 
 `bunkerOrigin` is **required** — NostrBridge throws if it is omitted.
 
@@ -196,10 +236,14 @@ const signed = await window.nostr.signEvent({ kind: 1, content: "Hello Nostr!", 
 
 ## Updating Allowed Domains
 
-To add or remove domains from a registered clientId, use the two-phase `/update` flow:
+**Option A — Portal UI** (recommended)
+
+Open the developer portal, switch to the **Update Domains** tab, enter your `clientId`, add/remove domains, and click **Sign & Update**. The portal fetches the nonce, prompts your Nostr extension to sign it (kind 27235), and submits the proof — no terminal needed.
+
+**Option B — curl**
 
 ```bash
-# Phase 1: request a nonce (no nonce/signedEvent body → returns challenge)
+# Phase 1: request a nonce
 NONCE=$(curl -s -X POST https://<worker>/update \
   -H "Content-Type: application/json" \
   -d '{"clientId":"YOUR_CLIENT_ID","npub":"npub1..."}' | jq -r .nonce)
@@ -307,10 +351,16 @@ Nonces are stored with a 5-minute TTL and consumed on first use.
 
 ## Production Hardening Checklist
 
+**One-time setup**
 - [ ] Replace `__ROOT_PUBKEY_HEX__` in `signer.html`
-- [ ] Pass `bunkerOrigin` (deployed signer.html URL) to `NostrBridge.init()` — it is required
 - [ ] Run `wrangler secret put ROOT_PRIVATE_KEY_HEX` — never commit the private key
 - [ ] Create both KV namespaces (`REGISTRY_KV`, `CHALLENGES_KV`) and update `wrangler.toml` IDs
+- [ ] Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub repository secrets
+- [ ] Enable GitHub Pages (Settings → Pages → Source: GitHub Actions)
+- [ ] Update `REGISTRAR_URL` in `portal/index.html` to your deployed Worker URL
+
+**After first deploy**
+- [ ] Pass `bunkerOrigin` (your Pages `signer.html` URL) to `NostrBridge.init()` — it is required
 - [ ] Add SRI hashes to CDN `<script>` tags in `signer.html`
 - [ ] Restrict `Access-Control-Allow-Origin` in `registrar-worker.js` to your admin origins
 - [ ] Configure `REGISTRY_RELAYS` in `signer.html` to relays you control or trust

@@ -1,0 +1,74 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment at a time; cancel in-progress runs on the same branch.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Job 1: GitHub Pages ────────────────────────────────────────────────────────
+  pages:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble Pages artifact
+        # Copies all static assets into _site/:
+        #   _site/nostr-bridge.js          → CDN bundle
+        #   _site/signer.html              → iframe bunker
+        #   _site/portal/index.html        → developer registration portal
+        run: |
+          mkdir -p _site/portal
+          cp nostr-bridge.js _site/nostr-bridge.js
+          cp bunker/signer.html _site/signer.html
+          cp portal/index.html _site/portal/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  # ── Job 2: Cloudflare Worker ───────────────────────────────────────────────────
+  worker:
+    name: Deploy Cloudflare Worker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: registrar
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: registrar/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy Worker
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

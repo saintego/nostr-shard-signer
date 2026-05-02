@@ -17,7 +17,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 
 | Component        | Role                                                                                                                                                                                                                                                                                                                                               |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **The Sandbox**  | The private key is extracted and held only inside a secure universal iframe hosted on a central origin (`bunker.yourdomain.com`).                                                                                                                                                                                                                  |
+| **The Sandbox**  | The private key is extracted and held only inside a secure universal iframe hosted on GitHub Pages (`<user>.github.io/nostr-shard-signer/signer.html`).                                                                                                                                                                                           |
 | **The Registry** | The iframe prevents domain-spoofing by querying a hardcoded Root Pubkey's NIP-33 events to verify if the parent's domain is authorized to use the provided Web3Auth `clientId`.                                                                                                                                                                    |
 | **The Bridge**   | The parent app uses a comprehensive JS bundle that natively integrates `window.nostr.js` or `nostr-login`. Standard extensions (Alby), mobile signers (Amber), and remote bunkers (NIP-46) are all supported alongside the hidden iframe bunker. The bundle acts as a traffic router, forwarding signature requests to whichever signer is active. |
 | **The UI**       | The iframe manages its own visual state, communicating with the parent script to resize its container based on user interaction.                                                                                                                                                                                                                   |
@@ -133,14 +133,19 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 
 ### Component C — The Registrar Service (`registrar-worker.js`)
 
-**Responsibility:** A lightweight backend API to securely bind developers' Client IDs to their domains, preventing update-attacks.
+**Responsibility:** A lightweight Cloudflare Worker API that securely binds developers' Client IDs to their allowed domains, publishing the authoritative record as NIP-33 events on Nostr relays.
+
+**Storage model:**
+- **Source of truth:** NIP-33 kind:30078 events on Nostr relays (queried by `signer.html` at runtime).
+- **`REGISTRY_KV`:** Short-lived mutex (60-second TTL) used only to prevent concurrent duplicate registrations. Not permanent storage — once the relay propagates the NIP-33 event, KV entries expire and future checks go directly to the relay.
+- **`CHALLENGES_KV`:** Stores one-time nonces (5-minute TTL). Deleted on first use. Could be replaced with stateless HMAC tokens to eliminate this namespace entirely.
 
 **Logic Flow:**
 
 1. **`POST /register`**
    - Accepts `clientId`, `npub`, `domain`.
-   - Checks KV store — if `clientId` is already claimed by a different npub, reject.
-   - If valid, format and publish a NIP-33 event:
+   - Writes a short-lived mutex key in `REGISTRY_KV` (60s TTL). If the key already exists for a different npub, reject with 409.
+   - Formats and publishes a NIP-33 event:
      ```json
      {
        "kind": 30078,
@@ -151,16 +156,40 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
        "content": "{\"allowed_domains\": [\"domain\"]}"
      }
      ```
-   - Sign with server's root private key and broadcast to Nostr relays.
+   - Signs with the root private key (`ROOT_PRIVATE_KEY_HEX` Worker secret) and broadcasts to relays.
 
-2. **`POST /challenge`**
-   - Generates a random nonce (expires in 5 minutes).
-   - Returns nonce for the developer to sign as proof of ownership.
+2. **`POST /update` — Phase 1** (request nonce)
+   - Accepts `clientId` and `npub` only.
+   - Generates a 64-hex-char random nonce, stores it in `CHALLENGES_KV` with a 5-minute TTL.
+   - Returns the nonce to the caller.
 
-3. **`POST /update`**
-   - Accepts `clientId`, `domains[]`, and `proofEvent` (a signed NIP-01 kind:27235 event whose content is the nonce from `/challenge`).
-   - Verifies the signature proves ownership of the `p`-tagged npub.
-   - Publishes updated NIP-33 record (replaces old one via `d` tag).
+3. **`POST /update` — Phase 2** (submit proof)
+   - Accepts `clientId`, `nonce`, `domains[]`, and `signedEvent` (a NIP-01 kind:27235 event whose content equals the nonce).
+   - Verifies the Schnorr signature and that the signing pubkey matches the `p`-tagged npub on the existing NIP-33 record.
+   - Deletes the nonce from `CHALLENGES_KV` (one-time use).
+   - Publishes updated NIP-33 record — NIP-33 replaceability means the new event supersedes the old one on all relays.
+
+---
+
+### Component D — The Developer Portal (`portal/index.html`)
+
+**Responsibility:** A browser UI hosted on GitHub Pages that lets developers register and manage their clientIds without using the command line.
+
+**Stack:**
+- `nostr-bridge.js` (co-hosted) injects `window.nostr` — works with Alby, any NIP-07 extension, or NIP-46 remote signers.
+- `@nostr-post` CDN bundle provides the `NostrSigner` helper for NIP-07 auth.
+- Plain HTML/CSS/JS — no build step, no framework.
+
+**Logic Flow:**
+
+1. Developer connects their Nostr key via any NIP-07 extension.
+2. **Register tab:** Fills in `clientId` + `domain` → `POST /register` with their npub derived from `window.nostr.getPublicKey()`.
+3. **Update Domains tab:**
+   - Portal calls `POST /update` (Phase 1) → receives nonce.
+   - Calls `window.nostr.signEvent({ kind: 27235, content: nonce })` → signing happens entirely inside the user's signer (Alby / iframe bunker), never exposed to the portal page.
+   - Submits the signed event to `POST /update` (Phase 2) → domains updated.
+
+**Security note:** The portal never handles nsec. All cryptographic operations are delegated to `window.nostr`.
 
 ---
 
@@ -210,7 +239,32 @@ NIP-46 format: stringified arrays for `params`, stringified objects for `result`
 
 ---
 
-## 4. Web3 Signer Comparison (2026)
+## 4. Deployment Architecture
+
+All static assets are served from **GitHub Pages**. The Cloudflare Worker is deployed automatically by the same GitHub Actions workflow.
+
+```
+GitHub Actions (push to main)
+  ├── Job 1: assemble _site/ → deploy to GitHub Pages
+  │     ├── nostr-bridge.js        (CDN bundle)
+  │     ├── signer.html            (iframe bunker)
+  │     └── portal/index.html      (developer registration portal)
+  └── Job 2: wrangler deploy → Cloudflare Workers
+              registrar-worker.js  (NIP-33 registry API)
+```
+
+**Required GitHub secrets:**
+
+| Secret | Purpose |
+|--------|---------|
+| `CLOUDFLARE_API_TOKEN` | Authorizes `wrangler deploy` |
+| `CLOUDFLARE_ACCOUNT_ID` | Targets the correct Cloudflare account |
+
+`ROOT_PRIVATE_KEY_HEX` is stored as a **Cloudflare Worker secret** (via `wrangler secret put`) — it is never in GitHub and never in code.
+
+---
+
+## 5. Web3 Signer Comparison (2026)
 
 > The provider must allow **silent programmatic private key extraction** so `nostr-tools` can run Schnorr signatures without external UI popups.
 
