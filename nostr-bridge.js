@@ -377,9 +377,8 @@
     // Sanitize bunkerOrigin: keep origin + optional path, drop query/fragment.
     // This allows project-site hosting like /nostr-shard-signer on GitHub Pages.
     const bunkerUrl = new URL(userConfig.bunkerOrigin);
-    const normalizedPath = bunkerUrl.pathname === "/"
-      ? ""
-      : bunkerUrl.pathname.replace(/\/$/, "");
+    const normalizedPath =
+      bunkerUrl.pathname === "/" ? "" : bunkerUrl.pathname.replace(/\/$/, "");
     const sanitizedOrigin = bunkerUrl.origin + normalizedPath;
 
     config = Object.assign(
