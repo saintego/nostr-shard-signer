@@ -374,8 +374,13 @@
       throw new Error("nostr-bridge: bunkerOrigin is required");
     }
 
-    // Sanitize bunkerOrigin: strip any path/query/fragment to prevent injection
-    const sanitizedOrigin = new URL(userConfig.bunkerOrigin).origin;
+    // Sanitize bunkerOrigin: keep origin + optional path, drop query/fragment.
+    // This allows project-site hosting like /nostr-shard-signer on GitHub Pages.
+    const bunkerUrl = new URL(userConfig.bunkerOrigin);
+    const normalizedPath = bunkerUrl.pathname === "/"
+      ? ""
+      : bunkerUrl.pathname.replace(/\/$/, "");
+    const sanitizedOrigin = bunkerUrl.origin + normalizedPath;
 
     config = Object.assign(
       { layout: "floating", buttonSize: "standard", forceIframe: false },
