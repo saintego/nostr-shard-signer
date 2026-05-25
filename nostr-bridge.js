@@ -185,9 +185,11 @@
     // Reject null origins unconditionally (sandboxed contexts without allow-same-origin)
     if (!event.origin || event.origin === "null") return;
 
-    // Pin the origin on first contact; all future messages must match
+    // Pin the origin on first contact; all future messages must match.
+    // Use _bunkerMessageOrigin (bare scheme+host+port) because browsers strip
+    // the path from event.origin even when the iframe URL includes one.
     if (!resolvedOrigin) {
-      if (event.origin !== config.bunkerOrigin) return;
+      if (event.origin !== config._bunkerMessageOrigin) return;
       resolvedOrigin = event.origin;
     } else {
       if (event.origin !== resolvedOrigin) return;
@@ -385,7 +387,12 @@
     config = Object.assign(
       { layout: "floating", buttonSize: "standard", forceIframe: false },
       userConfig,
-      { bunkerOrigin: sanitizedOrigin },
+      {
+        bunkerOrigin: sanitizedOrigin,
+        // Browsers report event.origin as scheme+host+port only (no path).
+        // Store the bare origin separately for postMessage origin validation.
+        _bunkerMessageOrigin: bunkerUrl.origin,
+      },
     );
 
     initialized = true;

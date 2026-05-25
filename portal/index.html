@@ -390,16 +390,14 @@
     // Deployed registrar Worker URL.
     const REGISTRAR_URL = "https://nostr-shard-registrar.nostr-shard-signer.workers.dev";
 
-    // NostrBridge: loads the Web3Auth iframe as a floating signer.
-    // forceIframe:false means a native NIP-07 extension (Alby, etc.) takes priority.
-    // NOTE: for the iframe to render here, register https://saintego.github.io
-    //       as an allowed domain via the Register tab below.
+    // Portal client ID — registered for https://saintego.github.io via the Register tab.
+    // Users with a NIP-07 extension (Alby etc.) will use it; others get the iframe signer.
+    const PORTAL_CLIENT_ID = "BFD4KzWaR5gUqPApqWAZaEAu3agiAlwY7aDdhIco35GoDGu2Sh7apq5k5OSb-j6F3HihWibrvD3br_abtQz_jSc";
     if (typeof NostrBridge !== "undefined") {
       NostrBridge.init({
-        clientId:     "__PORTAL_DOES_NOT_NEED_THIS__",
+        clientId:     PORTAL_CLIENT_ID,
         bunkerOrigin: window.location.origin + "/nostr-shard-signer",
         registrarUrl: REGISTRAR_URL,
-        forceIframe:  false,
       });
     }
 
