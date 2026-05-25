@@ -1,0 +1,19 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { nodePolyfills } from "vite-plugin-node-polyfills";
+
+// GitHub Pages serves the site under /nostr-shard-signer/
+export default defineConfig({
+  base: "/nostr-shard-signer/",
+  plugins: [
+    react(),
+    nodePolyfills({
+      include: ["buffer", "process", "stream", "util", "events"],
+      globals: { Buffer: true, process: true, global: true },
+    }),
+  ],
+  build: {
+    outDir: "dist",
+    sourcemap: false,
+  },
+});

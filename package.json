@@ -5,15 +5,15 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "registrar"
+    "registrar",
+    "bunker"
   ],
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "dev:bunker": "npx serve bunker -p 8080",
+    "build": "npm run build --workspace=bunker",
+    "dev:bunker": "npm run dev --workspace=bunker",
     "dev:registrar": "npm run dev --workspace=registrar"
   },
   "devDependencies": {
-    "esbuild": "^0.21.0",
     "serve": "^14.2.0"
   }
 }

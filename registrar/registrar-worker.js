@@ -62,7 +62,8 @@ function getRootPrivkeyBytes(env) {
   if (!raw) throw new Error("ROOT_PRIVATE_KEY_HEX is not set");
   if (typeof raw === "string" && raw.startsWith("nsec1")) {
     const decoded = nip19.decode(raw);
-    if (decoded.type !== "nsec") throw new Error("ROOT_PRIVATE_KEY_HEX: expected nsec");
+    if (decoded.type !== "nsec")
+      throw new Error("ROOT_PRIVATE_KEY_HEX: expected nsec");
     return decoded.data; // already Uint8Array
   }
   return hexToBytes(raw.toLowerCase().trim());
@@ -223,7 +224,11 @@ async function broadcastEvent(env, event) {
 async function getClaim(env, clientId) {
   const raw = await env.REGISTRY_KV.get(KV_PREFIX_CLAIM + clientId);
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 async function saveClaim(env, clientId, registrantHex, domains) {
@@ -236,7 +241,11 @@ async function saveClaim(env, clientId, registrantHex, domains) {
 async function saveChallenge(env, clientId, nonce, registrantHex) {
   await env.CHALLENGES_KV.put(
     KV_PREFIX_NONCE + clientId,
-    JSON.stringify({ nonce, registrantHex, expiresAt: Date.now() + NONCE_TTL_SEC * 1000 }),
+    JSON.stringify({
+      nonce,
+      registrantHex,
+      expiresAt: Date.now() + NONCE_TTL_SEC * 1000,
+    }),
     { expirationTtl: NONCE_TTL_SEC },
   );
 }
@@ -244,7 +253,11 @@ async function saveChallenge(env, clientId, nonce, registrantHex) {
 async function getChallenge(env, clientId) {
   const raw = await env.CHALLENGES_KV.get(KV_PREFIX_NONCE + clientId);
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 async function deleteChallenge(env, clientId) {
@@ -335,7 +348,10 @@ async function handleRegister(request, env) {
       // Roll back the domain addition on broadcast failure
       existing.domains.pop();
       await saveClaim(env, clientId, registrantHex, existing.domains);
-      return jsonErr("Failed to broadcast registry event. Please retry: " + err.message, 502);
+      return jsonErr(
+        "Failed to broadcast registry event. Please retry: " + err.message,
+        502,
+      );
     }
   }
 
@@ -351,7 +367,10 @@ async function handleRegister(request, env) {
     return jsonOk({ ok: true, event: event.id, ...broadcast }, 201);
   } catch (err) {
     await env.REGISTRY_KV.delete(KV_PREFIX_CLAIM + clientId);
-    return jsonErr("Failed to broadcast registry event. Please retry: " + err.message, 502);
+    return jsonErr(
+      "Failed to broadcast registry event. Please retry: " + err.message,
+      502,
+    );
   }
 }
 
@@ -456,7 +475,14 @@ async function handleUpdate(request, env) {
 
   // Validate proof event structure
   const { id, pubkey, sig, kind, content, created_at } = signedEvent;
-  if (!id || !pubkey || !sig || kind === undefined || content === undefined || !created_at) {
+  if (
+    !id ||
+    !pubkey ||
+    !sig ||
+    kind === undefined ||
+    content === undefined ||
+    !created_at
+  ) {
     return jsonErr(
       "signedEvent is missing required NIP-01 fields (id, pubkey, sig, kind, content, created_at)",
     );
@@ -534,10 +560,20 @@ function handlePubkey(env) {
 // ── Node.js / local-test compatibility ────────────────────────────────────────
 // In-memory KV shim — lets you run and unit-test the worker outside Cloudflare.
 class InMemoryKV {
-  constructor() { this._store = new Map(); }
-  get(key)        { return Promise.resolve(this._store.get(key) ?? null); }
-  put(key, value) { this._store.set(key, value); return Promise.resolve(); }
-  delete(key)     { this._store.delete(key);     return Promise.resolve(); }
+  constructor() {
+    this._store = new Map();
+  }
+  get(key) {
+    return Promise.resolve(this._store.get(key) ?? null);
+  }
+  put(key, value) {
+    this._store.set(key, value);
+    return Promise.resolve();
+  }
+  delete(key) {
+    this._store.delete(key);
+    return Promise.resolve();
+  }
 }
 
 export default {
@@ -550,7 +586,10 @@ export default {
     // GET /pubkey is the only public read endpoint — no auth required
     if (request.method === "GET" && url.pathname === "/pubkey") {
       if (!env.ROOT_PRIVATE_KEY_HEX) {
-        return jsonErr("Worker misconfiguration: ROOT_PRIVATE_KEY_HEX secret is not set", 500);
+        return jsonErr(
+          "Worker misconfiguration: ROOT_PRIVATE_KEY_HEX secret is not set",
+          500,
+        );
       }
       return handlePubkey(env);
     }
