@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Nostr Shard Signer — Developer Portal</title>
 
-  <!-- nostr-bridge injects window.nostr (Alby / NIP-46 / Web3Auth iframe fallback) -->
+  <!-- nostr-bridge: injects window.nostr with Web3Auth iframe fallback -->
   <script src="/nostr-shard-signer/nostr-bridge.js?v=20260504"></script>
 
   <!-- nostr-post CDN: signer helper + web components -->
@@ -367,10 +367,10 @@
     // Deployed registrar Worker URL.
     const REGISTRAR_URL = "https://nostr-shard-registrar.nostr-shard-signer.workers.dev";
 
-    // NostrBridge is loaded via the inline script above.
-    // We use forceIframe:false so a real Nostr extension (Alby, etc.) takes priority.
-    // The portal itself does NOT need a Web3Auth clientId — it uses whatever signer
-    // the developer already has connected.
+    // NostrBridge: loads the Web3Auth iframe as a floating signer.
+    // forceIframe:false means a native NIP-07 extension (Alby, etc.) takes priority.
+    // NOTE: for the iframe to render here, register https://saintego.github.io
+    //       as an allowed domain via the Register tab below.
     if (typeof NostrBridge !== "undefined") {
       NostrBridge.init({
         clientId:     "__PORTAL_DOES_NOT_NEED_THIS__",
@@ -402,7 +402,7 @@
 
     async function connectNostr() {
       if (!window.nostr) {
-        showResult(resultRegister, "error", "No Nostr signer found. Install Alby or another NIP-07 extension.");
+        showResult(resultRegister, "error", "No Nostr signer found. Install <a href='https://getalby.com' target='_blank'>Alby</a> or another NIP-07 browser extension.");
         return;
       }
       try {

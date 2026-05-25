@@ -148,8 +148,6 @@
     );
     iframeEl.setAttribute("allow", "clipboard-write");
     iframeEl.setAttribute("referrerpolicy", "origin");
-    // Prevent iframe from navigating the parent page
-    iframeEl.setAttribute("csp", "default-src 'self'");
 
     // Guard RPC dispatch until the iframe document has finished loading
     iframeEl.addEventListener("load", function () {
