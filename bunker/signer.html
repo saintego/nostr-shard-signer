@@ -10,7 +10,7 @@
   -->
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'self';
-             script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://auth.web3auth.io;
+             script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://esm.sh https://auth.web3auth.io;
              connect-src 'self' wss: https:;
              img-src 'self' data: https:;
              style-src 'self' 'unsafe-inline';
@@ -654,7 +654,7 @@ function bytesToHex(bytes) {
   // ─────────────────────────────────────────────────────────────────────────────
   async function initWeb3Auth() {
     // Lazy-import: only loaded after the registry check passes to save bandwidth
-    const { Web3Auth } = await import("https://cdn.jsdelivr.net/npm/@web3auth/modal@9/+esm");
+    const { Web3Auth } = await import("https://esm.sh/@web3auth/modal@9");
 
     const instance = new Web3Auth({
       clientId:        clientId,
