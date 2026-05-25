@@ -240,6 +240,16 @@
 
     #result-register, #result-update { display: none; }
 
+    .reg-list { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
+    .reg-card { background: #161622; border: 1px solid #2a2a3e; border-radius: 8px; padding: 1rem; }
+    .reg-client-id { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .reg-client-id code { font-size: 0.8rem; color: #a78bfa; word-break: break-all; }
+    .copy-btn { font-size: 0.7rem; padding: 0.2rem 0.5rem; background: #2a2a3e; border: 1px solid #3a3a5e; color: #aaa; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+    .copy-btn:hover { background: #3a3a5e; color: #e8e8e8; }
+    .reg-domains { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+    .domain-badge { font-size: 0.75rem; background: #0f2a1e; border: 1px solid #1e5a3e; color: #6ee7b7; padding: 0.2rem 0.5rem; border-radius: 4px; }
+    .reg-date { font-size: 0.75rem; color: #555; }
+
     code {
       font-family: monospace;
       font-size: 0.8125rem;
@@ -308,6 +318,7 @@
       <div class="tabs">
         <button class="tab-btn active" data-tab="register">Register clientId</button>
         <button class="tab-btn" data-tab="update">Update Domains</button>
+        <button class="tab-btn" data-tab="registrations">My Registrations</button>
       </div>
 
       <!-- ── REGISTER PANEL ─────────────────────────────────────── -->
@@ -359,6 +370,18 @@
 
         <div id="result-update"></div>
       </div>
+      <!-- ── MY REGISTRATIONS PANEL ──────────────────────────────────── -->
+      <div id="tab-registrations" class="panel">
+        <div class="card">
+          <h2>My Registrations</h2>
+          <p>Fetches your NIP-33 registration events directly from Nostr relays — no server lookup required.</p>
+          <div class="form-footer">
+            <button class="btn-primary" id="btn-load-registrations">Load Registrations</button>
+          </div>
+        </div>
+        <div id="result-registrations"></div>
+      </div>
+
     </div><!-- /app -->
   </div><!-- /container -->
 
@@ -448,8 +471,7 @@
         document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
         document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
         btn.classList.add("active");
-        document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
-      });
+        document.getElementById("tab-" + btn.dataset.tab).classList.add("active");        if (btn.dataset.tab === "registrations" && _pubkey) loadRegistrations();      });
     });
 
     // ── Domain list helpers ───────────────────────────────────────────────────────
@@ -620,6 +642,124 @@
         btnUpdate.textContent = "Sign & Update";
       }
     };
+
+    // ── My Registrations ───────────────────────────────────────────────────────────
+    let _rootPubkey = null;
+    let _rootRelays  = null;
+
+    async function fetchRootMeta() {
+      if (_rootPubkey) return { pubkey: _rootPubkey, relays: _rootRelays };
+      const res = await fetch(`${REGISTRAR_URL}/pubkey`);
+      if (!res.ok) throw new Error("Failed to fetch root pubkey from registrar");
+      const data = await res.json();
+      _rootPubkey = data.pubkey;
+      _rootRelays  = Array.isArray(data.relays) && data.relays.length ? data.relays : ["wss://relay.damus.io"];
+      return { pubkey: _rootPubkey, relays: _rootRelays };
+    }
+
+    function queryRelay(relayUrl, filter) {
+      return new Promise((resolve, reject) => {
+        const events = [];
+        const subId  = Math.random().toString(36).slice(2, 10);
+        let ws;
+        const timer = setTimeout(() => {
+          try { ws.close(); } catch (_) {}
+          resolve(events); // resolve with whatever arrived before timeout
+        }, 10_000);
+        try {
+          ws = new WebSocket(relayUrl);
+        } catch (err) {
+          clearTimeout(timer);
+          reject(err);
+          return;
+        }
+        ws.onopen  = () => ws.send(JSON.stringify(["REQ", subId, filter]));
+        ws.onerror = () => { clearTimeout(timer); reject(new Error("WebSocket error")); };
+        ws.onmessage = (e) => {
+          let msg;
+          try { msg = JSON.parse(e.data); } catch { return; }
+          if (!Array.isArray(msg)) return;
+          if (msg[0] === "EVENT" && msg[1] === subId) {
+            events.push(msg[2]);
+          } else if (msg[0] === "EOSE" && msg[1] === subId) {
+            clearTimeout(timer);
+            ws.close();
+            resolve(events);
+          }
+        };
+      });
+    }
+
+    async function loadRegistrations() {
+      const resultEl = document.getElementById("result-registrations");
+      const btn      = document.getElementById("btn-load-registrations");
+      if (!_pubkey) {
+        showResult(resultEl, "warning", "Connect your Nostr key first.");
+        return;
+      }
+      btn.disabled    = true;
+      btn.textContent = "Loading…";
+      resultEl.style.display = "none";
+      try {
+        const { pubkey: rootPubkey, relays } = await fetchRootMeta();
+        const filter = { kinds: [30078], authors: [rootPubkey], "#p": [_pubkey] };
+
+        let events = [];
+        for (const relay of relays) {
+          try { events = await queryRelay(relay, filter); } catch (_) {}
+          if (events.length > 0) break;
+        }
+
+        // Deduplicate by d-tag (keep most recent per clientId)
+        const byClientId = new Map();
+        for (const ev of events) {
+          const d = ev.tags?.find(t => t[0] === "d")?.[1];
+          if (!d) continue;
+          if (!byClientId.has(d) || ev.created_at > byClientId.get(d).created_at) {
+            byClientId.set(d, ev);
+          }
+        }
+
+        if (byClientId.size === 0) {
+          showResult(resultEl, "info", "No registrations found for your key.");
+          return;
+        }
+
+        let html = "<div class='reg-list'>";
+        for (const [clientId, ev] of byClientId) {
+          let domains = [];
+          try { domains = JSON.parse(ev.content).allowed_domains || []; } catch (_) {}
+          const date = new Date(ev.created_at * 1000).toLocaleDateString();
+          html += `
+            <div class="reg-card">
+              <div class="reg-client-id">
+                <code title="${escapeHtml(clientId)}">${escapeHtml(clientId.length > 32 ? clientId.slice(0, 32) + "…" : clientId)}</code>
+                <button class="copy-btn" data-copy="${escapeHtml(clientId)}">Copy ID</button>
+              </div>
+              <div class="reg-domains">${domains.map(d => `<span class="domain-badge">${escapeHtml(d)}</span>`).join("")}</div>
+              <div class="reg-date">Registered ${escapeHtml(date)}</div>
+            </div>`;
+        }
+        html += "</div>";
+        resultEl.style.display = "block";
+        resultEl.className = "";
+        resultEl.innerHTML = html;
+        resultEl.querySelectorAll(".copy-btn").forEach(b => {
+          b.onclick = async () => {
+            await navigator.clipboard.writeText(b.dataset.copy);
+            b.textContent = "Copied!";
+            setTimeout(() => { b.textContent = "Copy ID"; }, 1500);
+          };
+        });
+      } catch (e) {
+        showResult(resultEl, "error", "Failed to load: " + e.message);
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = "Refresh";
+      }
+    }
+
+    document.getElementById("btn-load-registrations").onclick = loadRegistrations;
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
     function showResult(el, type, html) {

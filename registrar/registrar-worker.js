@@ -13,6 +13,7 @@
  *   RELAY_URLS            — comma-separated relay WebSocket URLs (env var)
  *
  * Endpoints:
+ *   GET  /pubkey    — return root pubkey hex + configured relay URLs (public, no auth)
  *   POST /register   — claim a new clientId → domain binding
  *   POST /update     — two-phase: (1) issue challenge nonce, (2) verify and update domains
  *
@@ -24,7 +25,7 @@
  *   - All domain inputs are normalised to their HTTPS origin to prevent bypass via path tricks.
  */
 
-import { finalizeEvent, verifyEvent, nip19 } from "nostr-tools";
+import { finalizeEvent, verifyEvent, nip19, getPublicKey } from "nostr-tools";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -493,6 +494,26 @@ async function handleUpdate(request, env) {
   });
 }
 
+// ── GET /pubkey ──────────────────────────────────────────────────────────────
+
+/**
+ * Return the root pubkey (derived from ROOT_PRIVATE_KEY_HEX) and the configured
+ * relay URLs so clients can query Nostr directly without hardcoding anything.
+ */
+function handlePubkey(env) {
+  const pubkey = getPublicKey(hexToBytes(env.ROOT_PRIVATE_KEY_HEX));
+  const relays = (env.RELAY_URLS || "wss://relay.damus.io")
+    .split(",")
+    .map((u) => u.trim())
+    .filter(Boolean);
+  return new Response(JSON.stringify({ pubkey, relays }), {
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+}
+
 // ── Main fetch handler ────────────────────────────────────────────────────────
 
 // ── Node.js / local-test compatibility ────────────────────────────────────────
@@ -508,6 +529,16 @@ export default {
   async fetch(request, env, _ctx) {
     // CORS preflight
     if (request.method === "OPTIONS") return cors204();
+
+    const url = new URL(request.url);
+
+    // GET /pubkey is the only public read endpoint — no auth required
+    if (request.method === "GET" && url.pathname === "/pubkey") {
+      if (!env.ROOT_PRIVATE_KEY_HEX) {
+        return jsonErr("Worker misconfiguration: ROOT_PRIVATE_KEY_HEX secret is not set", 500);
+      }
+      return handlePubkey(env);
+    }
 
     if (request.method !== "POST") {
       return jsonErr("Method not allowed — use POST", 405);
@@ -532,8 +563,6 @@ export default {
         500,
       );
     }
-
-    const url = new URL(request.url);
 
     try {
       switch (url.pathname) {
