@@ -7,7 +7,7 @@
  * the binding as a NIP-33 (kind:30078) event signed by the server's root keypair.
  *
  * Required Cloudflare bindings (set via wrangler.toml + `wrangler secret put`):
- *   ROOT_PRIVATE_KEY_HEX  — 64-char hex private key (kept as a secret, never in code)
+ *   ROOT_PRIVATE_KEY_HEX  — root private key: 64-char hex OR bech32 nsec (secret, never in code)
  *   REGISTRY_KV           — KV namespace for clientId → domain claims
  *   CHALLENGES_KV         — KV namespace for one-time ownership challenges
  *   RELAY_URLS            — comma-separated relay WebSocket URLs (env var)
@@ -51,6 +51,21 @@ function hexToBytes(hex) {
     arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
   return arr;
+}
+
+/**
+ * Decode ROOT_PRIVATE_KEY_HEX to a 32-byte Uint8Array.
+ * Accepts either a 64-char lowercase hex string or a bech32 nsec.
+ */
+function getRootPrivkeyBytes(env) {
+  const raw = env.ROOT_PRIVATE_KEY_HEX;
+  if (!raw) throw new Error("ROOT_PRIVATE_KEY_HEX is not set");
+  if (typeof raw === "string" && raw.startsWith("nsec1")) {
+    const decoded = nip19.decode(raw);
+    if (decoded.type !== "nsec") throw new Error("ROOT_PRIVATE_KEY_HEX: expected nsec");
+    return decoded.data; // already Uint8Array
+  }
+  return hexToBytes(raw.toLowerCase().trim());
 }
 
 /** Decode a bech32 npub to its 32-byte hex pubkey; falls back to raw hex. */
@@ -305,7 +320,7 @@ async function handleRegister(request, env) {
       );
     }
     existing.domains.push(normalizedDomain);
-    const rootPrivkey = hexToBytes(env.ROOT_PRIVATE_KEY_HEX);
+    const rootPrivkey = getRootPrivkeyBytes(env);
     const event = buildRegistryEvent(
       rootPrivkey,
       clientId,
@@ -325,7 +340,7 @@ async function handleRegister(request, env) {
   }
 
   // ── New claim ───────────────────────────────────────────────────────────────
-  const rootPrivkey = hexToBytes(env.ROOT_PRIVATE_KEY_HEX);
+  const rootPrivkey = getRootPrivkeyBytes(env);
   const event = buildRegistryEvent(rootPrivkey, clientId, registrantHex, [
     normalizedDomain,
   ]);
@@ -476,7 +491,7 @@ async function handleUpdate(request, env) {
   await deleteChallenge(env, clientId);
 
   // Publish updated NIP-33 event
-  const rootPrivkey = hexToBytes(env.ROOT_PRIVATE_KEY_HEX);
+  const rootPrivkey = getRootPrivkeyBytes(env);
   const event = buildRegistryEvent(
     rootPrivkey,
     clientId,
@@ -501,7 +516,7 @@ async function handleUpdate(request, env) {
  * relay URLs so clients can query Nostr directly without hardcoding anything.
  */
 function handlePubkey(env) {
-  const pubkey = getPublicKey(hexToBytes(env.ROOT_PRIVATE_KEY_HEX));
+  const pubkey = getPublicKey(getRootPrivkeyBytes(env));
   const relays = (env.RELAY_URLS || "wss://relay.damus.io")
     .split(",")
     .map((u) => u.trim())
