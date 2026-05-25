@@ -27,15 +27,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build signer (Vite)
+        run: npm run build --workspace=bunker
+
       - name: Assemble Pages artifact
-        # Copies all static assets into _site/:
-        #   _site/nostr-bridge.js          → CDN bundle
-        #   _site/signer.html              → iframe bunker
-        #   _site/portal/index.html        → developer registration portal
+        # _site/signer.html  → Vite-built React app (from bunker/dist/index.html)
+        # _site/assets/      → Vite-hashed JS/CSS chunks
+        # _site/nostr-bridge.js → bridge script loaded by portal
+        # _site/portal/index.html, _site/index.html → developer portal
         run: |
           mkdir -p _site/portal
           cp nostr-bridge.js _site/nostr-bridge.js
-          cp bunker/signer.html _site/signer.html
+          cp bunker/dist/index.html _site/signer.html
+          cp -r bunker/dist/assets _site/assets
           cp portal/index.html _site/portal/index.html
           cp portal/index.html _site/index.html
 

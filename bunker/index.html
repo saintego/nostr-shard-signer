@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!--
+    NOTE: 'unsafe-inline' is needed for Web3Auth's internal styles/scripts.
+    Remove it only after verifying no eval() or inline scripts are used.
+    For local Vite dev, HMR also requires 'unsafe-inline' and ws://*.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none';
+                 script-src 'self' 'unsafe-inline' https://auth.web3auth.io;
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' https: data:;
+           connect-src 'self' https: wss: ws: https://*.web3auth.io wss://*.web3auth.io;
+                 frame-src https://auth.web3auth.io;
+                 worker-src blob:;
+                 font-src 'self' https:;" />
+  <title>Nostr Signer</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
