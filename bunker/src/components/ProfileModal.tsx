@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { UserProfile, KeyInfo } from '../types';
 
 type TabId = 'profile' | 'keys' | 'settings';
@@ -44,10 +44,19 @@ export function ProfileModal({
     const [lud16, setLud16] = useState(profile.lud16 ?? '');
     const [saving, setSaving] = useState(false);
     const [saveMsg, setSaveMsg] = useState('');
+    const saveMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Clear pending timer on unmount to prevent state update on unmounted component
+    useEffect(() => {
+        return () => {
+            if (saveMsgTimer.current !== null) clearTimeout(saveMsgTimer.current);
+        };
+    }, []);
 
     const handleSaveProfile = async () => {
         setSaving(true);
         setSaveMsg('');
+        if (saveMsgTimer.current !== null) clearTimeout(saveMsgTimer.current);
         try {
             await onSaveProfile({ name, picture, about, lud16 });
             setSaveMsg('Saved ✓');
@@ -55,7 +64,7 @@ export function ProfileModal({
             setSaveMsg(`Error: ${(e as Error).message}`);
         } finally {
             setSaving(false);
-            setTimeout(() => setSaveMsg(''), 2500);
+            saveMsgTimer.current = setTimeout(() => setSaveMsg(''), 2500);
         }
     };
 

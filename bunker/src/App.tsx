@@ -88,11 +88,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setKeyInfo({ publicKeyHex: km.publicKeyHex, nsecStr: km.nsecStr, npubStr: km.npubStr });
         postToParent({ type: 'AUTH_SUCCESS', pubkey: km.publicKeyHex });
 
-        const profile = await fetchProfile(km.publicKeyHex, registryRelays);
+        const profile = await fetchProfile(km.publicKeyHex, publishRelays);
         if (profile) setUserProfile(profile);
 
         setView('avatar');
-    }, [postToParent, registryRelays]);
+    }, [postToParent, publishRelays]);  // use publishRelays, not registryRelays
 
     // ── postMessage handler (use ref to always capture fresh state) ───────────
     const handleMessageRef = useRef<(event: MessageEvent) => void>(() => { });
@@ -102,6 +102,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (!event.origin || event.origin === 'null') return;
             if (event.origin !== parentOrigin) return;
             if (event.source !== window.parent) return;
+
+            // Guard against non-object payloads (null, primitives, etc.)
+            if (!event.data || typeof event.data !== 'object') return;
 
             const { id, method, params = [] } = event.data as {
                 id: string | number;
@@ -128,14 +131,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            // present confirmation dialog and wait for user action
-            const result = await new Promise<string>((resolve, reject) => {
-                confCallbackRef.current = { resolve, reject };
-                setPendingConf({ method, params });
-                setView('confirm');
-            }).catch(e => { throw e; });
-
+            // present confirmation dialog and wait for user action;
+            // always reply to the parent — even if the user rejects
             try {
+                await new Promise<string>((resolve, reject) => {
+                    confCallbackRef.current = { resolve, reject };
+                    setPendingConf({ method, params });
+                    setView('confirm');
+                });
                 const rpcResult = await processRpc(method, params, pk, ki.publicKeyHex);
                 postToParent({ id, result: rpcResult, error: null });
             } catch (e) {
@@ -269,6 +272,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     const handleLogout = useCallback(async () => {
         try { await web3authRef.current?.logout(); } catch (_) { }
+        // Zero the key material before dropping the reference
+        privateKeyRef.current?.fill(0);
         privateKeyRef.current = null;
         setKeyInfo(null);
         setUserProfile({});

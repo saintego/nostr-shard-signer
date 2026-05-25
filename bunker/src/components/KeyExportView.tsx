@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface Props {
     nsecStr: string;
@@ -8,8 +8,30 @@ interface Props {
 
 export function KeyExportView({ nsecStr, npubStr, onBack }: Props) {
     const [nsecVisible, setNsecVisible] = useState(false);
-    const [nSecCopied, setNSecCopied] = useState(false);
-    const [nPubCopied, setNPubCopied] = useState(false);
+    const [nsecCopied, setNsecCopied] = useState(false);
+    const [npubCopied, setNpubCopied] = useState(false);
+    const autoHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Clear the auto-hide timer on unmount
+    useEffect(() => {
+        return () => {
+            if (autoHideTimer.current !== null) clearTimeout(autoHideTimer.current);
+        };
+    }, []);
+
+    const toggleNsec = () => {
+        setNsecVisible(v => {
+            const next = !v;
+            if (autoHideTimer.current !== null) clearTimeout(autoHideTimer.current);
+            if (next) {
+                // Auto-hide after 10 s
+                autoHideTimer.current = setTimeout(() => setNsecVisible(false), 10_000);
+            } else {
+                autoHideTimer.current = null;
+            }
+            return next;
+        });
+    };
 
     const copyText = async (text: string, onCopied: (v: boolean) => void) => {
         try {
@@ -39,23 +61,23 @@ export function KeyExportView({ nsecStr, npubStr, onBack }: Props) {
                     <code className="key-display">{npubStr}</code>
                     <button
                         className="copy-btn"
-                        onClick={() => copyText(npubStr, setNPubCopied)}
+                        onClick={() => copyText(npubStr, setNpubCopied)}
                         aria-label="Copy npub"
                     >
-                        {nPubCopied ? '✓' : '⧉'}
+                        {npubCopied ? '✓' : '⧉'}
                     </button>
                 </div>
             </div>
 
             <div className="key-section">
-                <label>Secret key (nsec)</label>
+                <label>Secret key (nsec) — hidden after 10 s</label>
                 <div className="key-row">
                     <code className="key-display">
                         {nsecVisible ? nsecStr : '•'.repeat(Math.min(nsecStr.length, 40))}
                     </code>
                     <button
                         className="copy-btn"
-                        onClick={() => setNsecVisible(v => !v)}
+                        onClick={toggleNsec}
                         aria-label={nsecVisible ? 'Hide nsec' : 'Reveal nsec'}
                     >
                         {nsecVisible ? '🙈' : '👁️'}
@@ -63,10 +85,10 @@ export function KeyExportView({ nsecStr, npubStr, onBack }: Props) {
                     {nsecVisible && (
                         <button
                             className="copy-btn"
-                            onClick={() => copyText(nsecStr, setNSecCopied)}
+                            onClick={() => copyText(nsecStr, setNsecCopied)}
                             aria-label="Copy nsec"
                         >
-                            {nSecCopied ? '✓' : '⧉'}
+                            {nsecCopied ? '✓' : '⧉'}
                         </button>
                     )}
                 </div>
