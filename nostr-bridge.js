@@ -122,6 +122,9 @@
     url.searchParams.set("layout", config.layout || "floating");
     url.searchParams.set("buttonSize", config.buttonSize || "standard");
     url.searchParams.set("parentOrigin", global.location.origin);
+    if (config.registrarUrl) {
+      url.searchParams.set("registrarUrl", config.registrarUrl);
+    }
     return url.toString();
   }
 

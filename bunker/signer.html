@@ -488,6 +488,22 @@ function bytesToHex(bytes) {
   const clientId   = urlParams.get("clientId")   || "";
   const layout     = urlParams.get("layout")     || "floating";
   const buttonSize = urlParams.get("buttonSize") || "standard";
+  const registrarUrl = (urlParams.get("registrarUrl") || "").replace(/\/$/, "");
+
+  // Resolved at runtime: fetched from registrarUrl if provided, else fallbacks above.
+  let _rootPubkeyHex = ROOT_PUBKEY_HEX;
+  let _registryRelays = REGISTRY_RELAYS;
+
+  async function resolveRegistryConfig() {
+    if (!registrarUrl) return;
+    try {
+      const res = await fetch(registrarUrl + "/pubkey");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.pubkey) _rootPubkeyHex = data.pubkey;
+      if (Array.isArray(data.relays) && data.relays.length) _registryRelays = data.relays;
+    } catch (_) { /* network error — fall through to hardcoded fallback */ }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Secure parent-origin derivation
@@ -605,16 +621,16 @@ function bytesToHex(bytes) {
     let content  = null;
     try {
       const events = await pool.querySync(
-        REGISTRY_RELAYS,
-        { authors: [ROOT_PUBKEY_HEX], kinds: [30078], "#d": [cId], limit: 1 },
+        _registryRelays,
+        { authors: [_rootPubkeyHex], kinds: [30078], "#d": [cId], limit: 1 },
         { maxWait: 8000 },
       );
-      if (events.length > 0 && events[0].pubkey === ROOT_PUBKEY_HEX) {
+      if (events.length > 0 && events[0].pubkey === _rootPubkeyHex) {
         content = JSON.parse(events[0].content);
       }
     } catch (_) {
     } finally {
-      pool.close(REGISTRY_RELAYS);
+      pool.close(_registryRelays);
     }
 
     if (!content) return false;
@@ -1081,7 +1097,10 @@ function bytesToHex(bytes) {
     // 3. Render social buttons for the configured layout
     renderSocialButtons(buttonSize);
 
-    // 4. Validate domain against NIP-33 registry (uses _parentOrigin, not URL param)
+    // 4. Fetch root pubkey + relays from registrar (if registrarUrl was provided)
+    await resolveRegistryConfig();
+
+    // 5. Validate domain against NIP-33 registry (uses _parentOrigin, not URL param)
     const authorized = await isAuthorized(clientId, _parentOrigin);
     if (!authorized) {
       showError(
