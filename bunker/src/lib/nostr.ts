@@ -15,9 +15,21 @@ export const DEFAULT_REGISTRY_RELAYS = [
 export function publishToRelay(relayUrl: string, event: object): Promise<void> {
   return new Promise((resolve, reject) => {
     let ws: WebSocket | null = null;
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        ws?.close();
+      } catch (_) {
+        // Ignore close errors
+      }
+      fn();
+    };
+
     const timer = setTimeout(() => {
-      ws?.close();
-      reject(new Error("Timeout"));
+      settle(() => reject(new Error("Timeout")));
     }, 8000);
 
     try {
@@ -37,16 +49,13 @@ export function publishToRelay(relayUrl: string, event: object): Promise<void> {
         return;
       }
       if (Array.isArray(msg) && msg[0] === "OK") {
-        clearTimeout(timer);
-        ws!.close();
         msg[2] !== false
-          ? resolve()
-          : reject(new Error((msg[3] as string) || "Rejected"));
+          ? settle(() => resolve())
+          : settle(() => reject(new Error((msg[3] as string) || "Rejected")));
       }
     };
     ws.onerror = () => {
-      clearTimeout(timer);
-      reject(new Error("WebSocket error"));
+      settle(() => reject(new Error("WebSocket error")));
     };
   });
 }

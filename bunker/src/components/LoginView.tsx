@@ -1,10 +1,11 @@
+import type { ReactNode } from 'react';
 import type { ButtonSize } from '../types';
 
 interface SocialProvider {
     id: string;
     label: string;
     gridLabel: string;
-    icon: React.ReactNode;
+    icon: ReactNode;
 }
 
 const SOCIAL_PROVIDERS: SocialProvider[] = [

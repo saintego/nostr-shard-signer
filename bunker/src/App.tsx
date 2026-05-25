@@ -131,6 +131,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
+            if (confCallbackRef.current) {
+                postToParent({ id, result: null, error: 'Another confirmation is already pending' });
+                return;
+            }
+
             // present confirmation dialog and wait for user action;
             // always reply to the parent — even if the user rejects
             try {
@@ -190,14 +195,17 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const activeRegistryRelays = regConfig.relays?.length ? regConfig.relays : DEFAULT_REGISTRY_RELAYS;
             const activeRootPubkey = regConfig.pubkey ?? ROOT_PUBKEY_HEX;
 
-            // 4. NIP-33 authorization check (skip if root pubkey is a placeholder)
-            if (activeRootPubkey !== ROOT_PUBKEY_HEX && !/^__/.test(activeRootPubkey)) {
-                const authorized = await isAuthorized(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
-                if (cancelled) return;
-                if (!authorized) {
-                    showError('Access denied', `"${parentOrigin}" is not authorized for this clientId.`);
-                    return;
-                }
+            // 4. NIP-33 authorization check (fail closed if root pubkey is missing/placeholder)
+            if (activeRootPubkey === ROOT_PUBKEY_HEX || /^__/.test(activeRootPubkey)) {
+                showError('Signer misconfiguration', 'Missing root registry public key. Configure registrarUrl or replace __ROOT_PUBKEY_HEX__.');
+                return;
+            }
+
+            const authorized = await isAuthorized(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
+            if (cancelled) return;
+            if (!authorized) {
+                showError('Access denied', `"${parentOrigin}" is not authorized for this clientId.`);
+                return;
             }
 
             // 5. Initialize Web3Auth
@@ -217,10 +225,16 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                     const km = await extractKey(w3a);
                     if (!cancelled) await onLoginSuccess(km);
                 } catch (_) {
-                    if (!cancelled) setView('login');
+                    if (!cancelled) {
+                        setView('login');
+                        postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
+                    }
                 }
             } else {
-                if (!cancelled) setView('login');
+                if (!cancelled) {
+                    setView('login');
+                    postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
+                }
             }
         };
 
