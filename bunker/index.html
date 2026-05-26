@@ -21,6 +21,27 @@
 </head>
 <body>
   <div id="root"></div>
+  <!--
+    Polyfill process.nextTick before any ES module loads.
+    Web3Auth v10 bundles readable-stream which calls process.nextTick inside
+    pre-compiled chunks that run before Vite's module-level polyfill injection.
+    Setting it on the global object here guarantees it is always present.
+  -->
+  <script>
+    (function () {
+      var p = globalThis.process || (globalThis.process = {});
+      if (typeof p.nextTick !== 'function') {
+        p.nextTick = function nextTick(fn) {
+          var a = Array.prototype.slice.call(arguments, 1);
+          Promise.resolve().then(function () { fn.apply(null, a); });
+        };
+      }
+      p.env = p.env || {};
+      p.version = p.version || 'v18.0.0';
+      p.versions = p.versions || {};
+      p.platform = p.platform || 'browser';
+    }());
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

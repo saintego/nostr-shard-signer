@@ -73,9 +73,8 @@ export function LoginView({ buttonSize, onLogin }: Props) {
         );
     }
 
-    const subset = SOCIAL_PROVIDERS.filter(
-        p => p.id === 'google' || p.id === 'email_passwordless',
-    );
+    // Show all providers in standard mode; order matches loginMethodsOrder
+    const subset = SOCIAL_PROVIDERS;
 
     return (
         <div id="view-button" className="view active">
