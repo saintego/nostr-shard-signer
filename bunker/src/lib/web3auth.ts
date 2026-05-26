@@ -27,11 +27,11 @@ export async function loginWith(
   web3auth: Web3Auth,
   provider: string,
 ): Promise<void> {
-  // In Web3Auth v10 the adapter name changed from 'openlogin' to 'auth'.
-  // The TypeScript typings for AuthLoginParams omit loginProvider in v10's public
-  // interface, but the runtime still accepts it — cast to suppress the error.
+  // In Web3Auth v10 the adapter name is 'auth' and the parameter is 'authConnection'
+  // (not 'loginProvider' as in v9). The string values match AUTH_CONNECTION enum
+  // ("google", "twitter", "apple", "email_passwordless", etc.).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await web3auth.connectTo("auth", { loginProvider: provider } as any);
+  await web3auth.connectTo("auth", { authConnection: provider } as any);
 }
 
 /** Extract and validate the raw secp256k1 private key from the Web3Auth session. */
