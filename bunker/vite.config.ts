@@ -8,6 +8,9 @@ export default defineConfig({
   plugins: [
     react(),
     nodePolyfills({
+      // protocolImports: polyfill node:process, node:stream etc. used by
+      // Web3Auth v10's internal auth-adapter streams (avoids nextTick errors)
+      protocolImports: true,
       include: ["buffer", "process", "stream", "util", "events"],
       globals: { Buffer: true, process: true, global: true },
     }),
