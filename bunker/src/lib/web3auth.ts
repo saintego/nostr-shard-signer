@@ -13,7 +13,7 @@ export interface KeyMaterial {
 export async function initWeb3Auth(clientId: string): Promise<Web3Auth> {
   const instance = new Web3Auth({
     clientId,
-    web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
+    web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET, // TODO: switch to PRODUCTION when ready, but need to verify it works first
     uiConfig: {
       loginMethodsOrder: ["google", "apple", "twitter", "email_passwordless"],
     },
