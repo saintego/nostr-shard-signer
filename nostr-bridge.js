@@ -36,7 +36,7 @@
   const IFRAME_ID = "nostr-signer-iframe";
   const CONTAINER_ID = "nostr-signer-container";
   const MODE_IFRAME = "iframe"; // signing routed to the iframe bunker
-  const MODE_WNJ = "wnj";     // signing routed to window.nostr.js signer
+  const MODE_WNJ = "wnj"; // signing routed to window.nostr.js signer
 
   // ── State ────────────────────────────────────────────────────────────────────
   let config = {};
@@ -51,8 +51,8 @@
   let reqCounter = 0;
   let resolvedOrigin = null; // pinned after first valid message from iframe
   let initialized = false;
-  let wnjNostr = null;          // window.nostr.js implementation, captured after CDN load
-  let activeMode = MODE_IFRAME;  // MODE_IFRAME | MODE_WNJ
+  let wnjNostr = null; // window.nostr.js implementation, captured after CDN load
+  let activeMode = MODE_IFRAME; // MODE_IFRAME | MODE_WNJ
 
   // ── 2D size map [layout][state] ───────────────────────────────────────────────
   // Numeric values are converted to "Npx"; strings (e.g. "100%") are used as-is.
@@ -320,7 +320,8 @@
     return {
       getPublicKey() {
         if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.getPublicKey();
-        if (authState === "loggedIn" && currentPubkey) return Promise.resolve(currentPubkey);
+        if (authState === "loggedIn" && currentPubkey)
+          return Promise.resolve(currentPubkey);
         // Try window.nostr.js first; fall back to iframe on rejection.
         if (wnjNostr) {
           return wnjGetPublicKey().catch(function () {
@@ -337,30 +338,37 @@
       },
 
       signEvent(event) {
-        if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.signEvent(event);
+        if (activeMode === MODE_WNJ && wnjNostr)
+          return wnjNostr.signEvent(event);
         return dispatchRpc("sign_event", [JSON.stringify(event)]).then(
-          function (result) { return JSON.parse(result); },
+          function (result) {
+            return JSON.parse(result);
+          },
         );
       },
 
       nip04: {
         encrypt(recipientHex, plaintext) {
-          if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.nip04.encrypt(recipientHex, plaintext);
+          if (activeMode === MODE_WNJ && wnjNostr)
+            return wnjNostr.nip04.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip04_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
-          if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.nip04.decrypt(senderHex, ciphertext);
+          if (activeMode === MODE_WNJ && wnjNostr)
+            return wnjNostr.nip04.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip04_decrypt", [senderHex, ciphertext]);
         },
       },
 
       nip44: {
         encrypt(recipientHex, plaintext) {
-          if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.nip44.encrypt(recipientHex, plaintext);
+          if (activeMode === MODE_WNJ && wnjNostr)
+            return wnjNostr.nip44.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip44_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
-          if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.nip44.decrypt(senderHex, ciphertext);
+          if (activeMode === MODE_WNJ && wnjNostr)
+            return wnjNostr.nip44.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip44_decrypt", [senderHex, ciphertext]);
         },
       },
