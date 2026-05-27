@@ -230,7 +230,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 try {
                     const km = await extractKey(w3a);
                     let w3aProfileImage: string | undefined;
-                    try { w3aProfileImage = (await w3a.getUserInfo()).profileImage || undefined; } catch (_) {}
+                    try { w3aProfileImage = (await w3a.getUserInfo()).profileImage || undefined; } catch (_) { }
                     if (!cancelled) await onLoginSuccess(km, w3aProfileImage);
                 } catch (_) {
                     if (!cancelled) {
@@ -265,7 +265,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             await w3a.connect();
             const km = await extractKey(w3a);
             let w3aProfileImage: string | undefined;
-            try { w3aProfileImage = (await w3a.getUserInfo()).profileImage || undefined; } catch (_) {}
+            try { w3aProfileImage = (await w3a.getUserInfo()).profileImage || undefined; } catch (_) { }
             await onLoginSuccess(km, w3aProfileImage);
         } catch (e) {
             // Restore button size (user cancelled or error)

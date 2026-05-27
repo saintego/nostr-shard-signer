@@ -312,28 +312,34 @@
       signEvent(event) {
         if (activeMode === "wnj" && wnjNostr) return wnjNostr.signEvent(event);
         return dispatchRpc("sign_event", [JSON.stringify(event)]).then(
-          function (result) { return JSON.parse(result); },
+          function (result) {
+            return JSON.parse(result);
+          },
         );
       },
 
       nip04: {
         encrypt(recipientHex, plaintext) {
-          if (activeMode === "wnj" && wnjNostr) return wnjNostr.nip04.encrypt(recipientHex, plaintext);
+          if (activeMode === "wnj" && wnjNostr)
+            return wnjNostr.nip04.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip04_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
-          if (activeMode === "wnj" && wnjNostr) return wnjNostr.nip04.decrypt(senderHex, ciphertext);
+          if (activeMode === "wnj" && wnjNostr)
+            return wnjNostr.nip04.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip04_decrypt", [senderHex, ciphertext]);
         },
       },
 
       nip44: {
         encrypt(recipientHex, plaintext) {
-          if (activeMode === "wnj" && wnjNostr) return wnjNostr.nip44.encrypt(recipientHex, plaintext);
+          if (activeMode === "wnj" && wnjNostr)
+            return wnjNostr.nip44.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip44_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
-          if (activeMode === "wnj" && wnjNostr) return wnjNostr.nip44.decrypt(senderHex, ciphertext);
+          if (activeMode === "wnj" && wnjNostr)
+            return wnjNostr.nip44.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip44_decrypt", [senderHex, ciphertext]);
         },
       },
@@ -459,8 +465,12 @@
     const proxy = buildNostrProxy();
     try {
       Object.defineProperty(global, "nostr", {
-        get() { return proxy; },
-        set() { /* ignore */ },
+        get() {
+          return proxy;
+        },
+        set() {
+          /* ignore */
+        },
         configurable: true,
       });
     } catch (_) {
