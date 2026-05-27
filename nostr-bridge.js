@@ -35,6 +35,8 @@
   const IFRAME_AUTH_STATE_TIMEOUT_MS = 10000; // How long to wait for AUTH_STATE from iframe
   const IFRAME_ID = "nostr-signer-iframe";
   const CONTAINER_ID = "nostr-signer-container";
+  const MODE_IFRAME = "iframe"; // signing routed to the iframe bunker
+  const MODE_WNJ = "wnj";     // signing routed to window.nostr.js signer
 
   // ── State ────────────────────────────────────────────────────────────────────
   let config = {};
@@ -49,8 +51,8 @@
   let reqCounter = 0;
   let resolvedOrigin = null; // pinned after first valid message from iframe
   let initialized = false;
-  let wnjNostr = null; // window.nostr.js implementation, captured after CDN load
-  let activeMode = "iframe"; // "iframe" | "wnj"
+  let wnjNostr = null;          // window.nostr.js implementation, captured after CDN load
+  let activeMode = MODE_IFRAME;  // MODE_IFRAME | MODE_WNJ
 
   // ── 2D size map [layout][state] ───────────────────────────────────────────────
   // Numeric values are converted to "Npx"; strings (e.g. "100%") are used as-is.
@@ -212,7 +214,7 @@
       }
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
-      if (data.loggedIn) activeMode = "iframe"; // existing session restored
+      if (data.loggedIn) activeMode = MODE_IFRAME; // existing session restored
       applySize(data.loggedIn ? "avatar" : "button");
       flushQueue();
       return;
@@ -225,7 +227,7 @@
       }
       authState = "loggedIn";
       currentPubkey = data.pubkey;
-      activeMode = "iframe"; // user authenticated via iframe OAuth
+      activeMode = MODE_IFRAME; // user authenticated via iframe OAuth
       applySize("avatar");
       flushQueue();
       return;
@@ -298,12 +300,35 @@
   }
 
   // ── window.nostr Proxy ───────────────────────────────────────────────────────
+  // Routing priority:
+  //   1. MODE_WNJ  — user already connected via window.nostr.js; delegate everything there.
+  //   2. iframe loggedIn — user authenticated via OAuth; use cached pubkey / iframe RPC.
+  //   3. wnjNostr available — try window.nostr.js first (shows its widget); on success
+  //      lock activeMode = MODE_WNJ so all subsequent calls go through it. On failure
+  //      (user cancelled or wnj not set up) fall through to iframe queue.
+  //   4. iframe queue — authState unknown (still loading) or loggedOut.
   function buildNostrProxy() {
+    function wnjGetPublicKey() {
+      return wnjNostr.getPublicKey().then(function (pubkey) {
+        activeMode = MODE_WNJ;
+        authState = "loggedIn";
+        currentPubkey = pubkey;
+        return pubkey;
+      });
+    }
+
     return {
       getPublicKey() {
-        if (activeMode === "wnj" && wnjNostr) return wnjNostr.getPublicKey();
-        if (authState === "loggedIn" && currentPubkey) {
-          return Promise.resolve(currentPubkey);
+        if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.getPublicKey();
+        if (authState === "loggedIn" && currentPubkey) return Promise.resolve(currentPubkey);
+        // Try window.nostr.js first; fall back to iframe on rejection.
+        if (wnjNostr) {
+          return wnjGetPublicKey().catch(function () {
+            return dispatchRpc("get_public_key", []).then(function (result) {
+              currentPubkey = result;
+              return result;
+            });
+          });
         }
         return dispatchRpc("get_public_key", []).then(function (result) {
           currentPubkey = result;
@@ -312,36 +337,30 @@
       },
 
       signEvent(event) {
-        if (activeMode === "wnj" && wnjNostr) return wnjNostr.signEvent(event);
+        if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.signEvent(event);
         return dispatchRpc("sign_event", [JSON.stringify(event)]).then(
-          function (result) {
-            return JSON.parse(result);
-          },
+          function (result) { return JSON.parse(result); },
         );
       },
 
       nip04: {
         encrypt(recipientHex, plaintext) {
-          if (activeMode === "wnj" && wnjNostr)
-            return wnjNostr.nip04.encrypt(recipientHex, plaintext);
+          if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.nip04.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip04_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
-          if (activeMode === "wnj" && wnjNostr)
-            return wnjNostr.nip04.decrypt(senderHex, ciphertext);
+          if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.nip04.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip04_decrypt", [senderHex, ciphertext]);
         },
       },
 
       nip44: {
         encrypt(recipientHex, plaintext) {
-          if (activeMode === "wnj" && wnjNostr)
-            return wnjNostr.nip44.encrypt(recipientHex, plaintext);
+          if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.nip44.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip44_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
-          if (activeMode === "wnj" && wnjNostr)
-            return wnjNostr.nip44.decrypt(senderHex, ciphertext);
+          if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.nip44.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip44_decrypt", [senderHex, ciphertext]);
         },
       },

@@ -49,15 +49,6 @@ body {
 .login-btn:active { background: #5b21b6; }
 .login-btn img { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; }
 
-/* Outlined variant — used for browser extension button */
-.login-btn--outline {
-  background: #fff;
-  color: #7c3aed;
-  border: 2px solid #7c3aed;
-}
-.login-btn--outline:hover { background: #f5f3ff; }
-.login-btn--outline:active { background: #ede9fe; }
-
 /* Large social grid */
 .social-grid {
   display: grid;
