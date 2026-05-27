@@ -55,16 +55,17 @@
   const SIZE_MAP = {
     floating: {
       button: {
-        standard: { w: 220, h: 48 },
-        large_social_grid: { w: 320, h: 136 },
+        // Single "Sign in" button — Web3Auth modal opens inside the iframe
+        standard: { w: 220, h: 80 },
+        large_social_grid: { w: 220, h: 80 },
       },
       avatar: { w: 48, h: 48 },
       modal: { w: 420, h: 580 },
     },
     "in-place": {
       button: {
-        standard: { w: "100%", h: "48px" },
-        large_social_grid: { w: "100%", h: "136px" },
+        standard: { w: "100%", h: "80px" },
+        large_social_grid: { w: "100%", h: "80px" },
       },
       avatar: { w: "100%", h: "48px" },
       modal: { w: "100%", h: "580px" },
@@ -209,6 +210,7 @@
       }
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
+      if (data.loggedIn) activeMode = "iframe"; // existing session restored
       applySize(data.loggedIn ? "avatar" : "button");
       flushQueue();
       return;
@@ -221,6 +223,7 @@
       }
       authState = "loggedIn";
       currentPubkey = data.pubkey;
+      activeMode = "iframe"; // user authenticated via iframe OAuth
       applySize("avatar");
       flushQueue();
       return;
@@ -296,6 +299,7 @@
   function buildNostrProxy() {
     return {
       getPublicKey() {
+        if (activeMode === "wnj" && wnjNostr) return wnjNostr.getPublicKey();
         if (authState === "loggedIn" && currentPubkey) {
           return Promise.resolve(currentPubkey);
         }
@@ -306,31 +310,52 @@
       },
 
       signEvent(event) {
+        if (activeMode === "wnj" && wnjNostr) return wnjNostr.signEvent(event);
         return dispatchRpc("sign_event", [JSON.stringify(event)]).then(
-          function (result) {
-            return JSON.parse(result);
-          },
+          function (result) { return JSON.parse(result); },
         );
       },
 
       nip04: {
         encrypt(recipientHex, plaintext) {
+          if (activeMode === "wnj" && wnjNostr) return wnjNostr.nip04.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip04_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
+          if (activeMode === "wnj" && wnjNostr) return wnjNostr.nip04.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip04_decrypt", [senderHex, ciphertext]);
         },
       },
 
       nip44: {
         encrypt(recipientHex, plaintext) {
+          if (activeMode === "wnj" && wnjNostr) return wnjNostr.nip44.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip44_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
+          if (activeMode === "wnj" && wnjNostr) return wnjNostr.nip44.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip44_decrypt", [senderHex, ciphertext]);
         },
       },
     };
+  }
+
+  // ── window.nostr.js loader ────────────────────────────────────────────────────
+  // Injects the CDN script, which installs itself as window.nostr.
+  // We capture that implementation then reinstall our proxy on top.
+  function loadWindowNostrJs() {
+    return new Promise(function (resolve) {
+      global.wnjParams = {
+        startHidden: true, // hidden until getPublicKey() is called by the app
+        accent: "purple",
+      };
+      var s = document.createElement("script");
+      s.src =
+        "https://cdn.jsdelivr.net/npm/window.nostr.js/dist/window.nostr.min.js";
+      s.onload = resolve;
+      s.onerror = resolve; // silently degrade if CDN is unavailable
+      document.head.appendChild(s);
+    });
   }
 
   // ── Native extension probe ───────────────────────────────────────────────────
@@ -401,22 +426,9 @@
     const nativeNostr =
       typeof global.nostr !== "undefined" ? global.nostr : null;
 
-    // Install our proxy synchronously so callers can queue immediately.
-    // Use defineProperty so we shadow any existing value without destroying it.
-    const proxy = buildNostrProxy();
-    try {
-      Object.defineProperty(global, "nostr", {
-        get() {
-          return proxy;
-        },
-        set() {
-          /* ignore attempts to overwrite */
-        },
-        configurable: true,
-      });
-    } catch (_) {
-      global.nostr = proxy;
-    }
+    // Install proxy with a plain assignment first so window.nostr.js (loaded
+    // below) can overwrite it; we'll lock it again after capturing wnj.
+    global.nostr = buildNostrProxy();
 
     // Register message listener before the iframe loads
     global.addEventListener("message", onMessage);
@@ -424,28 +436,35 @@
     if (!config.forceIframe && nativeNostr) {
       const works = await probeNativeExtension(nativeNostr);
       if (works) {
-        // The native extension is responsive — defer to it instead of the iframe.
-        // Restore the native object and tear down our listener.
-        try {
-          Object.defineProperty(global, "nostr", {
-            value: nativeNostr,
-            writable: true,
-            configurable: true,
-          });
-        } catch (_) {
-          global.nostr = nativeNostr;
-        }
+        // The native extension is responsive — restore it and skip everything.
+        global.nostr = nativeNostr;
         global.removeEventListener("message", onMessage);
         initialized = false;
         console.info(
           "nostr-bridge: responsive native extension found; iframe skipped.",
         );
-        // Hand off to nostr-login if it is available on the page
-        if (global.nostrLogin && typeof global.nostrLogin.init === "function") {
-          global.nostrLogin.init({ bunkers: "", perms: "" });
-        }
         return;
       }
+    }
+
+    if (!config.forceIframe) {
+      // Load window.nostr.js — gives users a UI to connect Alby, Amber,
+      // or any NIP-46 bunker via the floating widget.
+      await loadWindowNostrJs();
+      // Capture wnj's window.nostr implementation.
+      wnjNostr = typeof global.nostr !== "undefined" ? global.nostr : null;
+    }
+
+    // Reinstall our proxy on top (locks window.nostr so nothing else overwrites it).
+    const proxy = buildNostrProxy();
+    try {
+      Object.defineProperty(global, "nostr", {
+        get() { return proxy; },
+        set() { /* ignore */ },
+        configurable: true,
+      });
+    } catch (_) {
+      global.nostr = proxy;
     }
 
     // AUTH_STATE timeout: if the iframe doesn't report back in time,
