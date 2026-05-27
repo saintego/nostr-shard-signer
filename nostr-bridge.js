@@ -49,8 +49,8 @@
   let reqCounter = 0;
   let resolvedOrigin = null; // pinned after first valid message from iframe
   let initialized = false;
-  let wnjNostr = null;        // window.nostr.js implementation, captured after CDN load
-  let activeMode = "iframe";  // "iframe" | "wnj"
+  let wnjNostr = null; // window.nostr.js implementation, captured after CDN load
+  let activeMode = "iframe"; // "iframe" | "wnj"
 
   // ── 2D size map [layout][state] ───────────────────────────────────────────────
   // Numeric values are converted to "Npx"; strings (e.g. "100%") are used as-is.
