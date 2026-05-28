@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Web3Auth } from '@web3auth/modal';
 
-import type { ViewName, ButtonSize, UserProfile, KeyInfo, PendingConfirmation } from './types';
+import type { ViewName, UserProfile, KeyInfo, PendingConfirmation } from './types';
 import { validateEmbedding } from './lib/origin';
 import { fetchRegistrarConfig, isAuthorized } from './lib/registry';
-import { initWeb3Auth, loginWith, extractKey } from './lib/web3auth';
+import { initWeb3Auth, extractKey } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { requiresConfirmation, processRpc, DEFAULT_AUTO_APPROVE_KINDS } from './lib/crypto';
@@ -24,13 +24,12 @@ interface AppProps {
     parentOrigin: string;
     urlParams: {
         clientId: string;
-        buttonSize: ButtonSize;
         registrarUrl: string;
     };
 }
 
 export function App({ parentOrigin, urlParams }: AppProps) {
-    const { clientId, buttonSize, registrarUrl } = urlParams;
+    const { clientId, registrarUrl } = urlParams;
 
     // ── View routing ──────────────────────────────────────────────────────────
     const [view, setView] = useState<ViewName>('loading');
@@ -82,14 +81,20 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setView('error');
     }, []);
 
-    // After login succeeds, populate key state and fetch the Nostr profile
-    const onLoginSuccess = useCallback(async (km: KeyMaterial) => {
+    // After login succeeds, populate key state and fetch the Nostr profile.
+    // w3aProfileImage is the OAuth provider's profile picture (e.g. Google avatar),
+    // used as a fallback when the user has no Nostr kind-0 profile yet.
+    const onLoginSuccess = useCallback(async (km: KeyMaterial, w3aProfileImage?: string) => {
         privateKeyRef.current = km.privateKeyBytes;
         setKeyInfo({ publicKeyHex: km.publicKeyHex, nsecStr: km.nsecStr, npubStr: km.npubStr });
         postToParent({ type: 'AUTH_SUCCESS', pubkey: km.publicKeyHex });
 
         const profile = await fetchProfile(km.publicKeyHex, publishRelays);
-        if (profile) setUserProfile(profile);
+        // Prefer the Nostr profile picture; fall back to the OAuth avatar (e.g. Google).
+        const mergedProfile = profile
+            ? { ...profile, picture: profile.picture || w3aProfileImage }
+            : (w3aProfileImage ? { picture: w3aProfileImage } : null);
+        if (mergedProfile) setUserProfile(mergedProfile);
 
         setView('avatar');
     }, [postToParent, publishRelays]);  // use publishRelays, not registryRelays
@@ -223,7 +228,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (w3a.connected) {
                 try {
                     const km = await extractKey(w3a);
-                    if (!cancelled) await onLoginSuccess(km);
+                    let w3aProfileImage: string | undefined;
+                    try { w3aProfileImage = (await w3a.getUserInfo()).profileImage || undefined; } catch (_) { }
+                    if (!cancelled) await onLoginSuccess(km, w3aProfileImage);
                 } catch (_) {
                     if (!cancelled) {
                         setView('login');
@@ -248,18 +255,26 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     // ── Event handlers ────────────────────────────────────────────────────────
 
-    const handleLogin = useCallback(async (provider: string) => {
+    const handleConnect = useCallback(async () => {
         const w3a = web3authRef.current;
         if (!w3a) return;
-        setView('loading');
+        // Expand iframe to modal size so Web3Auth's overlay fits
+        postToParent({ type: 'RESIZE', state: 'modal' });
         try {
-            await loginWith(w3a, provider);
+            await w3a.connect();
             const km = await extractKey(w3a);
-            await onLoginSuccess(km);
+            let w3aProfileImage: string | undefined;
+            try { w3aProfileImage = (await w3a.getUserInfo()).profileImage || undefined; } catch (_) { }
+            await onLoginSuccess(km, w3aProfileImage);
         } catch (e) {
-            showError('Login failed', (e as Error).message);
+            // Restore button size (user cancelled or error)
+            postToParent({ type: 'RESIZE', state: 'button' });
+            const msg = (e as Error).message ?? '';
+            if (!/cancel|close|dismiss/i.test(msg)) {
+                showError('Login failed', msg);
+            }
         }
-    }, [onLoginSuccess, showError]);
+    }, [postToParent, onLoginSuccess, showError]);
 
     const handleApprove = useCallback(() => {
         const cb = confCallbackRef.current;
@@ -309,7 +324,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     if (view === 'loading') return <LoadingOverlay />;
     if (view === 'error' && error) return <ErrorBanner msg={error.msg} detail={error.detail} />;
-    if (view === 'login') return <LoginView buttonSize={buttonSize} onLogin={handleLogin} />;
+    if (view === 'login') return <LoginView onConnect={handleConnect} />;
 
     if (view === 'confirm' && pendingConf) {
         return (

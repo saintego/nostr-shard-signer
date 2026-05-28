@@ -35,6 +35,8 @@
   const IFRAME_AUTH_STATE_TIMEOUT_MS = 10000; // How long to wait for AUTH_STATE from iframe
   const IFRAME_ID = "nostr-signer-iframe";
   const CONTAINER_ID = "nostr-signer-container";
+  const MODE_IFRAME = "iframe"; // signing routed to the iframe bunker
+  const MODE_WNJ = "wnj"; // signing routed to window.nostr.js signer
 
   // ── State ────────────────────────────────────────────────────────────────────
   let config = {};
@@ -49,22 +51,25 @@
   let reqCounter = 0;
   let resolvedOrigin = null; // pinned after first valid message from iframe
   let initialized = false;
+  let wnjNostr = null; // window.nostr.js implementation, captured after CDN load
+  let activeMode = MODE_IFRAME; // MODE_IFRAME | MODE_WNJ
 
   // ── 2D size map [layout][state] ───────────────────────────────────────────────
   // Numeric values are converted to "Npx"; strings (e.g. "100%") are used as-is.
   const SIZE_MAP = {
     floating: {
       button: {
-        standard: { w: 220, h: 48 },
-        large_social_grid: { w: 320, h: 136 },
+        // Single "Sign in" button — Web3Auth modal opens inside the iframe
+        standard: { w: 220, h: 80 },
+        large_social_grid: { w: 220, h: 80 },
       },
       avatar: { w: 48, h: 48 },
       modal: { w: 420, h: 580 },
     },
     "in-place": {
       button: {
-        standard: { w: "100%", h: "48px" },
-        large_social_grid: { w: "100%", h: "136px" },
+        standard: { w: "100%", h: "80px" },
+        large_social_grid: { w: "100%", h: "80px" },
       },
       avatar: { w: "100%", h: "48px" },
       modal: { w: "100%", h: "580px" },
@@ -209,6 +214,7 @@
       }
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
+      if (data.loggedIn) activeMode = MODE_IFRAME; // existing session restored
       applySize(data.loggedIn ? "avatar" : "button");
       flushQueue();
       return;
@@ -221,6 +227,7 @@
       }
       authState = "loggedIn";
       currentPubkey = data.pubkey;
+      activeMode = MODE_IFRAME; // user authenticated via iframe OAuth
       applySize("avatar");
       flushQueue();
       return;
@@ -293,11 +300,36 @@
   }
 
   // ── window.nostr Proxy ───────────────────────────────────────────────────────
+  // Routing priority:
+  //   1. MODE_WNJ  — user already connected via window.nostr.js; delegate everything there.
+  //   2. iframe loggedIn — user authenticated via OAuth; use cached pubkey / iframe RPC.
+  //   3. wnjNostr available — try window.nostr.js first (shows its widget); on success
+  //      lock activeMode = MODE_WNJ so all subsequent calls go through it. On failure
+  //      (user cancelled or wnj not set up) fall through to iframe queue.
+  //   4. iframe queue — authState unknown (still loading) or loggedOut.
   function buildNostrProxy() {
+    function wnjGetPublicKey() {
+      return wnjNostr.getPublicKey().then(function (pubkey) {
+        activeMode = MODE_WNJ;
+        authState = "loggedIn";
+        currentPubkey = pubkey;
+        return pubkey;
+      });
+    }
+
     return {
       getPublicKey() {
-        if (authState === "loggedIn" && currentPubkey) {
+        if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.getPublicKey();
+        if (authState === "loggedIn" && currentPubkey)
           return Promise.resolve(currentPubkey);
+        // Try window.nostr.js first; fall back to iframe on rejection.
+        if (wnjNostr) {
+          return wnjGetPublicKey().catch(function () {
+            return dispatchRpc("get_public_key", []).then(function (result) {
+              currentPubkey = result;
+              return result;
+            });
+          });
         }
         return dispatchRpc("get_public_key", []).then(function (result) {
           currentPubkey = result;
@@ -306,6 +338,8 @@
       },
 
       signEvent(event) {
+        if (activeMode === MODE_WNJ && wnjNostr)
+          return wnjNostr.signEvent(event);
         return dispatchRpc("sign_event", [JSON.stringify(event)]).then(
           function (result) {
             return JSON.parse(result);
@@ -315,22 +349,56 @@
 
       nip04: {
         encrypt(recipientHex, plaintext) {
+          if (activeMode === MODE_WNJ && wnjNostr && wnjNostr.nip04)
+            return wnjNostr.nip04.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip04_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
+          if (activeMode === MODE_WNJ && wnjNostr && wnjNostr.nip04)
+            return wnjNostr.nip04.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip04_decrypt", [senderHex, ciphertext]);
         },
       },
 
       nip44: {
         encrypt(recipientHex, plaintext) {
+          if (activeMode === MODE_WNJ && wnjNostr && wnjNostr.nip44)
+            return wnjNostr.nip44.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip44_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
+          if (activeMode === MODE_WNJ && wnjNostr && wnjNostr.nip44)
+            return wnjNostr.nip44.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip44_decrypt", [senderHex, ciphertext]);
         },
       },
     };
+  }
+
+  // ── window.nostr.js loader ────────────────────────────────────────────────────
+  // Injects the CDN script, which installs itself as window.nostr.
+  // We capture that implementation then reinstall our proxy on top.
+  // Version is pinned and verified via SRI so a CDN compromise or silent upgrade
+  // cannot execute arbitrary code in the parent page.
+  const WNJ_SRC =
+    "https://cdn.jsdelivr.net/npm/window.nostr.js@0.7.0/dist/window.nostr.min.js";
+  const WNJ_INTEGRITY =
+    "sha384-H2hej8dTR0r9VJj8VzmRwTasDnMUXXu5nJm7DSCNfMjgs23ZRgIJK3KCs5gOZ8OF";
+
+  function loadWindowNostrJs() {
+    return new Promise(function (resolve) {
+      global.wnjParams = {
+        startHidden: true, // hidden until getPublicKey() is called by the app
+        accent: "purple",
+      };
+      var s = document.createElement("script");
+      s.src = WNJ_SRC;
+      s.integrity = WNJ_INTEGRITY;
+      s.crossOrigin = "anonymous"; // required for SRI checks on cross-origin scripts
+      s.onload = resolve;
+      s.onerror = resolve; // silently degrade if CDN is unavailable or hash mismatch
+      document.head.appendChild(s);
+    });
   }
 
   // ── Native extension probe ───────────────────────────────────────────────────
@@ -401,22 +469,10 @@
     const nativeNostr =
       typeof global.nostr !== "undefined" ? global.nostr : null;
 
-    // Install our proxy synchronously so callers can queue immediately.
-    // Use defineProperty so we shadow any existing value without destroying it.
-    const proxy = buildNostrProxy();
-    try {
-      Object.defineProperty(global, "nostr", {
-        get() {
-          return proxy;
-        },
-        set() {
-          /* ignore attempts to overwrite */
-        },
-        configurable: true,
-      });
-    } catch (_) {
-      global.nostr = proxy;
-    }
+    // Install a sentinel proxy so window.nostr.js can overwrite it.
+    // We keep a reference so we can detect whether wnj actually loaded.
+    const sentinelProxy = buildNostrProxy();
+    global.nostr = sentinelProxy;
 
     // Register message listener before the iframe loads
     global.addEventListener("message", onMessage);
@@ -424,28 +480,43 @@
     if (!config.forceIframe && nativeNostr) {
       const works = await probeNativeExtension(nativeNostr);
       if (works) {
-        // The native extension is responsive — defer to it instead of the iframe.
-        // Restore the native object and tear down our listener.
-        try {
-          Object.defineProperty(global, "nostr", {
-            value: nativeNostr,
-            writable: true,
-            configurable: true,
-          });
-        } catch (_) {
-          global.nostr = nativeNostr;
-        }
+        // The native extension is responsive — restore it and skip everything.
+        global.nostr = nativeNostr;
         global.removeEventListener("message", onMessage);
         initialized = false;
         console.info(
           "nostr-bridge: responsive native extension found; iframe skipped.",
         );
-        // Hand off to nostr-login if it is available on the page
-        if (global.nostrLogin && typeof global.nostrLogin.init === "function") {
-          global.nostrLogin.init({ bunkers: "", perms: "" });
-        }
         return;
       }
+    }
+
+    if (!config.forceIframe) {
+      // Load window.nostr.js — gives users a UI to connect Alby, Amber,
+      // or any NIP-46 bunker via the floating widget.
+      await loadWindowNostrJs();
+      // Only capture wnj if it actually replaced our sentinel.
+      // If the CDN failed, global.nostr is still sentinelProxy — don't self-reference.
+      const afterLoad =
+        typeof global.nostr !== "undefined" ? global.nostr : null;
+      wnjNostr =
+        afterLoad !== null && afterLoad !== sentinelProxy ? afterLoad : null;
+    }
+
+    // Reinstall our proxy on top (locks window.nostr so nothing else overwrites it).
+    const proxy = buildNostrProxy();
+    try {
+      Object.defineProperty(global, "nostr", {
+        get() {
+          return proxy;
+        },
+        set() {
+          /* ignore */
+        },
+        configurable: true,
+      });
+    } catch (_) {
+      global.nostr = proxy;
     }
 
     // AUTH_STATE timeout: if the iframe doesn't report back in time,
