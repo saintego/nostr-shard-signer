@@ -380,9 +380,9 @@
   // We capture that implementation then reinstall our proxy on top.
   // Version is pinned and verified via SRI so a CDN compromise or silent upgrade
   // cannot execute arbitrary code in the parent page.
-  var WNJ_SRC =
+  const WNJ_SRC =
     "https://cdn.jsdelivr.net/npm/window.nostr.js@0.7.0/dist/window.nostr.min.js";
-  var WNJ_INTEGRITY =
+  const WNJ_INTEGRITY =
     "sha384-H2hej8dTR0r9VJj8VzmRwTasDnMUXXu5nJm7DSCNfMjgs23ZRgIJK3KCs5gOZ8OF";
 
   function loadWindowNostrJs() {

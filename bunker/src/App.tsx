@@ -24,13 +24,12 @@ interface AppProps {
     parentOrigin: string;
     urlParams: {
         clientId: string;
-        buttonSize: ButtonSize;
         registrarUrl: string;
     };
 }
 
 export function App({ parentOrigin, urlParams }: AppProps) {
-    const { clientId, buttonSize, registrarUrl } = urlParams;
+    const { clientId, registrarUrl } = urlParams;
 
     // ── View routing ──────────────────────────────────────────────────────────
     const [view, setView] = useState<ViewName>('loading');
