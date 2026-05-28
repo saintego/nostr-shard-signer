@@ -378,6 +378,11 @@
   // ── window.nostr.js loader ────────────────────────────────────────────────────
   // Injects the CDN script, which installs itself as window.nostr.
   // We capture that implementation then reinstall our proxy on top.
+  // Version is pinned and verified via SRI so a CDN compromise or silent upgrade
+  // cannot execute arbitrary code in the parent page.
+  var WNJ_SRC = "https://cdn.jsdelivr.net/npm/window.nostr.js@0.7.0/dist/window.nostr.min.js";
+  var WNJ_INTEGRITY = "sha384-H2hej8dTR0r9VJj8VzmRwTasDnMUXXu5nJm7DSCNfMjgs23ZRgIJK3KCs5gOZ8OF";
+
   function loadWindowNostrJs() {
     return new Promise(function (resolve) {
       global.wnjParams = {
@@ -385,10 +390,11 @@
         accent: "purple",
       };
       var s = document.createElement("script");
-      s.src =
-        "https://cdn.jsdelivr.net/npm/window.nostr.js/dist/window.nostr.min.js";
+      s.src = WNJ_SRC;
+      s.integrity = WNJ_INTEGRITY;
+      s.crossOrigin = "anonymous"; // required for SRI checks on cross-origin scripts
       s.onload = resolve;
-      s.onerror = resolve; // silently degrade if CDN is unavailable
+      s.onerror = resolve; // silently degrade if CDN is unavailable or hash mismatch
       document.head.appendChild(s);
     });
   }
