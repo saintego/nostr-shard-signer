@@ -489,8 +489,10 @@
       await loadWindowNostrJs();
       // Only capture wnj if it actually replaced our sentinel.
       // If the CDN failed, global.nostr is still sentinelProxy — don't self-reference.
-      const afterLoad = typeof global.nostr !== "undefined" ? global.nostr : null;
-      wnjNostr = (afterLoad !== null && afterLoad !== sentinelProxy) ? afterLoad : null;
+      const afterLoad =
+        typeof global.nostr !== "undefined" ? global.nostr : null;
+      wnjNostr =
+        afterLoad !== null && afterLoad !== sentinelProxy ? afterLoad : null;
     }
 
     // Reinstall our proxy on top (locks window.nostr so nothing else overwrites it).
