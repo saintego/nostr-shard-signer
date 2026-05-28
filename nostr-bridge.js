@@ -461,9 +461,10 @@
     const nativeNostr =
       typeof global.nostr !== "undefined" ? global.nostr : null;
 
-    // Install proxy with a plain assignment first so window.nostr.js (loaded
-    // below) can overwrite it; we'll lock it again after capturing wnj.
-    global.nostr = buildNostrProxy();
+    // Install a sentinel proxy so window.nostr.js can overwrite it.
+    // We keep a reference so we can detect whether wnj actually loaded.
+    const sentinelProxy = buildNostrProxy();
+    global.nostr = sentinelProxy;
 
     // Register message listener before the iframe loads
     global.addEventListener("message", onMessage);
@@ -486,8 +487,10 @@
       // Load window.nostr.js — gives users a UI to connect Alby, Amber,
       // or any NIP-46 bunker via the floating widget.
       await loadWindowNostrJs();
-      // Capture wnj's window.nostr implementation.
-      wnjNostr = typeof global.nostr !== "undefined" ? global.nostr : null;
+      // Only capture wnj if it actually replaced our sentinel.
+      // If the CDN failed, global.nostr is still sentinelProxy — don't self-reference.
+      const afterLoad = typeof global.nostr !== "undefined" ? global.nostr : null;
+      wnjNostr = (afterLoad !== null && afterLoad !== sentinelProxy) ? afterLoad : null;
     }
 
     // Reinstall our proxy on top (locks window.nostr so nothing else overwrites it).
