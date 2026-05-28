@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Web3Auth } from '@web3auth/modal';
 
-import type { ViewName, ButtonSize, UserProfile, KeyInfo, PendingConfirmation } from './types';
+import type { ViewName, UserProfile, KeyInfo, PendingConfirmation } from './types';
 import { validateEmbedding } from './lib/origin';
 import { fetchRegistrarConfig, isAuthorized } from './lib/registry';
 import { initWeb3Auth, extractKey } from './lib/web3auth';

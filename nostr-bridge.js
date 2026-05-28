@@ -349,12 +349,12 @@
 
       nip04: {
         encrypt(recipientHex, plaintext) {
-          if (activeMode === MODE_WNJ && wnjNostr)
+          if (activeMode === MODE_WNJ && wnjNostr && wnjNostr.nip04)
             return wnjNostr.nip04.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip04_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
-          if (activeMode === MODE_WNJ && wnjNostr)
+          if (activeMode === MODE_WNJ && wnjNostr && wnjNostr.nip04)
             return wnjNostr.nip04.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip04_decrypt", [senderHex, ciphertext]);
         },
@@ -362,12 +362,12 @@
 
       nip44: {
         encrypt(recipientHex, plaintext) {
-          if (activeMode === MODE_WNJ && wnjNostr)
+          if (activeMode === MODE_WNJ && wnjNostr && wnjNostr.nip44)
             return wnjNostr.nip44.encrypt(recipientHex, plaintext);
           return dispatchRpc("nip44_encrypt", [recipientHex, plaintext]);
         },
         decrypt(senderHex, ciphertext) {
-          if (activeMode === MODE_WNJ && wnjNostr)
+          if (activeMode === MODE_WNJ && wnjNostr && wnjNostr.nip44)
             return wnjNostr.nip44.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip44_decrypt", [senderHex, ciphertext]);
         },
