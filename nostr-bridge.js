@@ -93,6 +93,10 @@
       typeof dims.w === "number" ? dims.w + "px" : dims.w;
     containerEl.style.height =
       typeof dims.h === "number" ? dims.h + "px" : dims.h;
+    // WNJ trigger is only shown while the sign-in modal is open so the user
+    // can choose between OAuth (the modal) and Extension/Bunker (WNJ button).
+    var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
+    if (wnjBtnEl) wnjBtnEl.style.display = state === "modal" ? "" : "none";
   }
 
   // ── DOM helpers ──────────────────────────────────────────────────────────────
@@ -193,8 +197,9 @@
         "cursor:pointer",
         "z-index:2147483646",
         "box-shadow:0 4px 24px rgba(0,0,0,0.18)",
+        "display:none",
       ].join(";");
-      wnjBtnEl.textContent = "Connect with Extension";
+      wnjBtnEl.textContent = "Sign in with Extension or Bunker";
       wnjBtnEl.addEventListener("click", function () {
         wnjGetPublicKey().catch(function () { /* user cancelled */ });
       });
@@ -246,9 +251,7 @@
       currentPubkey = data.pubkey || null;
       activeMode = MODE_IFRAME; // always reset; WNJ mode does not survive an auth-state change
       if (containerEl) containerEl.style.display = ""; // restore iframe if WNJ was hiding it
-      var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
-      if (wnjBtnEl) wnjBtnEl.style.display = ""; // restore WNJ trigger button
-      applySize(data.loggedIn ? "avatar" : "button");
+      applySize(data.loggedIn ? "avatar" : "button"); // also controls WNJ button visibility
       flushQueue();
       return;
     }
@@ -261,8 +264,15 @@
       authState = "loggedIn";
       currentPubkey = data.pubkey;
       activeMode = MODE_IFRAME; // user authenticated via iframe OAuth
-      applySize("avatar");
+      applySize("avatar"); // also hides WNJ button
       flushQueue();
+      // Notify the host page so it can update its UI (e.g. hide a "Connect" button).
+      // AUTH_SUCCESS is an internal bridge event; the host page only hears AUTH_STATE.
+      global.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "AUTH_STATE", loggedIn: true, pubkey: data.pubkey },
+        }),
+      );
       return;
     }
 
