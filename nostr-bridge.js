@@ -35,6 +35,7 @@
   const IFRAME_AUTH_STATE_TIMEOUT_MS = 10000; // How long to wait for AUTH_STATE from iframe
   const IFRAME_ID = "nostr-signer-iframe";
   const CONTAINER_ID = "nostr-signer-container";
+  const WNJ_BTN_ID = "nostr-wnj-btn"; // trigger button injected below the iframe when WNJ is available
   const MODE_IFRAME = "iframe"; // signing routed to the iframe bunker
   const MODE_WNJ = "wnj"; // signing routed to window.nostr.js signer
 
@@ -103,7 +104,7 @@
     style.textContent = [
       "#" + CONTAINER_ID + " {",
       "  position: " + (isFloating ? "fixed" : "relative") + ";",
-      isFloating ? "  bottom: 24px; right: 24px;" : "",
+      isFloating ? "  bottom: " + (wnjNostr ? "72px" : "24px") + "; right: 24px;" : "",
       "  z-index: 2147483647;",
       "  transition: width 0.25s ease, height 0.25s ease;",
       "  overflow: hidden;",
@@ -170,6 +171,35 @@
     } else {
       document.body.appendChild(containerEl);
     }
+
+    // If WNJ is available, inject a trigger button below the iframe widget.
+    // WNJ startHidden=true suppresses its own floating button; this button
+    // is the visible entry point that stacks below the iframe button.
+    if (wnjNostr && config.layout !== "in-place") {
+      var wnjBtnEl = document.createElement("button");
+      wnjBtnEl.id = WNJ_BTN_ID;
+      wnjBtnEl.style.cssText = [
+        "position:fixed",
+        "bottom:24px",
+        "right:24px",
+        "width:220px",
+        "height:40px",
+        "border:none",
+        "border-radius:8px",
+        "background:#1a1033",
+        "color:#fff",
+        "font-size:13px",
+        "font-family:system-ui,sans-serif",
+        "cursor:pointer",
+        "z-index:2147483646",
+        "box-shadow:0 4px 24px rgba(0,0,0,0.18)",
+      ].join(";");
+      wnjBtnEl.textContent = "Connect with Extension";
+      wnjBtnEl.addEventListener("click", function () {
+        wnjGetPublicKey().catch(function () { /* user cancelled */ });
+      });
+      document.body.appendChild(wnjBtnEl);
+    }
   }
 
   // ── postMessage helpers ──────────────────────────────────────────────────────
@@ -216,6 +246,8 @@
       currentPubkey = data.pubkey || null;
       activeMode = MODE_IFRAME; // always reset; WNJ mode does not survive an auth-state change
       if (containerEl) containerEl.style.display = ""; // restore iframe if WNJ was hiding it
+      var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
+      if (wnjBtnEl) wnjBtnEl.style.display = ""; // restore WNJ trigger button
       applySize(data.loggedIn ? "avatar" : "button");
       flushQueue();
       return;
@@ -308,24 +340,26 @@
   //      lock activeMode = MODE_WNJ so all subsequent calls go through it. On failure
   //      (user cancelled or wnj not set up) fall through to iframe queue.
   //   4. iframe queue — authState unknown (still loading) or loggedOut.
-  function buildNostrProxy() {
-    function wnjGetPublicKey() {
-      return wnjNostr.getPublicKey().then(function (pubkey) {
-        activeMode = MODE_WNJ;
-        authState = "loggedIn";
-        currentPubkey = pubkey;
-        // Hide the iframe widget — WNJ is handling signing
-        if (containerEl) containerEl.style.display = "none";
-        // Notify the host page (portal listens for AUTH_STATE messages)
-        global.dispatchEvent(
-          new MessageEvent("message", {
-            data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
-          })
-        );
-        return pubkey;
-      });
-    }
+  function wnjGetPublicKey() {
+    return wnjNostr.getPublicKey().then(function (pubkey) {
+      activeMode = MODE_WNJ;
+      authState = "loggedIn";
+      currentPubkey = pubkey;
+      // Hide iframe and WNJ trigger button — WNJ is now handling signing
+      if (containerEl) containerEl.style.display = "none";
+      var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
+      if (wnjBtnEl) wnjBtnEl.style.display = "none";
+      // Notify the host page (portal listens for AUTH_STATE messages)
+      global.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
+        }),
+      );
+      return pubkey;
+    });
+  }
 
+  function buildNostrProxy() {
     return {
       getPublicKey() {
         if (activeMode === MODE_WNJ && wnjNostr) return wnjNostr.getPublicKey();
