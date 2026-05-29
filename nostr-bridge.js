@@ -466,14 +466,11 @@
 
     initialized = true;
 
-    // Save a reference to any pre-existing window.nostr (native extension)
+    // Save a reference to any pre-existing window.nostr (native extension).
+    // Do NOT install our proxy yet — window.nostr.js will refuse to set up
+    // if it finds a non-WNJ object already occupying window.nostr.
     const nativeNostr =
       typeof global.nostr !== "undefined" ? global.nostr : null;
-
-    // Install a sentinel proxy so window.nostr.js can overwrite it.
-    // We keep a reference so we can detect whether wnj actually loaded.
-    const sentinelProxy = buildNostrProxy();
-    global.nostr = sentinelProxy;
 
     // Register message listener before the iframe loads
     global.addEventListener("message", onMessage);
@@ -481,8 +478,7 @@
     if (!config.forceIframe && nativeNostr) {
       const works = await probeNativeExtension(nativeNostr);
       if (works) {
-        // The native extension is responsive — restore it and skip everything.
-        global.nostr = nativeNostr;
+        // The native extension is responsive — keep it and skip everything.
         global.removeEventListener("message", onMessage);
         initialized = false;
         console.info(
@@ -495,13 +491,14 @@
     if (!config.forceIframe) {
       // Load window.nostr.js — gives users a UI to connect Alby, Amber,
       // or any NIP-46 bunker via the floating widget.
+      // window.nostr must be absent (or already WNJ) when the script runs;
+      // if it finds a foreign object there it calls destroyWnj() and exits.
       await loadWindowNostrJs();
-      // Only capture wnj if it actually replaced our sentinel.
-      // If the CDN failed, global.nostr is still sentinelProxy — don't self-reference.
+      // Detect WNJ by the isWnj sentinel it stamps on its own implementation.
       const afterLoad =
         typeof global.nostr !== "undefined" ? global.nostr : null;
       wnjNostr =
-        afterLoad !== null && afterLoad !== sentinelProxy ? afterLoad : null;
+        afterLoad !== null && afterLoad.isWnj === true ? afterLoad : null;
     }
 
     // Reinstall our proxy on top (locks window.nostr so nothing else overwrites it).
