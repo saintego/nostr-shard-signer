@@ -296,17 +296,18 @@
         flushQueue();
         return;
       }
-      // When a session was restored from the local cache (MODE_IFRAME), the iframe
-      // may send AUTH_STATE:false once while Web3Auth is still initialising its
-      // own session.  Ignore that single message so the portal doesn't flash
-      // "disconnected" immediately after showing the restored connected state.
-      // Any subsequent AUTH_STATE:false (explicit logout) will be honoured.
-      if (sessionRestoreProtect) {
+      // While sessionRestoreProtect is set (MODE_IFRAME session restore pending),
+      // block ALL AUTH_STATE:false from the iframe.  The flag is cleared by
+      // AUTH_SUCCESS (session confirmed) or a timeout (session expired).
+      // This prevents multiple Web3Auth bootstrap false-readings from flashing
+      // the portal to disconnected before the iframe finishes initialising.
+      if (sessionRestoreProtect && !data.loggedIn && activeMode === MODE_IFRAME) {
+        flushQueue();
+        return; // keep flag; cleared by AUTH_SUCCESS handler or timeout
+      }
+      // If the iframe sends loggedIn:true while protection is active, clear it.
+      if (sessionRestoreProtect && data.loggedIn) {
         sessionRestoreProtect = false;
-        if (!data.loggedIn && activeMode === MODE_IFRAME) {
-          flushQueue();
-          return;
-        }
       }
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
@@ -327,6 +328,7 @@
         clearTimeout(authStateTimer);
         authStateTimer = null;
       }
+      sessionRestoreProtect = false; // iframe confirmed the session — stop blocking
       authState = "loggedIn";
       currentPubkey = data.pubkey;
       saveSession(data.pubkey, MODE_IFRAME);
@@ -424,11 +426,13 @@
     //    — no cancel detection (MutationObserver, timeouts, etc.) needed.
     var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
     if (containerEl) containerEl.style.zIndex = "1";  // below WNJ's 90000
-    if (wnjBtnEl) wnjBtnEl.style.display = "none";   // already-clicked trigger
+    // DO NOT hide wnjBtnEl with display:none — if WNJ's getPublicKey() never
+    // resolves (user cancelled), the button would stay hidden permanently.
+    // The button and iframe container don't overlap spatially so there is no
+    // z-index conflict even when both are visible during the WNJ flow.
 
     var restoreZIndex = function () {
       if (containerEl) containerEl.style.zIndex = ""; // revert to stylesheet value
-      if (wnjBtnEl) wnjBtnEl.style.display = "";      // restore trigger button
     };
 
     return wnjNostr
@@ -658,22 +662,31 @@
 
         // Detect WNJ disconnect: WNJ v0.7.0 always calls
         // localStorage.removeItem("wnj:bunkerPointer") when the user disconnects.
-        // Intercept that call to reset the bridge back to iframe sign-in mode.
+        // We delay the disconnect handling by 500 ms because WNJ may remove and
+        // immediately re-add the pointer during reconnection (e.g. on page load
+        // while restoring a saved bunker session).  Only treat the absence as a
+        // genuine disconnect if the pointer is still gone after the delay.
         var _origRemoveItem = localStorage.removeItem.bind(localStorage);
         localStorage.removeItem = function (key) {
+          _origRemoveItem(key); // always perform the actual removal immediately
           if (key === "wnj:bunkerPointer" && activeMode === MODE_WNJ) {
-            activeMode = MODE_IFRAME;
-            authState = "loggedOut";
-            currentPubkey = null;
-            clearSession();
-            if (containerEl) containerEl.style.display = "";
-            applySize("button");
-            // Notify the portal that the user signed out via WNJ.
-            global.dispatchEvent(new MessageEvent("message", {
-              data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
-            }));
+            setTimeout(function () {
+              try {
+                if (localStorage.getItem("wnj:bunkerPointer") !== null) return; // re-added: reconnect, not disconnect
+              } catch (_) {}
+              if (activeMode !== MODE_WNJ) return; // already switched elsewhere
+              activeMode = MODE_IFRAME;
+              authState = "loggedOut";
+              currentPubkey = null;
+              clearSession();
+              if (containerEl) containerEl.style.display = "";
+              applySize("button");
+              // Notify the portal that the user signed out via WNJ.
+              global.dispatchEvent(new MessageEvent("message", {
+                data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
+              }));
+            }, 500);
           }
-          return _origRemoveItem(key);
         };
       }
     }
@@ -704,7 +717,23 @@
         savedSession.mode === MODE_WNJ && wnjNostr ? MODE_WNJ : MODE_IFRAME;
       // For iframe-mode sessions, guard the restored state against the iframe's
       // initial AUTH_STATE:false (Web3Auth still loading its own session).
-      if (activeMode === MODE_IFRAME) sessionRestoreProtect = true;
+      if (activeMode === MODE_IFRAME) {
+        // Block ALL false from iframe until AUTH_SUCCESS confirms the session.
+        sessionRestoreProtect = true;
+        // Safety net: if AUTH_SUCCESS never arrives (session truly expired),
+        // expire the protection and notify the portal as disconnected.
+        setTimeout(function () {
+          if (!sessionRestoreProtect) return; // already cleared by AUTH_SUCCESS
+          sessionRestoreProtect = false;
+          authState = "loggedOut";
+          currentPubkey = null;
+          clearSession();
+          applySize("button");
+          global.dispatchEvent(new MessageEvent("message", {
+            data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
+          }));
+        }, IFRAME_AUTH_STATE_TIMEOUT_MS);
+      }
       // Notify the portal immediately so it shows the connected state on reload.
       global.dispatchEvent(new MessageEvent("message", {
         data: { type: "AUTH_STATE", loggedIn: true, pubkey: savedSession.pubkey },
@@ -738,5 +767,8 @@
     getAuthState() {
       return { loggedIn: authState === "loggedIn", pubkey: currentPubkey };
     },
+    // Returns the saved session from localStorage synchronously — callable before
+    // init() resolves so portals can pre-render the connected state immediately.
+    getSavedSession: loadSession,
   };
 })(window);

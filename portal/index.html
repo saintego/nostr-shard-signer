@@ -439,6 +439,14 @@
       gateLoggedOut.style.display = "block";
     }
 
+    // Pre-show connected state immediately from localStorage — gives instant
+    // visual feedback on reload without waiting for init() to complete.
+    // The bridge's AUTH_STATE messages will confirm or correct this below.
+    const _preSession = (typeof NostrBridge !== "undefined" && NostrBridge.getSavedSession)
+      ? NostrBridge.getSavedSession()
+      : null;
+    if (_preSession?.pubkey) showConnected(_preSession.pubkey);
+
     // Sync listener — registered before init's async work completes.
     window.addEventListener("message", (e) => {
       if (e.data?.type !== "AUTH_STATE") return;
