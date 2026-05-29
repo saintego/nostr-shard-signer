@@ -30,8 +30,8 @@ export function validateEmbedding(parentOrigin: string): boolean {
   // Primary check: ancestorOrigins is authoritative and available in most browsers
   if (typeof document.location.ancestorOrigins !== "undefined") {
     const anc = document.location.ancestorOrigins;
-    if (anc.length === 0) return false;          // opened standalone
-    if (anc[0] === "null") return false;          // sandboxed without allow-same-origin
+    if (anc.length === 0) return false; // opened standalone
+    if (anc[0] === "null") return false; // sandboxed without allow-same-origin
     return true;
   }
 
