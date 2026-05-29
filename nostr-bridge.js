@@ -141,7 +141,7 @@
       isFloating
         ? "  bottom: " + (wnjNostr ? "72px" : "24px") + "; right: 24px;"
         : "",
-      "  z-index: 8999;", // below WNJ modal (90000) so WNJ always floats above
+      "  z-index: 8999;", // below WNJ modal (9000) so WNJ always floats above
       "  transition: width 0.25s ease, height 0.25s ease;",
       "  overflow: hidden;",
       "  border: none;",
@@ -229,7 +229,7 @@
         "font-size:13px",
         "font-family:system-ui,sans-serif",
         "cursor:pointer",
-        "z-index:8998", // below iframe (89999) and WNJ modal (90000)
+        "z-index:8998", // below iframe (8999) and WNJ modal (9000)
         "box-shadow:0 4px 24px rgba(0,0,0,0.18)",
         "display:none",
       ].join(";");
