@@ -141,7 +141,7 @@
       isFloating
         ? "  bottom: " + (wnjNostr ? "72px" : "24px") + "; right: 24px;"
         : "",
-      "  z-index: 89999;",  // below WNJ modal (90000) so WNJ always floats above
+      "  z-index: 8999;", // below WNJ modal (90000) so WNJ always floats above
       "  transition: width 0.25s ease, height 0.25s ease;",
       "  overflow: hidden;",
       "  border: none;",
@@ -229,7 +229,7 @@
         "font-size:13px",
         "font-family:system-ui,sans-serif",
         "cursor:pointer",
-        "z-index:89998",  // below iframe (89999) and WNJ modal (90000)
+        "z-index:8998", // below iframe (89999) and WNJ modal (90000)
         "box-shadow:0 4px 24px rgba(0,0,0,0.18)",
         "display:none",
       ].join(";");
@@ -301,7 +301,11 @@
       // AUTH_SUCCESS (session confirmed) or a timeout (session expired).
       // This prevents multiple Web3Auth bootstrap false-readings from flashing
       // the portal to disconnected before the iframe finishes initialising.
-      if (sessionRestoreProtect && !data.loggedIn && activeMode === MODE_IFRAME) {
+      if (
+        sessionRestoreProtect &&
+        !data.loggedIn &&
+        activeMode === MODE_IFRAME
+      ) {
         flushQueue();
         return; // keep flag; cleared by AUTH_SUCCESS handler or timeout
       }
@@ -316,9 +320,15 @@
       if (!data.loggedIn) clearSession(); // user logged out — clear cached session
       applySize(data.loggedIn ? "avatar" : "button"); // also controls WNJ button visibility
       // Notify the portal page so it can update its UI automatically.
-      global.dispatchEvent(new MessageEvent("message", {
-        data: { type: "AUTH_STATE", loggedIn: data.loggedIn, pubkey: data.pubkey || null },
-      }));
+      global.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "AUTH_STATE",
+            loggedIn: data.loggedIn,
+            pubkey: data.pubkey || null,
+          },
+        }),
+      );
       flushQueue();
       return;
     }
@@ -336,9 +346,11 @@
       applySize("avatar"); // also hides WNJ button
       flushQueue();
       // Notify the portal page so it can update its UI automatically.
-      global.dispatchEvent(new MessageEvent("message", {
-        data: { type: "AUTH_STATE", loggedIn: true, pubkey: data.pubkey },
-      }));
+      global.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "AUTH_STATE", loggedIn: true, pubkey: data.pubkey },
+        }),
+      );
       return;
     }
 
@@ -426,28 +438,28 @@
     // fully visible and clickable.
     var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
 
-    return wnjNostr
-      .getPublicKey()
-      .then(function (pubkey) {
-        if (!pubkey) {
-          // Some WNJ builds resolve with null/undefined on cancel.
-          throw new Error(
-            "nostr-bridge: WNJ returned no pubkey (user cancelled)",
-          );
-        }
-        activeMode = MODE_WNJ;
-        authState = "loggedIn";
-        currentPubkey = pubkey;
-        saveSession(pubkey, MODE_WNJ);
-        // WNJ connected: hide the OAuth iframe widget — WNJ handles signing now.
-        if (containerEl) containerEl.style.display = "none";
-        if (wnjBtnEl) wnjBtnEl.style.display = "none";
-        // Notify the portal page.
-        global.dispatchEvent(new MessageEvent("message", {
+    return wnjNostr.getPublicKey().then(function (pubkey) {
+      if (!pubkey) {
+        // Some WNJ builds resolve with null/undefined on cancel.
+        throw new Error(
+          "nostr-bridge: WNJ returned no pubkey (user cancelled)",
+        );
+      }
+      activeMode = MODE_WNJ;
+      authState = "loggedIn";
+      currentPubkey = pubkey;
+      saveSession(pubkey, MODE_WNJ);
+      // WNJ connected: hide the OAuth iframe widget — WNJ handles signing now.
+      if (containerEl) containerEl.style.display = "none";
+      if (wnjBtnEl) wnjBtnEl.style.display = "none";
+      // Notify the portal page.
+      global.dispatchEvent(
+        new MessageEvent("message", {
           data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
-        }));
-        return pubkey;
-      });
+        }),
+      );
+      return pubkey;
+    });
   }
 
   function buildNostrProxy() {
@@ -665,9 +677,11 @@
               if (containerEl) containerEl.style.display = "";
               applySize("button");
               // Notify the portal that the user signed out via WNJ.
-              global.dispatchEvent(new MessageEvent("message", {
-                data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
-              }));
+              global.dispatchEvent(
+                new MessageEvent("message", {
+                  data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
+                }),
+              );
             }, 500);
           }
         };
@@ -712,15 +726,23 @@
           currentPubkey = null;
           clearSession();
           applySize("button");
-          global.dispatchEvent(new MessageEvent("message", {
-            data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
-          }));
+          global.dispatchEvent(
+            new MessageEvent("message", {
+              data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
+            }),
+          );
         }, IFRAME_AUTH_STATE_TIMEOUT_MS);
       }
       // Notify the portal immediately so it shows the connected state on reload.
-      global.dispatchEvent(new MessageEvent("message", {
-        data: { type: "AUTH_STATE", loggedIn: true, pubkey: savedSession.pubkey },
-      }));
+      global.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "AUTH_STATE",
+            loggedIn: true,
+            pubkey: savedSession.pubkey,
+          },
+        }),
+      );
       flushQueue();
     }
 
