@@ -214,7 +214,7 @@
       }
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
-      if (data.loggedIn) activeMode = MODE_IFRAME; // existing session restored
+      activeMode = MODE_IFRAME; // always reset; WNJ mode does not survive an auth-state change
       applySize(data.loggedIn ? "avatar" : "button");
       flushQueue();
       return;
@@ -323,7 +323,8 @@
         if (authState === "loggedIn" && currentPubkey)
           return Promise.resolve(currentPubkey);
         // Try window.nostr.js first; fall back to iframe on rejection.
-        if (wnjNostr) {
+        // Skip WNJ after an explicit logout so callers reach the iframe login.
+        if (wnjNostr && authState !== "loggedOut") {
           return wnjGetPublicKey().catch(function () {
             return dispatchRpc("get_public_key", []).then(function (result) {
               currentPubkey = result;
@@ -388,7 +389,7 @@
   function loadWindowNostrJs() {
     return new Promise(function (resolve) {
       global.wnjParams = {
-        startHidden: true, // hidden until getPublicKey() is called by the app
+        startHidden: false, // show WNJ's own button so users can connect extensions/bunkers
         accent: "purple",
       };
       var s = document.createElement("script");

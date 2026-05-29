@@ -82,18 +82,18 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     }, []);
 
     // After login succeeds, populate key state and fetch the Nostr profile.
-    // w3aProfileImage is the OAuth provider's profile picture (e.g. Google avatar),
-    // used as a fallback when the user has no Nostr kind-0 profile yet.
-    const onLoginSuccess = useCallback(async (km: KeyMaterial, w3aProfileImage?: string) => {
+    // w3aProfile carries the OAuth provider's name + picture (e.g. from Google),
+    // used as fallbacks when the user has no Nostr kind-0 profile yet.
+    const onLoginSuccess = useCallback(async (km: KeyMaterial, w3aProfile?: { name?: string; picture?: string }) => {
         privateKeyRef.current = km.privateKeyBytes;
         setKeyInfo({ publicKeyHex: km.publicKeyHex, nsecStr: km.nsecStr, npubStr: km.npubStr });
         postToParent({ type: 'AUTH_SUCCESS', pubkey: km.publicKeyHex });
 
         const profile = await fetchProfile(km.publicKeyHex, publishRelays);
-        // Prefer the Nostr profile picture; fall back to the OAuth avatar (e.g. Google).
+        // Prefer Nostr kind-0 fields; fall back to the OAuth profile (e.g. Google name/avatar).
         const mergedProfile = profile
-            ? { ...profile, picture: profile.picture || w3aProfileImage }
-            : (w3aProfileImage ? { picture: w3aProfileImage } : null);
+            ? { ...profile, name: profile.name || w3aProfile?.name, picture: profile.picture || w3aProfile?.picture }
+            : (w3aProfile?.name || w3aProfile?.picture ? w3aProfile : null);
         if (mergedProfile) setUserProfile(mergedProfile);
 
         setView('avatar');
@@ -228,9 +228,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (w3a.connected) {
                 try {
                     const km = await extractKey(w3a);
-                    let w3aProfileImage: string | undefined;
-                    try { w3aProfileImage = (await w3a.getUserInfo()).profileImage || undefined; } catch (_) { }
-                    if (!cancelled) await onLoginSuccess(km, w3aProfileImage);
+                    let w3aProfile: { name?: string; picture?: string } | undefined;
+                    try {
+                        const info = await w3a.getUserInfo();
+                        w3aProfile = { name: info.name || undefined, picture: info.profileImage || undefined };
+                    } catch (_) { }
+                    if (!cancelled) await onLoginSuccess(km, w3aProfile);
                 } catch (_) {
                     if (!cancelled) {
                         setView('login');
@@ -263,9 +266,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         try {
             await w3a.connect();
             const km = await extractKey(w3a);
-            let w3aProfileImage: string | undefined;
-            try { w3aProfileImage = (await w3a.getUserInfo()).profileImage || undefined; } catch (_) { }
-            await onLoginSuccess(km, w3aProfileImage);
+            let w3aProfile: { name?: string; picture?: string } | undefined;
+            try {
+                const info = await w3a.getUserInfo();
+                w3aProfile = { name: info.name || undefined, picture: info.profileImage || undefined };
+            } catch (_) { }
+            await onLoginSuccess(km, w3aProfile);
         } catch (e) {
             // Restore button size (user cancelled or error)
             postToParent({ type: 'RESIZE', state: 'button' });
