@@ -392,13 +392,16 @@
     // Portal client ID — registered for https://saintego.github.io via the Register tab.
     // Users with a NIP-07 extension (Alby etc.) will use it; others get the iframe signer.
     const PORTAL_CLIENT_ID = "BFD4KzWaR5gUqPApqWAZaEAu3agiAlwY7aDdhIco35GoDGu2Sh7apq5k5OSb-j6F3HihWibrvD3br_abtQz_jSc";
-    if (typeof NostrBridge !== "undefined") {
-      NostrBridge.init({
-        clientId:     PORTAL_CLIENT_ID,
-        bunkerOrigin: window.location.origin + "/nostr-shard-signer",
-        registrarUrl: REGISTRAR_URL,
-      });
-    }
+    // Start init early; capture the Promise so we can fall back to
+    // getAuthState() after it resolves if the message listener somehow
+    // missed the session-restore AUTH_STATE dispatch.
+    const _initPromise = (typeof NostrBridge !== "undefined")
+      ? NostrBridge.init({
+          clientId:     PORTAL_CLIENT_ID,
+          bunkerOrigin: window.location.origin + "/nostr-shard-signer",
+          registrarUrl: REGISTRAR_URL,
+        })
+      : Promise.resolve();
 
     // ── DOM refs ────────────────────────────────────────────────────────────────
     const pubkeyDisplay  = document.getElementById("pubkey-display");
@@ -415,6 +418,7 @@
     // @nostr-post/signer is bundled inside the CDN build.
     // We wait for the module to register before using it.
     let _pubkey = null;
+    let _authReceived = false; // true once any AUTH_STATE message is handled
 
     function shortPubkey(hex) {
       return hex.slice(0, 8) + "…" + hex.slice(-6);
@@ -435,13 +439,23 @@
       gateLoggedOut.style.display = "block";
     }
 
-    // Auto-connect if window.nostr is already available and has a session
+    // Sync listener — registered before init's async work completes.
     window.addEventListener("message", (e) => {
       if (e.data?.type !== "AUTH_STATE") return;
+      _authReceived = true;
       if (e.data.loggedIn && e.data.pubkey) {
         showConnected(e.data.pubkey);
       } else if (!e.data.loggedIn) {
         showDisconnected();
+      }
+    });
+
+    // Fallback: once init() resolves, if no AUTH_STATE event arrived yet
+    // (edge case where dispatch outran the listener), pull state directly.
+    _initPromise.then(() => {
+      if (!_authReceived && typeof NostrBridge !== "undefined" && NostrBridge.getAuthState) {
+        const s = NostrBridge.getAuthState();
+        if (s.loggedIn && s.pubkey) showConnected(s.pubkey);
       }
     });
 
