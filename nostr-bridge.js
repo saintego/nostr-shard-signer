@@ -215,6 +215,7 @@
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
       activeMode = MODE_IFRAME; // always reset; WNJ mode does not survive an auth-state change
+      if (containerEl) containerEl.style.display = ""; // restore iframe if WNJ was hiding it
       applySize(data.loggedIn ? "avatar" : "button");
       flushQueue();
       return;
@@ -313,6 +314,14 @@
         activeMode = MODE_WNJ;
         authState = "loggedIn";
         currentPubkey = pubkey;
+        // Hide the iframe widget — WNJ is handling signing
+        if (containerEl) containerEl.style.display = "none";
+        // Notify the host page (portal listens for AUTH_STATE messages)
+        global.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
+          })
+        );
         return pubkey;
       });
     }
@@ -389,7 +398,7 @@
   function loadWindowNostrJs() {
     return new Promise(function (resolve) {
       global.wnjParams = {
-        startHidden: false, // show WNJ's own button so users can connect extensions/bunkers
+        startHidden: true, // portal login-btn is the single entry; WNJ opens programmatically
         accent: "purple",
       };
       var s = document.createElement("script");
