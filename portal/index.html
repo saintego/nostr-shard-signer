@@ -429,22 +429,25 @@
       }
       try {
         _pubkey = await window.nostr.getPublicKey();
-        pubkeyDisplay.textContent = shortPubkey(_pubkey);
-        pubkeyDisplay.style.display = "inline";
-        loginBtn.textContent = "Disconnect";
-        loginBtn.onclick = disconnectNostr;
-        gateLoggedOut.style.display = "none";
-        app.style.display = "block";
+        showConnected(_pubkey);
       } catch (e) {
         showResult(resultRegister, "error", "Login rejected: " + e.message);
       }
     }
 
-    function disconnectNostr() {
+    function showConnected(pubkey) {
+      _pubkey = pubkey;
+      pubkeyDisplay.textContent = shortPubkey(pubkey);
+      pubkeyDisplay.style.display = "inline";
+      loginBtn.style.display = "none"; // hide — disconnect via the bridge widget
+      gateLoggedOut.style.display = "none";
+      app.style.display = "block";
+    }
+
+    function showDisconnected() {
       _pubkey = null;
       pubkeyDisplay.style.display = "none";
-      loginBtn.textContent = "Connect Nostr";
-      loginBtn.onclick = connectNostr;
+      loginBtn.style.display = ""; // restore Connect Nostr button
       app.style.display = "none";
       gateLoggedOut.style.display = "block";
     }
@@ -453,14 +456,11 @@
 
     // Auto-connect if window.nostr is already available and has a session
     window.addEventListener("message", (e) => {
-      if (e.data?.type === "AUTH_STATE" && e.data.loggedIn && e.data.pubkey && !_pubkey) {
-        _pubkey = e.data.pubkey;
-        pubkeyDisplay.textContent = shortPubkey(_pubkey);
-        pubkeyDisplay.style.display = "inline";
-        loginBtn.textContent = "Disconnect";
-        loginBtn.onclick = disconnectNostr;
-        gateLoggedOut.style.display = "none";
-        app.style.display = "block";
+      if (e.data?.type !== "AUTH_STATE") return;
+      if (e.data.loggedIn && e.data.pubkey) {
+        showConnected(e.data.pubkey);
+      } else if (!e.data.loggedIn) {
+        showDisconnected();
       }
     });
 
