@@ -141,7 +141,7 @@
       isFloating
         ? "  bottom: " + (wnjNostr ? "72px" : "24px") + "; right: 24px;"
         : "",
-      "  z-index: 2147483647;",
+      "  z-index: 89999;",  // below WNJ modal (90000) so WNJ always floats above
       "  transition: width 0.25s ease, height 0.25s ease;",
       "  overflow: hidden;",
       "  border: none;",
@@ -229,7 +229,7 @@
         "font-size:13px",
         "font-family:system-ui,sans-serif",
         "cursor:pointer",
-        "z-index:2147483646",
+        "z-index:89998",  // below iframe (89999) and WNJ modal (90000)
         "box-shadow:0 4px 24px rgba(0,0,0,0.18)",
         "display:none",
       ].join(";");
@@ -417,30 +417,20 @@
   //      (user cancelled or wnj not set up) fall through to iframe queue.
   //   4. iframe queue — authState unknown (still loading) or loggedOut.
   function wnjGetPublicKey() {
-    // Lower the iframe container's z-index so WNJ's modal (z-index 90000) can
-    // appear above it.  We intentionally do NOT use display:none because:
-    //  • display:none hides the sign-in button — user can't click it again
-    //    after closing WNJ without connecting.
-    //  • With z-index alone the iframe is still rendered; the moment WNJ
-    //    closes the container is visible at its correct stacking level again
-    //    — no cancel detection (MutationObserver, timeouts, etc.) needed.
+    // No z-index manipulation needed here: the CSS already establishes the
+    // correct stacking order for all three layers:
+    //   WNJ modal (90000)  >  iframe container (89999)  >  WNJ button (89998)
+    // WNJ's modal therefore always floats above both without any JS intervention.
+    // Because we never hide anything on click, a cancelled WNJ flow (promise
+    // that never resolves) leaves both the iframe widget and the WNJ button
+    // fully visible and clickable.
     var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
-    if (containerEl) containerEl.style.zIndex = "1";  // below WNJ's 90000
-    // DO NOT hide wnjBtnEl with display:none — if WNJ's getPublicKey() never
-    // resolves (user cancelled), the button would stay hidden permanently.
-    // The button and iframe container don't overlap spatially so there is no
-    // z-index conflict even when both are visible during the WNJ flow.
-
-    var restoreZIndex = function () {
-      if (containerEl) containerEl.style.zIndex = ""; // revert to stylesheet value
-    };
 
     return wnjNostr
       .getPublicKey()
       .then(function (pubkey) {
         if (!pubkey) {
           // Some WNJ builds resolve with null/undefined on cancel.
-          restoreZIndex();
           throw new Error(
             "nostr-bridge: WNJ returned no pubkey (user cancelled)",
           );
@@ -449,21 +439,14 @@
         authState = "loggedIn";
         currentPubkey = pubkey;
         saveSession(pubkey, MODE_WNJ);
-        // WNJ mode: fully hide the OAuth iframe widget now that signing is set up.
-        if (containerEl) {
-          containerEl.style.zIndex = "";
-          containerEl.style.display = "none";
-        }
+        // WNJ connected: hide the OAuth iframe widget — WNJ handles signing now.
+        if (containerEl) containerEl.style.display = "none";
         if (wnjBtnEl) wnjBtnEl.style.display = "none";
         // Notify the portal page.
         global.dispatchEvent(new MessageEvent("message", {
           data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
         }));
         return pubkey;
-      })
-      .catch(function (err) {
-        restoreZIndex();
-        throw err;
       });
   }
 
