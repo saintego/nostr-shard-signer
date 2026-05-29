@@ -174,6 +174,9 @@ export function ProfileModal({
                         >
                             {saving ? 'Saving…' : 'Save to relays'}
                         </button>
+                        <button className="action-btn btn-danger" onClick={onLogout}>
+                            Log out
+                        </button>
                     </div>
                 </div>
             )}
@@ -223,9 +226,6 @@ export function ProfileModal({
                     <div className="modal-actions">
                         <button className="action-btn btn-secondary" onClick={onExportKey}>
                             Export key
-                        </button>
-                        <button className="action-btn btn-danger" onClick={onLogout}>
-                            Log out
                         </button>
                     </div>
                 </div>

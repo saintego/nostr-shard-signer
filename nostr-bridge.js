@@ -107,10 +107,10 @@
       typeof dims.w === "number" ? dims.w + "px" : dims.w;
     containerEl.style.height =
       typeof dims.h === "number" ? dims.h + "px" : dims.h;
-    // WNJ trigger is only shown while the sign-in modal is open so the user
-    // can choose between OAuth (the modal) and Extension/Bunker (WNJ button).
+    // WNJ trigger is only shown while the sign-in modal is open AND the user
+    // is not already logged in (so it never shows when the profile modal opens).
     var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
-    if (wnjBtnEl) wnjBtnEl.style.display = state === "modal" ? "" : "none";
+    if (wnjBtnEl) wnjBtnEl.style.display = (state === "modal" && authState !== "loggedIn") ? "" : "none";
   }
 
   // ── DOM helpers ──────────────────────────────────────────────────────────────
@@ -297,13 +297,6 @@
       activeMode = MODE_IFRAME; // user authenticated via iframe OAuth
       applySize("avatar"); // also hides WNJ button
       flushQueue();
-      // Notify the host page so it can update its UI (e.g. hide a "Connect" button).
-      // AUTH_SUCCESS is an internal bridge event; the host page only hears AUTH_STATE.
-      global.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "AUTH_STATE", loggedIn: true, pubkey: data.pubkey },
-        }),
-      );
       return;
     }
 
@@ -382,31 +375,34 @@
   //      (user cancelled or wnj not set up) fall through to iframe queue.
   //   4. iframe queue — authState unknown (still loading) or loggedOut.
   function wnjGetPublicKey() {
-    // Hide the iframe BEFORE calling getPublicKey so WNJ's modal (z-index 90000)
-    // is not obscured by the iframe container (z-index 2147483647).
-    // Capture previous display states so we can restore them if the user cancels.
-    var prevContainerDisplay = containerEl ? containerEl.style.display : null;
+    // Lower the iframe z-index below WNJ's host div (z-index 90000) so the
+    // WNJ modal is visible.  We deliberately do NOT hide the container so that
+    // if the user closes WNJ without connecting (causing getPublicKey() to hang
+    // indefinitely), the sign-in button is immediately accessible again.
     var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
-    var prevWnjBtnDisplay = wnjBtnEl ? wnjBtnEl.style.display : null;
-    if (containerEl) containerEl.style.display = "none";
+    if (containerEl) containerEl.style.zIndex = "89999";
     if (wnjBtnEl) wnjBtnEl.style.display = "none";
 
     return wnjNostr.getPublicKey().then(function (pubkey) {
+      if (!pubkey) {
+        // Some WNJ builds resolve with null/undefined when the modal is closed
+        // without completing sign-in.  Treat this as a cancellation.
+        if (containerEl) containerEl.style.zIndex = "";
+        throw new Error("nostr-bridge: WNJ returned no pubkey (user cancelled)");
+      }
       activeMode = MODE_WNJ;
       authState = "loggedIn";
       currentPubkey = pubkey;
       saveSession(pubkey, MODE_WNJ);
-      // Notify the host page (portal listens for AUTH_STATE messages)
-      global.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
-        }),
-      );
+      // WNJ mode: hide the OAuth iframe widget entirely.
+      if (containerEl) {
+        containerEl.style.display = "none";
+        containerEl.style.zIndex = ""; // restore CSS z-index (hidden anyway)
+      }
       return pubkey;
     }).catch(function (err) {
-      // User cancelled or WNJ failed — restore the previous display states
-      if (containerEl && prevContainerDisplay !== null) containerEl.style.display = prevContainerDisplay;
-      if (wnjBtnEl && prevWnjBtnDisplay !== null) wnjBtnEl.style.display = prevWnjBtnDisplay;
+      // User cancelled or WNJ failed — restore iframe z-index so it is usable.
+      if (containerEl) containerEl.style.zIndex = "";
       throw err;
     });
   }
@@ -594,6 +590,27 @@
         typeof global.nostr !== "undefined" ? global.nostr : null;
       wnjNostr =
         afterLoad !== null && afterLoad.isWnj === true ? afterLoad : null;
+
+      // Detect WNJ disconnect: WNJ v0.7.0 always calls
+      // localStorage.removeItem("wnj:bunkerPointer") when the user disconnects.
+      // Intercept that call to reset the bridge back to iframe sign-in mode.
+      if (wnjNostr) {
+        var _origRemoveItem = localStorage.removeItem.bind(localStorage);
+        localStorage.removeItem = function (key) {
+          if (key === "wnj:bunkerPointer" && activeMode === MODE_WNJ) {
+            activeMode = MODE_IFRAME;
+            authState = "loggedOut";
+            currentPubkey = null;
+            clearSession();
+            if (containerEl) {
+              containerEl.style.display = "";
+              containerEl.style.zIndex = ""; // restore CSS z-index
+            }
+            applySize("button");
+          }
+          return _origRemoveItem(key);
+        };
+      }
     }
 
     // Reinstall our proxy on top (locks window.nostr so nothing else overwrites it).
@@ -619,12 +636,6 @@
       authState = "loggedIn";
       currentPubkey = savedSession.pubkey;
       activeMode = (savedSession.mode === MODE_WNJ && wnjNostr) ? MODE_WNJ : MODE_IFRAME;
-      // Notify the portal immediately so its Connect/Disconnect button reflects reality.
-      global.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "AUTH_STATE", loggedIn: true, pubkey: savedSession.pubkey },
-        }),
-      );
       flushQueue();
     }
 
