@@ -53,8 +53,9 @@
   let resolvedOrigin = null; // pinned after first valid message from iframe
   let initialized = false;
   let wnjNostr = null; // window.nostr.js implementation, captured after CDN load
-  let wnjHostEl = null; // WNJ's shadow-host element (div z-index:90000), captured after CDN load
+  let wnjHostEl = null; // WNJ's shadow-host element, captured after CDN load
   let activeMode = MODE_IFRAME; // MODE_IFRAME | MODE_WNJ
+  let sessionRestoreProtect = false; // true for one AUTH_STATE cycle after session restore
 
   // ── Session cache ─────────────────────────────────────────────────────────────
   // Persists the last successful login across page reloads so the UI immediately
@@ -295,6 +296,18 @@
         flushQueue();
         return;
       }
+      // When a session was restored from the local cache (MODE_IFRAME), the iframe
+      // may send AUTH_STATE:false once while Web3Auth is still initialising its
+      // own session.  Ignore that single message so the portal doesn't flash
+      // "disconnected" immediately after showing the restored connected state.
+      // Any subsequent AUTH_STATE:false (explicit logout) will be honoured.
+      if (sessionRestoreProtect) {
+        sessionRestoreProtect = false;
+        if (!data.loggedIn && activeMode === MODE_IFRAME) {
+          flushQueue();
+          return;
+        }
+      }
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
       activeMode = MODE_IFRAME; // reset; iframe auth-state change ends WNJ mode
@@ -402,6 +415,13 @@
   //      (user cancelled or wnj not set up) fall through to iframe queue.
   //   4. iframe queue — authState unknown (still loading) or loggedOut.
   function wnjGetPublicKey() {
+    // Lazy capture: WNJ appends its shadow-host to body during/after script load;
+    // re-scan in case it wasn't present yet when init() ran.
+    if (!wnjHostEl) {
+      Array.prototype.some.call(document.body.children, function (el) {
+        if (el !== containerEl && el.shadowRoot) { wnjHostEl = el; return true; }
+      });
+    }
     // Hide the iframe BEFORE calling getPublicKey so WNJ's modal (z-index 90000)
     // is not obscured by the iframe container (z-index 2147483647).
     var prevContainerDisplay = containerEl ? containerEl.style.display : null;
@@ -663,7 +683,7 @@
       if (wnjNostr) {
         // Capture WNJ's shadow-host element so wnjGetPublicKey() can observe it.
         Array.prototype.some.call(document.body.children, function (el) {
-          if (el.style && el.style.zIndex === "90000" && el.shadowRoot) {
+          if (el.shadowRoot) {
             wnjHostEl = el;
             return true;
           }
@@ -715,6 +735,9 @@
       currentPubkey = savedSession.pubkey;
       activeMode =
         savedSession.mode === MODE_WNJ && wnjNostr ? MODE_WNJ : MODE_IFRAME;
+      // For iframe-mode sessions, guard the restored state against the iframe's
+      // initial AUTH_STATE:false (Web3Auth still loading its own session).
+      if (activeMode === MODE_IFRAME) sessionRestoreProtect = true;
       // Notify the portal immediately so it shows the connected state on reload.
       global.dispatchEvent(new MessageEvent("message", {
         data: { type: "AUTH_STATE", loggedIn: true, pubkey: savedSession.pubkey },
