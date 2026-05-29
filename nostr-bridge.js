@@ -655,34 +655,54 @@
           }
         });
 
-        // Detect WNJ disconnect: WNJ v0.7.0 always calls
-        // localStorage.removeItem("wnj:bunkerPointer") when the user disconnects.
-        // We delay the disconnect handling by 500 ms because WNJ may remove and
-        // immediately re-add the pointer during reconnection (e.g. on page load
-        // while restoring a saved bunker session).  Only treat the absence as a
-        // genuine disconnect if the pointer is still gone after the delay.
+        // Detect WNJ disconnect: WNJ v0.7.0 calls
+        // localStorage.removeItem("wnj:bunkerPointer") when the user disconnects,
+        // but ALSO calls removeItem then setItem during page-load reconnection
+        // (e.g. restoring a saved NIP-46 bunker session on reload).
+        //
+        // Strategy: intercept both setItem and removeItem.
+        //  • removeItem("wnj:bunkerPointer") → start a 3-second countdown
+        //  • setItem("wnj:bunkerPointer", …) → cancel the countdown (WNJ reconnected)
+        //  • After 3 s with no re-add → genuine disconnect → reset to iframe mode
+        //
+        // 3 seconds gives WNJ plenty of time for WebSocket setup and NIP-46
+        // handshake even on slow connections, while still reacting promptly to
+        // an explicit user-initiated logout.
+        var _wnjDisconnectTimer = null;
+
+        var _wnjDoDisconnect = function () {
+          _wnjDisconnectTimer = null;
+          if (activeMode !== MODE_WNJ) return; // already handled elsewhere
+          activeMode = MODE_IFRAME;
+          authState = "loggedOut";
+          currentPubkey = null;
+          clearSession();
+          if (containerEl) containerEl.style.display = "";
+          applySize("button");
+          global.dispatchEvent(
+            new MessageEvent("message", {
+              data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
+            }),
+          );
+        };
+
+        var _origSetItem = localStorage.setItem.bind(localStorage);
+        localStorage.setItem = function (key, value) {
+          _origSetItem(key, value);
+          // WNJ re-added the pointer → reconnect completed; cancel any pending disconnect.
+          if (key === "wnj:bunkerPointer" && _wnjDisconnectTimer !== null) {
+            clearTimeout(_wnjDisconnectTimer);
+            _wnjDisconnectTimer = null;
+          }
+        };
+
         var _origRemoveItem = localStorage.removeItem.bind(localStorage);
         localStorage.removeItem = function (key) {
           _origRemoveItem(key); // always perform the actual removal immediately
           if (key === "wnj:bunkerPointer" && activeMode === MODE_WNJ) {
-            setTimeout(function () {
-              try {
-                if (localStorage.getItem("wnj:bunkerPointer") !== null) return; // re-added: reconnect, not disconnect
-              } catch (_) {}
-              if (activeMode !== MODE_WNJ) return; // already switched elsewhere
-              activeMode = MODE_IFRAME;
-              authState = "loggedOut";
-              currentPubkey = null;
-              clearSession();
-              if (containerEl) containerEl.style.display = "";
-              applySize("button");
-              // Notify the portal that the user signed out via WNJ.
-              global.dispatchEvent(
-                new MessageEvent("message", {
-                  data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
-                }),
-              );
-            }, 500);
+            // Cancel any existing timer (debounce rapid remove/re-add cycles).
+            if (_wnjDisconnectTimer !== null) clearTimeout(_wnjDisconnectTimer);
+            _wnjDisconnectTimer = setTimeout(_wnjDoDisconnect, 3000);
           }
         };
       }
