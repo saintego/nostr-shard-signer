@@ -55,6 +55,20 @@
   let wnjNostr = null; // window.nostr.js implementation, captured after CDN load
   let activeMode = MODE_IFRAME; // MODE_IFRAME | MODE_WNJ
 
+  // ── Session cache ─────────────────────────────────────────────────────────────
+  // Persists the last successful login across page reloads so the UI immediately
+  // shows the correct auth state instead of flashing the sign-in button.
+  const SESSION_KEY = "nostr-bridge:session";
+  function saveSession(pubkey, mode) {
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify({ pubkey: pubkey, mode: mode })); } catch (_) {}
+  }
+  function clearSession() {
+    try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
+  }
+  function loadSession() {
+    try { var s = localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; } catch (_) { return null; }
+  }
+
   // ── 2D size map [layout][state] ───────────────────────────────────────────────
   // Numeric values are converted to "Npx"; strings (e.g. "100%") are used as-is.
   const SIZE_MAP = {
@@ -145,7 +159,9 @@
 
     containerEl = document.createElement("div");
     containerEl.id = CONTAINER_ID;
-    applySize("button");
+    // Start at the correct size for the current auth state so there is no
+    // flash-of-button when a cached session is already set.
+    applySize(authState === "loggedIn" ? "avatar" : "button");
 
     iframeEl = document.createElement("iframe");
     iframeEl.id = IFRAME_ID;
@@ -205,6 +221,12 @@
       });
       document.body.appendChild(wnjBtnEl);
     }
+
+    // In WNJ mode (restored from session cache), keep the iframe hidden —
+    // WNJ handles all signing, so the OAuth iframe widget should not be visible.
+    if (activeMode === MODE_WNJ) {
+      containerEl.style.display = "none";
+    }
   }
 
   // ── postMessage helpers ──────────────────────────────────────────────────────
@@ -247,10 +269,18 @@
         clearTimeout(authStateTimer);
         authStateTimer = null;
       }
+      // If WNJ mode is active and the iframe reports no session, that is expected —
+      // the iframe's Web3Auth has no session but WNJ is still handling signing.
+      // Do not let the iframe's bootstrap "not connected" override the WNJ session.
+      if (!data.loggedIn && activeMode === MODE_WNJ) {
+        flushQueue();
+        return;
+      }
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
-      activeMode = MODE_IFRAME; // always reset; WNJ mode does not survive an auth-state change
+      activeMode = MODE_IFRAME; // reset; iframe auth-state change ends WNJ mode
       if (containerEl) containerEl.style.display = ""; // restore iframe if WNJ was hiding it
+      if (!data.loggedIn) clearSession(); // user logged out — clear cached session
       applySize(data.loggedIn ? "avatar" : "button"); // also controls WNJ button visibility
       flushQueue();
       return;
@@ -263,6 +293,7 @@
       }
       authState = "loggedIn";
       currentPubkey = data.pubkey;
+      saveSession(data.pubkey, MODE_IFRAME);
       activeMode = MODE_IFRAME; // user authenticated via iframe OAuth
       applySize("avatar"); // also hides WNJ button
       flushQueue();
@@ -351,14 +382,20 @@
   //      (user cancelled or wnj not set up) fall through to iframe queue.
   //   4. iframe queue — authState unknown (still loading) or loggedOut.
   function wnjGetPublicKey() {
+    // Hide the iframe BEFORE calling getPublicKey so WNJ's modal (z-index 90000)
+    // is not obscured by the iframe container (z-index 2147483647).
+    // Capture previous display states so we can restore them if the user cancels.
+    var prevContainerDisplay = containerEl ? containerEl.style.display : null;
+    var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
+    var prevWnjBtnDisplay = wnjBtnEl ? wnjBtnEl.style.display : null;
+    if (containerEl) containerEl.style.display = "none";
+    if (wnjBtnEl) wnjBtnEl.style.display = "none";
+
     return wnjNostr.getPublicKey().then(function (pubkey) {
       activeMode = MODE_WNJ;
       authState = "loggedIn";
       currentPubkey = pubkey;
-      // Hide iframe and WNJ trigger button — WNJ is now handling signing
-      if (containerEl) containerEl.style.display = "none";
-      var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
-      if (wnjBtnEl) wnjBtnEl.style.display = "none";
+      saveSession(pubkey, MODE_WNJ);
       // Notify the host page (portal listens for AUTH_STATE messages)
       global.dispatchEvent(
         new MessageEvent("message", {
@@ -366,6 +403,11 @@
         }),
       );
       return pubkey;
+    }).catch(function (err) {
+      // User cancelled or WNJ failed — restore the previous display states
+      if (containerEl && prevContainerDisplay !== null) containerEl.style.display = prevContainerDisplay;
+      if (wnjBtnEl && prevWnjBtnDisplay !== null) wnjBtnEl.style.display = prevWnjBtnDisplay;
+      throw err;
     });
   }
 
@@ -568,6 +610,22 @@
       });
     } catch (_) {
       global.nostr = proxy;
+    }
+
+    // Restore last session from localStorage — pre-seeds auth state so the UI
+    // immediately shows the correct state on reload (no flash of sign-in button).
+    const savedSession = loadSession();
+    if (savedSession) {
+      authState = "loggedIn";
+      currentPubkey = savedSession.pubkey;
+      activeMode = (savedSession.mode === MODE_WNJ && wnjNostr) ? MODE_WNJ : MODE_IFRAME;
+      // Notify the portal immediately so its Connect/Disconnect button reflects reality.
+      global.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "AUTH_STATE", loggedIn: true, pubkey: savedSession.pubkey },
+        }),
+      );
+      flushQueue();
     }
 
     // AUTH_STATE timeout: if the iframe doesn't report back in time,
