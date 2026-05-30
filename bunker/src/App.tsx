@@ -225,17 +225,21 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             web3authRef.current = w3a;
 
             // 6. Check for existing session.
-            // Web3Auth v10 sometimes reports w3a.connected === false immediately
-            // after init() even when there is a valid cached session in storage.
-            // Calling connect() when a cachedConnector exists silently restores
-            // the session (no modal shown) in that case.  If the session truly
-            // expired, connect() throws and we fall through to the login view.
+            // Web3Auth v10 runs connector auto-connect as a non-awaited background
+            // task inside init(), so w3a.connected is false when init() returns even
+            // with a valid cached session.  w3a.connect() on the modal class opens
+            // the modal UI — it is NOT a silent restore.  Instead, wait for the
+            // "connected" or "errored" event that the background task emits (up to
+            // 5 s).  If neither fires the session has truly expired.
             if (!w3a.connected && w3a.cachedConnector) {
-                try {
-                    await w3a.connect(); // silent — does not open the modal
-                } catch (_) {
-                    // Session expired; w3a.connected stays false → login view below
-                }
+                await new Promise<void>((resolve) => {
+                    const timer = setTimeout(resolve, 5000);
+                    const done = () => { clearTimeout(timer); resolve(); };
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (w3a as any).once('connected', done);
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (w3a as any).once('errored', done);
+                });
             }
             if (cancelled) return;
 

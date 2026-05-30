@@ -612,6 +612,22 @@
 
     initialized = true;
 
+    // ── Read saved session BEFORE any async work ─────────────────────────────
+    // The iframe sends AUTH_STATE:false (which calls clearSession()) while WNJ
+    // is still loading from the CDN.  Reading the session early and setting
+    // sessionRestoreProtect immediately prevents the iframe's bootstrap false
+    // from wiping the saved WNJ session before we can use it.
+    const savedSession = loadSession();
+    if (savedSession) {
+      authState = "loggedIn";
+      currentPubkey = savedSession.pubkey;
+      // Use MODE_IFRAME as a placeholder until wnjNostr is determined below.
+      // sessionRestoreProtect blocks the iframe's AUTH_STATE:false (and its
+      // clearSession() call) for both IFRAME and WNJ saved sessions.
+      activeMode = MODE_IFRAME;
+      sessionRestoreProtect = true;
+    }
+
     // Save a reference to any pre-existing window.nostr (native extension).
     // Do NOT install our proxy yet — window.nostr.js will refuse to set up
     // if it finds a non-WNJ object already occupying window.nostr.
@@ -724,19 +740,19 @@
       global.nostr = proxy;
     }
 
-    // Restore last session from localStorage — pre-seeds auth state so the UI
-    // immediately shows the correct state on reload (no flash of sign-in button).
-    const savedSession = loadSession();
+    // ── Finalize saved-session restore now that wnjNostr is known ────────────
     if (savedSession) {
-      authState = "loggedIn";
-      currentPubkey = savedSession.pubkey;
+      // Determine the real mode — wnjNostr is now set (or null if unavailable).
       activeMode =
         savedSession.mode === MODE_WNJ && wnjNostr ? MODE_WNJ : MODE_IFRAME;
-      // For iframe-mode sessions, guard the restored state against the iframe's
-      // initial AUTH_STATE:false (Web3Auth still loading its own session).
-      if (activeMode === MODE_IFRAME) {
-        // Block ALL false from iframe until AUTH_SUCCESS confirms the session.
-        sessionRestoreProtect = true;
+
+      if (activeMode === MODE_WNJ) {
+        // WNJ is handling signing — iframe widget is not needed.
+        sessionRestoreProtect = false; // no AUTH_SUCCESS expected from iframe
+        if (containerEl) containerEl.style.display = "none";
+      } else {
+        // IFRAME mode: keep sessionRestoreProtect to block the iframe's initial
+        // AUTH_STATE:false while Web3Auth restores its own session in the background.
         // Safety net: if AUTH_SUCCESS never arrives (session truly expired),
         // expire the protection and notify the portal as disconnected.
         setTimeout(function () {
@@ -753,7 +769,8 @@
           );
         }, IFRAME_AUTH_STATE_TIMEOUT_MS);
       }
-      // Notify the portal immediately so it shows the connected state on reload.
+
+      // Notify the portal so it shows the connected state on reload.
       global.dispatchEvent(
         new MessageEvent("message", {
           data: {
