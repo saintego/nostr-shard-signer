@@ -216,8 +216,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             // 5. Initialize Web3Auth
             let w3a: Web3Auth;
             try {
+                console.log('[signer] initWeb3Auth: start');
                 w3a = await initWeb3Auth(clientId);
+                console.log('[signer] initWeb3Auth: done');
             } catch (e) {
+                console.error('[signer] initWeb3Auth: error', e);
                 if (!cancelled) showError('Web3Auth init failed', (e as Error).message);
                 return;
             }
@@ -240,16 +243,29 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             //   "rehydration_error" — sessionId missing/expired → show login
             // A 30 s safety timeout covers the case where none of these fire.
 
+            console.log('[signer] session check: connected=%s cachedConnector=%s status=%s',
+                w3a.connected,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (w3a as any).cachedConnector ?? 'null',
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (w3a as any).status ?? 'unknown');
+
             const resolveSession = async () => {
+                console.log('[signer] resolveSession: extracting key');
                 try {
                     const km = await extractKey(w3a);
+                    console.log('[signer] resolveSession: key extracted, pubkey=%s', km.publicKeyHex);
                     let w3aProfile: { name?: string; picture?: string } | undefined;
                     try {
                         const info = await w3a.getUserInfo();
                         w3aProfile = { name: info.name || undefined, picture: info.profileImage || undefined };
-                    } catch (_) { }
+                        console.log('[signer] resolveSession: userInfo ok, name=%s', w3aProfile.name);
+                    } catch (e) {
+                        console.warn('[signer] resolveSession: getUserInfo failed', e);
+                    }
                     if (!cancelled) await onLoginSuccess(km, w3aProfile);
-                } catch (_) {
+                } catch (e) {
+                    console.error('[signer] resolveSession: extractKey failed', e);
                     if (!cancelled) {
                         setView('login');
                         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
@@ -260,12 +276,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (w3a.connected) {
                 // Fast path: already connected (rare — only if auto-connect finished
                 // before init() returned, which can happen on very fast networks).
+                console.log('[signer] fast path: already connected, resolving session');
                 await resolveSession();
                 return;
             }
 
             if (!w3a.cachedConnector) {
                 // No previous session at all.
+                console.log('[signer] no cachedConnector → show login');
                 setView('login');
                 postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
                 return;
@@ -276,6 +294,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             // in 'loading' view until one of the events fires.
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const w3aEmitter = w3a as any;
+
+            console.log('[signer] cachedConnector=%s: waiting for auto-connect events',
+                (w3a as any).cachedConnector);
+            console.log('[signer] w3a event names currently registered:',
+                typeof w3aEmitter.eventNames === 'function' ? w3aEmitter.eventNames() : '(not an EventEmitter)');
 
             const cleanup = (safetyTimer: ReturnType<typeof setTimeout>) => {
                 clearTimeout(safetyTimer);
@@ -289,12 +312,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             let safetyTimer: ReturnType<typeof setTimeout>;
 
             const onConnected = async () => {
+                console.log('[signer] event: connected fired');
                 cleanup(safetyTimer);
                 if (cancelled) return;
                 await resolveSession();
             };
 
-            const onFailed = () => {
+            const onFailed = (eventName: string, err?: unknown) => {
+                console.warn('[signer] event: %s fired', eventName, err ?? '');
                 cleanup(safetyTimer);
                 if (cancelled) return;
                 setView('login');
@@ -302,6 +327,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             };
 
             safetyTimer = setTimeout(() => {
+                console.warn('[signer] safety timeout fired — no auto-connect event received in 30 s');
                 w3aEmitter.removeListener('connected', onConnected);
                 w3aEmitter.removeListener('errored', onFailed);
                 w3aEmitter.removeListener('rehydration_error', onFailed);
@@ -311,8 +337,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             }, 30000);
 
             w3aEmitter.once('connected', onConnected);
-            w3aEmitter.once('errored', onFailed);
-            w3aEmitter.once('rehydration_error', onFailed);
+            w3aEmitter.once('errored', (err: unknown) => onFailed('errored', err));
+            w3aEmitter.once('rehydration_error', (err: unknown) => onFailed('rehydration_error', err));
             // bootstrap() returns here; the view stays 'loading' until an event fires.
         };
 
