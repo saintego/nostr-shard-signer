@@ -357,6 +357,13 @@
     if (data.type === "RESIZE") {
       // Validate state before applying to prevent unexpected size changes
       if (!["button", "avatar", "modal"].includes(data.state)) return;
+      // While session restore is pending, don't let the iframe's login view
+      // shrink the container.  AUTH_STATE:false is already blocked by
+      // sessionRestoreProtect; RESIZE:button must be blocked for the same
+      // reason — otherwise the widget visually shows the login button while
+      // the host app still shows the user as logged in (from savedSession).
+      // The 10-second safety timer is responsible for the final transition.
+      if (sessionRestoreProtect && data.state === "button") return;
       applySize(data.state);
       return;
     }
@@ -685,10 +692,19 @@
         // handshake even on slow connections, while still reacting promptly to
         // an explicit user-initiated logout.
         var _wnjDisconnectTimer = null;
+        // Saved when _wnjDoDisconnect fires so a late setItem can recover the session.
+        var _wnjLastKnownPubkey = null;
 
         var _wnjDoDisconnect = function () {
           _wnjDisconnectTimer = null;
+          // Before treating this as a genuine disconnect, check whether WNJ has
+          // already re-added the bunker pointer.  NIP-46 reconnects can take several
+          // seconds (WebSocket + handshake); if the key is back, abort.
+          var pointer = null;
+          try { pointer = localStorage.getItem("wnj:bunkerPointer"); } catch (_) {}
+          if (pointer !== null) return; // WNJ reconnected — not a real disconnect
           if (activeMode !== MODE_WNJ) return; // already handled elsewhere
+          _wnjLastKnownPubkey = currentPubkey; // remember for late-reconnect recovery
           activeMode = MODE_IFRAME;
           authState = "loggedOut";
           currentPubkey = null;
@@ -705,10 +721,27 @@
         var _origSetItem = localStorage.setItem.bind(localStorage);
         localStorage.setItem = function (key, value) {
           _origSetItem(key, value);
-          // WNJ re-added the pointer → reconnect completed; cancel any pending disconnect.
-          if (key === "wnj:bunkerPointer" && _wnjDisconnectTimer !== null) {
-            clearTimeout(_wnjDisconnectTimer);
-            _wnjDisconnectTimer = null;
+          if (key === "wnj:bunkerPointer") {
+            if (_wnjDisconnectTimer !== null) {
+              // WNJ re-added the pointer within the grace period → reconnect, not disconnect.
+              clearTimeout(_wnjDisconnectTimer);
+              _wnjDisconnectTimer = null;
+            } else if (activeMode !== MODE_WNJ && _wnjLastKnownPubkey) {
+              // The grace-period timer already fired before WNJ finished reconnecting.
+              // WNJ is now connected — recover the session with the last known pubkey.
+              var pubkey = _wnjLastKnownPubkey;
+              _wnjLastKnownPubkey = null;
+              activeMode = MODE_WNJ;
+              authState = "loggedIn";
+              currentPubkey = pubkey;
+              saveSession(pubkey, MODE_WNJ);
+              if (containerEl) containerEl.style.display = "none";
+              global.dispatchEvent(
+                new MessageEvent("message", {
+                  data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
+                }),
+              );
+            }
           }
         };
 
@@ -718,7 +751,9 @@
           if (key === "wnj:bunkerPointer" && activeMode === MODE_WNJ) {
             // Cancel any existing timer (debounce rapid remove/re-add cycles).
             if (_wnjDisconnectTimer !== null) clearTimeout(_wnjDisconnectTimer);
-            _wnjDisconnectTimer = setTimeout(_wnjDoDisconnect, 3000);
+            // Use a 10 s grace period — NIP-46 reconnect (WebSocket + handshake)
+            // can take several seconds on slow connections.
+            _wnjDisconnectTimer = setTimeout(_wnjDoDisconnect, 10000);
           }
         };
       }
