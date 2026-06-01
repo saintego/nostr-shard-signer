@@ -243,12 +243,16 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             //   "rehydration_error" — sessionId missing/expired → show login
             // A 30 s safety timeout covers the case where none of these fire.
 
-            console.log('[signer] session check: connected=%s cachedConnector=%s status=%s',
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const w3aAny = w3a as any;
+            const hasProvider = !!w3aAny.provider;
+
+            console.log('[signer] session check: connected=%s provider=%s cachedConnector=%s connectedConnectorName=%s status=%s',
                 w3a.connected,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (w3a as any).cachedConnector ?? 'null',
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (w3a as any).status ?? 'unknown');
+                hasProvider,
+                w3aAny.cachedConnector ?? 'null',
+                w3aAny.connectedConnectorName ?? 'null',
+                w3aAny.status ?? 'unknown');
 
             const resolveSession = async () => {
                 console.log('[signer] resolveSession: extracting key');
@@ -273,27 +277,30 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 }
             };
 
-            if (w3a.connected) {
-                // Fast path: already connected (rare — only if auto-connect finished
-                // before init() returned, which can happen on very fast networks).
-                console.log('[signer] fast path: already connected, resolving session');
+            // w3a.connected can be true from persisted localStorage state even before
+            // the connector has re-initialized (status=not_ready, provider=null).
+            // Only take the fast path when there is an actual provider available.
+            if (w3a.connected && hasProvider) {
+                console.log('[signer] fast path: connected with provider, resolving session');
                 await resolveSession();
                 return;
             }
 
-            if (!w3a.cachedConnector) {
-                // No previous session at all.
-                console.log('[signer] no cachedConnector → show login');
+            // Determine whether auto-connect will run: either cachedConnector or
+            // connectedConnectorName is set from the persisted Web3Auth-state.
+            const hasCachedSession = !!(w3aAny.cachedConnector || w3aAny.connectedConnectorName);
+            if (!hasCachedSession) {
+                console.log('[signer] no cached session → show login');
                 setView('login');
                 postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
                 return;
             }
 
+            // auto-connect is in-flight; stay in 'loading' view and wait for events.
             // cachedConnector is set: auto-connect is running in the background.
             // Register event callbacks and return from bootstrap(); the iframe stays
             // in 'loading' view until one of the events fires.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const w3aEmitter = w3a as any;
+            const w3aEmitter = w3aAny;
 
             console.log('[signer] cachedConnector=%s: waiting for auto-connect events',
                 (w3a as any).cachedConnector);
