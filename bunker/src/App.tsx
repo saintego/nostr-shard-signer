@@ -224,26 +224,23 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (cancelled) return;
             web3authRef.current = w3a;
 
-            // 6. Check for existing session.
-            // Web3Auth v10 runs connector auto-connect as a non-awaited background
-            // task inside init(), so w3a.connected is false when init() returns even
-            // with a valid cached session.  w3a.connect() on the modal class opens
-            // the modal UI — it is NOT a silent restore.  Instead, wait for the
-            // "connected" or "errored" event that the background task emits (up to
-            // 5 s).  If neither fires the session has truly expired.
-            if (!w3a.connected && w3a.cachedConnector) {
-                await new Promise<void>((resolve) => {
-                    const timer = setTimeout(resolve, 5000);
-                    const done = () => { clearTimeout(timer); resolve(); };
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    (w3a as any).once('connected', done);
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    (w3a as any).once('errored', done);
-                });
-            }
-            if (cancelled) return;
+            // 6. Resolve existing session.
+            // Web3Auth v10 starts connector auto-connect as a non-awaited background
+            // task inside init() — w3a.connected is false when init() returns even
+            // with a valid cached session.  A fixed-duration await fails on slow
+            // networks: the timeout fires before auto-connect finishes, the iframe
+            // shows the login button, and the first click on it hits connect()'s
+            // "already-connected" short-circuit (which is why "first click works").
+            //
+            // Fix: stay in 'loading' view and drive transitions from event listeners
+            // so the iframe never shows the login button while auto-connect is live.
+            // Three terminal events are possible:
+            //   "connected"         — auto-connect succeeded  → show avatar
+            //   "errored"           — connect() call failed   → show login
+            //   "rehydration_error" — sessionId missing/expired → show login
+            // A 30 s safety timeout covers the case where none of these fire.
 
-            if (w3a.connected) {
+            const resolveSession = async () => {
                 try {
                     const km = await extractKey(w3a);
                     let w3aProfile: { name?: string; picture?: string } | undefined;
@@ -258,12 +255,65 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
                     }
                 }
-            } else {
-                if (!cancelled) {
-                    setView('login');
-                    postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
-                }
+            };
+
+            if (w3a.connected) {
+                // Fast path: already connected (rare — only if auto-connect finished
+                // before init() returned, which can happen on very fast networks).
+                await resolveSession();
+                return;
             }
+
+            if (!w3a.cachedConnector) {
+                // No previous session at all.
+                setView('login');
+                postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
+                return;
+            }
+
+            // cachedConnector is set: auto-connect is running in the background.
+            // Register event callbacks and return from bootstrap(); the iframe stays
+            // in 'loading' view until one of the events fires.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const w3aEmitter = w3a as any;
+
+            const cleanup = (safetyTimer: ReturnType<typeof setTimeout>) => {
+                clearTimeout(safetyTimer);
+                w3aEmitter.removeListener('connected', onConnected);
+                w3aEmitter.removeListener('errored', onFailed);
+                w3aEmitter.removeListener('rehydration_error', onFailed);
+            };
+
+            // Defined with `let` so they are in scope for cleanup (hoisted).
+            // eslint-disable-next-line prefer-const
+            let safetyTimer: ReturnType<typeof setTimeout>;
+
+            const onConnected = async () => {
+                cleanup(safetyTimer);
+                if (cancelled) return;
+                await resolveSession();
+            };
+
+            const onFailed = () => {
+                cleanup(safetyTimer);
+                if (cancelled) return;
+                setView('login');
+                postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
+            };
+
+            safetyTimer = setTimeout(() => {
+                w3aEmitter.removeListener('connected', onConnected);
+                w3aEmitter.removeListener('errored', onFailed);
+                w3aEmitter.removeListener('rehydration_error', onFailed);
+                if (cancelled) return;
+                setView('login');
+                postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
+            }, 30000);
+
+            w3aEmitter.once('connected', onConnected);
+            w3aEmitter.once('errored', onFailed);
+            w3aEmitter.once('rehydration_error', onFailed);
+            // bootstrap() returns here; the view stays 'loading' until an event fires.
         };
 
         bootstrap().catch(e => {
