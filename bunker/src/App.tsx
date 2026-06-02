@@ -8,6 +8,7 @@ import { initWeb3Auth, extractKey } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { requiresConfirmation, processRpc, DEFAULT_AUTO_APPROVE_KINDS } from './lib/crypto';
+import { npubEncode } from 'nostr-tools/nip19';
 
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { ErrorBanner } from './components/ErrorBanner';
@@ -57,6 +58,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     // ── Pending signing confirmation ──────────────────────────────────────────
     const [pendingConf, setPendingConf] = useState<PendingConfirmation | null>(null);
+    // ── WNJ profile mode: set when bridge sends WNJ_SESSION ───────────────────────
+    const [wnjPubkey, setWnjPubkey] = useState<string | null>(null);
     const confCallbackRef = useRef<{
         resolve: (result: string) => void;
         reject: (e: Error) => void;
@@ -111,6 +114,28 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             // Guard against non-object payloads (null, primitives, etc.)
             if (!event.data || typeof event.data !== 'object') return;
 
+            // ── WNJ control messages (no id/method) ────────────────────────────────
+            if (event.data.type === 'WNJ_SESSION' && typeof event.data.pubkey === 'string') {
+                const pk = event.data.pubkey as string;
+                setWnjPubkey(pk);
+                setKeyInfo({ publicKeyHex: pk, nsecStr: '', npubStr: npubEncode(pk) });
+                postToParent({ type: 'AUTH_STATE', loggedIn: true, pubkey: pk });
+                setView('avatar');
+                fetchProfile(pk, publishRelays)
+                    .then(profile => { if (profile) setUserProfile(profile); })
+                    .catch(() => { /* ignore */ });
+                return;
+            }
+
+            if (event.data.type === 'WNJ_DISCONNECT') {
+                setWnjPubkey(null);
+                setKeyInfo(null);
+                setUserProfile({});
+                setView('login');
+                postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
+                return;
+            }
+
             const { id, method, params = [] } = event.data as {
                 id: string | number;
                 method: string;
@@ -156,7 +181,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent]);
+    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays]);
 
     useEffect(() => {
         const listener = (event: MessageEvent) => handleMessageRef.current(event);
@@ -407,6 +432,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     }, [publishRelays]);
 
     const handleLogout = useCallback(async () => {
+        if (wnjPubkey) {
+            // WNJ profile mode: tell bridge to disconnect WNJ; bridge will send WNJ_DISCONNECT back.
+            postToParent({ type: 'WNJ_LOGOUT' });
+            return;
+        }
         try { await web3authRef.current?.logout(); } catch (_) { }
         // Zero the key material before dropping the reference
         privateKeyRef.current?.fill(0);
@@ -415,7 +445,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setUserProfile({});
         setView('login');
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
-    }, [postToParent]);
+    }, [postToParent, wnjPubkey]);
 
     const handleRelaysChange = useCallback((relays: string[]) => {
         setPublishRelays(relays);
@@ -460,6 +490,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 profile={userProfile}
                 publishRelays={publishRelays}
                 autoApproveKinds={autoApproveKinds}
+                isWnjMode={!!wnjPubkey}
                 onSaveProfile={handleSaveProfile}
                 onExportKey={() => setView('export')}
                 onLogout={handleLogout}

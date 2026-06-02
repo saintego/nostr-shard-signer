@@ -56,6 +56,7 @@
   let wnjHostEl = null; // WNJ's shadow-host element, captured after CDN load
   let activeMode = MODE_IFRAME; // MODE_IFRAME | MODE_WNJ
   let sessionRestoreProtect = false; // true for one AUTH_STATE cycle after session restore
+  let wnjDisconnectFn = null; // set inside init() when WNJ is loaded; callable from onMessage
 
   // ── Session cache ─────────────────────────────────────────────────────────────
   // Persists the last successful login across page reloads so the UI immediately
@@ -243,11 +244,8 @@
       document.body.appendChild(wnjBtnEl);
     }
 
-    // In WNJ mode (restored from session cache), keep the iframe hidden —
-    // WNJ handles all signing, so the OAuth iframe widget should not be visible.
-    if (activeMode === MODE_WNJ) {
-      containerEl.style.display = "none";
-    }
+    // WNJ mode: iframe is always shown; it will display the WNJ user's profile
+    // once the bridge sends it a WNJ_SESSION message after AUTH_STATE arrives.
   }
 
   // ── postMessage helpers ──────────────────────────────────────────────────────
@@ -294,6 +292,16 @@
       // the iframe's Web3Auth has no session but WNJ is still handling signing.
       // Do not let the iframe's bootstrap "not connected" override the WNJ session.
       if (!data.loggedIn && activeMode === MODE_WNJ) {
+        // Iframe's Web3Auth has no session, but WNJ is handling signing.
+        // Show the WNJ user's Nostr profile inside the iframe.
+        const cw = iframeWindow();
+        if (cw && currentPubkey) {
+          cw.postMessage(
+            { type: "WNJ_SESSION", pubkey: currentPubkey },
+            config._bunkerMessageOrigin,
+          );
+        }
+        applySize("avatar");
         flushQueue();
         return;
       }
@@ -316,8 +324,13 @@
       }
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
-      activeMode = MODE_IFRAME; // reset; iframe auth-state change ends WNJ mode
-      if (containerEl) containerEl.style.display = ""; // restore iframe if WNJ was hiding it
+      // Only reset activeMode when not in WNJ mode; WNJ routing must not be
+      // overridden by the iframe echoing back its own loggedIn:true after
+      // receiving a WNJ_SESSION message.
+      if (activeMode !== MODE_WNJ) {
+        activeMode = MODE_IFRAME; // reset; iframe auth-state change ends WNJ mode
+        if (containerEl) containerEl.style.display = ""; // restore iframe if WNJ was hiding it
+      }
       if (!data.loggedIn) clearSession(); // user logged out — clear cached session
       applySize(data.loggedIn ? "avatar" : "button"); // also controls WNJ button visibility
       // Notify the portal page so it can update its UI automatically.
@@ -354,7 +367,29 @@
       );
       return;
     }
-
+    if (data.type === "WNJ_LOGOUT") {
+      // Explicit user-initiated disconnect from the WNJ profile widget.
+      // Bypass the pointer-presence check in _wnjDoDisconnect — the pointer
+      // may still be present because the extension is still connected, but
+      // the user explicitly chose to disconnect the profile.
+      if (activeMode === MODE_WNJ) {
+        activeMode = MODE_IFRAME;
+        authState = "loggedOut";
+        currentPubkey = null;
+        clearSession();
+        applySize("button");
+        global.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
+          }),
+        );
+      }
+      // Tell the iframe to reset to login view.
+      const cw = iframeWindow();
+      if (cw)
+        cw.postMessage({ type: "WNJ_DISCONNECT" }, config._bunkerMessageOrigin);
+      return;
+    }
     if (data.type === "RESIZE") {
       // Validate state before applying to prevent unexpected size changes
       if (!["button", "avatar", "modal"].includes(data.state)) return;
@@ -457,8 +492,14 @@
       authState = "loggedIn";
       currentPubkey = pubkey;
       saveSession(pubkey, MODE_WNJ);
-      // WNJ connected: hide the OAuth iframe widget — WNJ handles signing now.
-      if (containerEl) containerEl.style.display = "none";
+      // WNJ connected: show WNJ user's profile in the iframe widget.
+      const cw = iframeWindow();
+      if (cw) {
+        cw.postMessage(
+          { type: "WNJ_SESSION", pubkey: pubkey },
+          config._bunkerMessageOrigin,
+        );
+      }
       if (wnjBtnEl) wnjBtnEl.style.display = "none";
       // Notify the portal page.
       global.dispatchEvent(
@@ -576,7 +617,9 @@
             clearTimeout(timer);
             // Return the pubkey so callers can dispatch AUTH_STATE without a
             // second getPublicKey() round-trip.
-            resolve(typeof pubkey === "string" && pubkey.length > 0 ? pubkey : null);
+            resolve(
+              typeof pubkey === "string" && pubkey.length > 0 ? pubkey : null,
+            );
           })
           .catch(function () {
             clearTimeout(timer);
@@ -628,7 +671,7 @@
     // sessionRestoreProtect immediately prevents the iframe's bootstrap false
     // from wiping the saved WNJ session before we can use it.
     const savedSession = loadSession();
-    console.log('[bridge] savedSession:', savedSession);
+    console.log("[bridge] savedSession:", savedSession);
     if (savedSession) {
       authState = "loggedIn";
       currentPubkey = savedSession.pubkey;
@@ -712,17 +755,28 @@
           // already re-added the bunker pointer.  NIP-46 reconnects can take several
           // seconds (WebSocket + handshake); if the key is back, abort.
           var pointer = null;
-          try { pointer = localStorage.getItem("wnj:bunkerPointer"); } catch (_) {}
+          try {
+            pointer = localStorage.getItem("wnj:bunkerPointer");
+          } catch (_) {}
           // A non-null, non-empty pointer means WNJ reconnected. Empty string or null
           // means either truly disconnected or WNJ wrote a cleanup/empty value on logout.
           var hasRealPointer = pointer !== null && pointer.length > 2;
-          console.log('[bridge] _wnjDoDisconnect: pointer=%s hasReal=%s activeMode=%s', pointer, hasRealPointer, activeMode);
+          console.log(
+            "[bridge] _wnjDoDisconnect: pointer=%s hasReal=%s activeMode=%s",
+            pointer,
+            hasRealPointer,
+            activeMode,
+          );
           if (hasRealPointer) {
-            console.log('[bridge] _wnjDoDisconnect: valid pointer → reconnect detected, abort');
+            console.log(
+              "[bridge] _wnjDoDisconnect: valid pointer → reconnect detected, abort",
+            );
             return; // WNJ reconnected — not a real disconnect
           }
           if (activeMode !== MODE_WNJ) return; // already handled elsewhere
-          console.log('[bridge] _wnjDoDisconnect: genuine disconnect → loggedOut');
+          console.log(
+            "[bridge] _wnjDoDisconnect: genuine disconnect → loggedOut",
+          );
           _wnjLastKnownPubkey = currentPubkey; // remember for late-reconnect recovery
           activeMode = MODE_IFRAME;
           authState = "loggedOut";
@@ -730,41 +784,66 @@
           clearSession();
           if (containerEl) containerEl.style.display = "";
           applySize("button");
+          // Notify the iframe so it exits WNJ profile mode (resets to login view).
+          var cwDisc = iframeWindow();
+          if (cwDisc)
+            cwDisc.postMessage(
+              { type: "WNJ_DISCONNECT" },
+              config._bunkerMessageOrigin,
+            );
           global.dispatchEvent(
             new MessageEvent("message", {
               data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
             }),
           );
         };
+        wnjDisconnectFn = _wnjDoDisconnect; // expose to outer scope for WNJ_LOGOUT handler
 
         var _origSetItem = localStorage.setItem.bind(localStorage);
         localStorage.setItem = function (key, value) {
           _origSetItem(key, value);
           if (key === "wnj:bunkerPointer") {
-            console.log('[bridge] setItem wnj:bunkerPointer: timer=%s activeMode=%s lastPubkey=%s',
-              _wnjDisconnectTimer, activeMode, _wnjLastKnownPubkey);
+            console.log(
+              "[bridge] setItem wnj:bunkerPointer: timer=%s activeMode=%s lastPubkey=%s",
+              _wnjDisconnectTimer,
+              activeMode,
+              _wnjLastKnownPubkey,
+            );
             if (_wnjDisconnectTimer !== null) {
               // Only treat as a reconnect if the new value looks like a real bunker
               // connection (non-trivial JSON). WNJ may write an empty/cleanup string
               // during logout; cancelling on that would swallow the disconnect.
               if (value && value.length > 2) {
-                console.log('[bridge] setItem: valid value → cancel pending disconnect (reconnect)');
+                console.log(
+                  "[bridge] setItem: valid value → cancel pending disconnect (reconnect)",
+                );
                 clearTimeout(_wnjDisconnectTimer);
                 _wnjDisconnectTimer = null;
               } else {
-                console.log('[bridge] setItem: empty/short value → keep timer (logout cleanup write)');
+                console.log(
+                  "[bridge] setItem: empty/short value → keep timer (logout cleanup write)",
+                );
               }
             } else if (activeMode !== MODE_WNJ && _wnjLastKnownPubkey) {
               // The grace-period timer already fired before WNJ finished reconnecting.
               // WNJ is now connected — recover the session with the last known pubkey.
-              console.log('[bridge] setItem: late reconnect recovery, pubkey=%s', _wnjLastKnownPubkey);
+              console.log(
+                "[bridge] setItem: late reconnect recovery, pubkey=%s",
+                _wnjLastKnownPubkey,
+              );
               var pubkey = _wnjLastKnownPubkey;
               _wnjLastKnownPubkey = null;
               activeMode = MODE_WNJ;
               authState = "loggedIn";
               currentPubkey = pubkey;
               saveSession(pubkey, MODE_WNJ);
-              if (containerEl) containerEl.style.display = "none";
+              var cwRecover = iframeWindow();
+              if (cwRecover) {
+                cwRecover.postMessage(
+                  { type: "WNJ_SESSION", pubkey: pubkey },
+                  config._bunkerMessageOrigin,
+                );
+              }
               global.dispatchEvent(
                 new MessageEvent("message", {
                   data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
@@ -778,19 +857,25 @@
         localStorage.removeItem = function (key) {
           _origRemoveItem(key); // always perform the actual removal immediately
           if (key === "wnj:bunkerPointer") {
-            console.log('[bridge] removeItem wnj:bunkerPointer: activeMode=%s', activeMode);
+            console.log(
+              "[bridge] removeItem wnj:bunkerPointer: activeMode=%s",
+              activeMode,
+            );
             if (activeMode === MODE_WNJ) {
               // Clear the bridge session NOW — before any async timer — so that if
               // the page is reloaded within the grace window the session is already
               // gone and the user won't be auto-reconnected.
               clearSession();
               // Cancel any existing timer (debounce rapid remove/re-add cycles).
-              if (_wnjDisconnectTimer !== null) clearTimeout(_wnjDisconnectTimer);
+              if (_wnjDisconnectTimer !== null)
+                clearTimeout(_wnjDisconnectTimer);
               // 300 ms is enough time for WNJ to re-add the pointer if this is a
               // reconnect (WNJ reconnect fires setItem without removeItem, but we
               // keep a tiny window for edge cases).  300 ms also means logout UI
               // is nearly instant rather than the old 3–10 s delay.
-              console.log('[bridge] removeItem: session cleared; firing disconnect in 300ms');
+              console.log(
+                "[bridge] removeItem: session cleared; firing disconnect in 300ms",
+              );
               _wnjDisconnectTimer = setTimeout(_wnjDoDisconnect, 300);
             }
           }
@@ -819,15 +904,21 @@
       // Determine the real mode — wnjNostr is now set (or null if unavailable).
       activeMode =
         savedSession.mode === MODE_WNJ && wnjNostr ? MODE_WNJ : MODE_IFRAME;
-      console.log('[bridge] finalize: savedMode=%s wnjNostr=%s → activeMode=%s',
-        savedSession.mode, !!wnjNostr, activeMode);
+      console.log(
+        "[bridge] finalize: savedMode=%s wnjNostr=%s → activeMode=%s",
+        savedSession.mode,
+        !!wnjNostr,
+        activeMode,
+      );
 
       if (activeMode === MODE_WNJ) {
-        // WNJ is handling signing — iframe widget is not needed.
+        // WNJ is handling signing — iframe shows the WNJ user's profile.
+        // WNJ_SESSION is sent when the iframe's AUTH_STATE:false arrives.
         sessionRestoreProtect = false; // no AUTH_SUCCESS expected from iframe
-        if (containerEl) containerEl.style.display = "none";
-        console.log('[bridge] WNJ mode: wnj:bunkerPointer in storage =',
-          localStorage.getItem('wnj:bunkerPointer'));
+        console.log(
+          "[bridge] WNJ mode: wnj:bunkerPointer in storage =",
+          localStorage.getItem("wnj:bunkerPointer"),
+        );
       } else {
         // IFRAME mode: keep sessionRestoreProtect to block the iframe's initial
         // AUTH_STATE:false while Web3Auth restores its own session in the background.

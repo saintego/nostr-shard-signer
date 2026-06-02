@@ -4,10 +4,10 @@ Drop one `<script>` tag into any web page and your users get a fully-functional 
 
 **Two login paths, one API:**
 
-| Mode | Who it's for | How it works |
-| ---- | ------------ | ------------ |
-| **Web3Auth OAuth** | Users new to Nostr or who prefer social login | Google, Apple, or X → MPC key is derived and held inside a sandboxed cross-origin iframe. The nsec never leaves that context. |
-| **NIP-46 Bunker** (via `window.nostr.js`) | Users who already hold their own Nostr key | [`window.nostr.js`](https://github.com/nostr-connect/window.nostr.js) connects silently to a NIP-46 bunker (nsec.app, Amber, etc.) over an encrypted relay channel. The parent app sees only signed events — never the key. |
+| Mode                                      | Who it's for                                  | How it works                                                                                                                                                                                                                |
+| ----------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Web3Auth OAuth**                        | Users new to Nostr or who prefer social login | Google, Apple, or X → MPC key is derived and held inside a sandboxed cross-origin iframe. The nsec never leaves that context.                                                                                               |
+| **NIP-46 Bunker** (via `window.nostr.js`) | Users who already hold their own Nostr key    | [`window.nostr.js`](https://github.com/nostr-connect/window.nostr.js) connects silently to a NIP-46 bunker (nsec.app, Amber, etc.) over an encrypted relay channel. The parent app sees only signed events — never the key. |
 
 The bridge detects a stored session on load and switches modes transparently. Both expose an identical `window.nostr` API, so client code is the same regardless of which path the user chose.
 
@@ -104,19 +104,19 @@ For users who already control their Nostr key, the bridge optionally loads [`win
 
 **Compatible remote signers:**
 
-| Signer | Platform | Notes |
-| ------ | -------- | ----- |
-| [nsec.app](https://nsec.app) | Web | Hosted bunker, easy onboarding |
-| [Amber](https://github.com/greenart7c3/Amber) | Android | Phone acts as bunker via NIP-46 |
-| [nsecbunker](https://nsecbunker.com) | Self-hosted | Full custody, relay of your choice |
+| Signer                                        | Platform    | Notes                              |
+| --------------------------------------------- | ----------- | ---------------------------------- |
+| [nsec.app](https://nsec.app)                  | Web         | Hosted bunker, easy onboarding     |
+| [Amber](https://github.com/greenart7c3/Amber) | Android     | Phone acts as bunker via NIP-46    |
+| [nsecbunker](https://nsecbunker.com)          | Self-hosted | Full custody, relay of your choice |
 
 **`NostrBridge.init()` option:**
 
 ```js
 NostrBridge.init({
-  clientId:    "YOUR_WEB3AUTH_CLIENT_ID",
+  clientId: "YOUR_WEB3AUTH_CLIENT_ID",
   bunkerOrigin: "https://saintego.github.io/nostr-shard-signer/signer.html",
-  forceIframe: false,  // default — loads WNJ; set true to skip WNJ entirely
+  forceIframe: false, // default — loads WNJ; set true to skip WNJ entirely
 });
 ```
 
@@ -177,9 +177,9 @@ console.log('ROOT_PUBKEY_HEX      =', pk);
 In `bunker/src/App.tsx` (or the compiled output), replace the placeholder:
 
 ```ts
-const ROOT_PUBKEY_HEX = '__ROOT_PUBKEY_HEX__';
+const ROOT_PUBKEY_HEX = "__ROOT_PUBKEY_HEX__";
 // → your actual hex public key, e.g.:
-const ROOT_PUBKEY_HEX = 'a3b2...';
+const ROOT_PUBKEY_HEX = "a3b2...";
 ```
 
 Optionally adjust:
