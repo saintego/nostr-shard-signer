@@ -694,24 +694,30 @@
     if (!config.forceIframe && nativeNostr) {
       const nativePubkey = await probeNativeExtension(nativeNostr);
       if (nativePubkey) {
-        // The native extension is responsive — keep it and skip everything.
-        global.removeEventListener("message", onMessage);
-        initialized = false;
+        // The native extension is responsive — use it as the WNJ signer so
+        // the bridge iframe can display the user's profile.
+        wnjNostr = nativeNostr;
+        activeMode = MODE_WNJ;
+        authState = "loggedIn";
+        currentPubkey = nativePubkey;
+        saveSession(nativePubkey, MODE_WNJ);
+        sessionRestoreProtect = false;
         console.info(
-          "nostr-bridge: responsive native extension found; iframe skipped.",
+          "nostr-bridge: native extension active; delegating signing to it, showing profile in iframe.",
         );
-        // Notify the page so any auth-aware code (portal, app UI) can show
-        // the connected state immediately without a second getPublicKey() call.
+        // Notify portal immediately; the iframe receives WNJ_SESSION when it boots
+        // and sends its AUTH_STATE:false message.
         global.dispatchEvent(
           new MessageEvent("message", {
             data: { type: "AUTH_STATE", loggedIn: true, pubkey: nativePubkey },
           }),
         );
-        return;
+        flushQueue();
+        // Fall through — skip WNJ CDN load (wnjNostr already set) and inject iframe below.
       }
     }
 
-    if (!config.forceIframe) {
+    if (!config.forceIframe && !wnjNostr) {
       // Load window.nostr.js — gives users a UI to connect Alby, Amber,
       // or any NIP-46 bunker via the floating widget.
       // window.nostr must be absent (or already WNJ) when the script runs;
@@ -798,6 +804,23 @@
           );
         };
         wnjDisconnectFn = _wnjDoDisconnect; // expose to outer scope for WNJ_LOGOUT handler
+
+        // Auto-reconnect: if WNJ has a live bunker pointer but no bridge session
+        // (e.g. the user previously clicked Disconnect in the profile modal,
+        // which clears the bridge session without disconnecting the WNJ bunker),
+        // call wnjGetPublicKey() silently — WNJ will resolve immediately since
+        // it is already connected, and the iframe will receive WNJ_SESSION.
+        if (!savedSession) {
+          try {
+            var wnjPointer = localStorage.getItem("wnj:bunkerPointer");
+            if (wnjPointer && wnjPointer.length > 2) {
+              console.log(
+                "[bridge] WNJ bunker pointer found with no saved session — auto-reconnecting",
+              );
+              wnjGetPublicKey().catch(function () { /* ignore */ });
+            }
+          } catch (_) {}
+        }
 
         var _origSetItem = localStorage.setItem.bind(localStorage);
         localStorage.setItem = function (key, value) {
