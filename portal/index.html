@@ -303,11 +303,7 @@
       <h1>Nostr Shard Signer <span>Portal</span></h1>
       <div id="auth-bar">
         <span id="pubkey-display"></span>
-        <button id="btn-disconnect" class="btn-secondary"
-          style="display:none;font-size:0.8rem;padding:0.35rem 0.9rem"
-          title="Disconnect your Nostr key from the portal">
-          Disconnect
-        </button>
+
       </div>
     </header>
 
@@ -449,7 +445,7 @@
 
     // ── DOM refs ────────────────────────────────────────────────────────────────
     const pubkeyDisplay  = document.getElementById("pubkey-display");
-    const btnDisconnect  = document.getElementById("btn-disconnect");
+
     const gateLoggedOut  = document.getElementById("gate-logged-out");
     const app            = document.getElementById("app");
     const btnRegister    = document.getElementById("btn-register");
@@ -473,7 +469,6 @@
       _pubkey = pubkey;
       pubkeyDisplay.textContent = shortPubkey(pubkey);
       pubkeyDisplay.style.display = "inline";
-      btnDisconnect.style.display = "inline-block";
       gateLoggedOut.style.display = "none";
       app.style.display = "block";
     }
@@ -481,12 +476,9 @@
     function showDisconnected() {
       _pubkey = null;
       pubkeyDisplay.style.display = "none";
-      btnDisconnect.style.display = "none";
       app.style.display = "none";
       gateLoggedOut.style.display = "block";
     }
-
-    btnDisconnect.addEventListener("click", () => showDisconnected());
 
     // Pre-show connected state immediately from localStorage — gives instant
     // visual feedback on reload without waiting for init() to complete.

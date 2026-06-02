@@ -597,6 +597,25 @@
     });
   }
 
+  // ── Native extension disconnect helper ──────────────────────────────────────
+  function _nativeExtensionDisconnect() {
+    if (activeMode !== MODE_WNJ) return;
+    console.log("[bridge] _nativeExtensionDisconnect: probe failed → loggedOut");
+    activeMode = MODE_IFRAME;
+    authState = "loggedOut";
+    currentPubkey = null;
+    clearSession();
+    applySize("button");
+    var cwDisc = iframeWindow();
+    if (cwDisc)
+      cwDisc.postMessage({ type: "WNJ_DISCONNECT" }, config._bunkerMessageOrigin);
+    global.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
+      }),
+    );
+  }
+
   // ── Native extension probe ───────────────────────────────────────────────────
   // Probes the pre-existing window.nostr (if any) with a timeout.
   // If the extension is installed but locked/unresponsive it will time out and
@@ -713,6 +732,37 @@
           }),
         );
         flushQueue();
+
+        // Detect native extension disconnect (e.g. user locks/logs out of Alby).
+        // On each tab focus, silently probe getPublicKey with a timeout.
+        // If the probe fails or times out, send WNJ_DISCONNECT to the iframe.
+        var _nativeProbeInFlight = false;
+        var _nativeNostrRef = nativeNostr;
+        global.document.addEventListener("visibilitychange", function () {
+          if (global.document.visibilityState !== "visible") return;
+          if (activeMode !== MODE_WNJ || _nativeProbeInFlight) return;
+          _nativeProbeInFlight = true;
+          var probeTimer = setTimeout(function () {
+            _nativeProbeInFlight = false;
+            _nativeExtensionDisconnect();
+          }, EXTENSION_TIMEOUT_MS);
+          try {
+            _nativeNostrRef.getPublicKey().then(function (pk) {
+              clearTimeout(probeTimer);
+              _nativeProbeInFlight = false;
+              if (!pk || pk !== currentPubkey) _nativeExtensionDisconnect();
+            }).catch(function () {
+              clearTimeout(probeTimer);
+              _nativeProbeInFlight = false;
+              _nativeExtensionDisconnect();
+            });
+          } catch (_) {
+            clearTimeout(probeTimer);
+            _nativeProbeInFlight = false;
+            _nativeExtensionDisconnect();
+          }
+        });
+
         // Fall through — skip WNJ CDN load (wnjNostr already set) and inject iframe below.
       }
     }
