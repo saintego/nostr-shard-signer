@@ -703,9 +703,12 @@
           // seconds (WebSocket + handshake); if the key is back, abort.
           var pointer = null;
           try { pointer = localStorage.getItem("wnj:bunkerPointer"); } catch (_) {}
-          console.log('[bridge] _wnjDoDisconnect: pointer=%s activeMode=%s', pointer, activeMode);
-          if (pointer !== null) {
-            console.log('[bridge] _wnjDoDisconnect: key exists → reconnect detected, abort');
+          // A non-null, non-empty pointer means WNJ reconnected. Empty string or null
+          // means either truly disconnected or WNJ wrote a cleanup/empty value on logout.
+          var hasRealPointer = pointer !== null && pointer.length > 2;
+          console.log('[bridge] _wnjDoDisconnect: pointer=%s hasReal=%s activeMode=%s', pointer, hasRealPointer, activeMode);
+          if (hasRealPointer) {
+            console.log('[bridge] _wnjDoDisconnect: valid pointer → reconnect detected, abort');
             return; // WNJ reconnected — not a real disconnect
           }
           if (activeMode !== MODE_WNJ) return; // already handled elsewhere
@@ -731,10 +734,16 @@
             console.log('[bridge] setItem wnj:bunkerPointer: timer=%s activeMode=%s lastPubkey=%s',
               _wnjDisconnectTimer, activeMode, _wnjLastKnownPubkey);
             if (_wnjDisconnectTimer !== null) {
-              // WNJ re-added the pointer within the grace period → reconnect, not disconnect.
-              console.log('[bridge] setItem: cancel pending disconnect (reconnect within grace)');
-              clearTimeout(_wnjDisconnectTimer);
-              _wnjDisconnectTimer = null;
+              // Only treat as a reconnect if the new value looks like a real bunker
+              // connection (non-trivial JSON). WNJ may write an empty/cleanup string
+              // during logout; cancelling on that would swallow the disconnect.
+              if (value && value.length > 2) {
+                console.log('[bridge] setItem: valid value → cancel pending disconnect (reconnect)');
+                clearTimeout(_wnjDisconnectTimer);
+                _wnjDisconnectTimer = null;
+              } else {
+                console.log('[bridge] setItem: empty/short value → keep timer (logout cleanup write)');
+              }
             } else if (activeMode !== MODE_WNJ && _wnjLastKnownPubkey) {
               // The grace-period timer already fired before WNJ finished reconnecting.
               // WNJ is now connected — recover the session with the last known pubkey.
@@ -765,8 +774,8 @@
               if (_wnjDisconnectTimer !== null) clearTimeout(_wnjDisconnectTimer);
               // Use a 10 s grace period — NIP-46 reconnect (WebSocket + handshake)
               // can take several seconds on slow connections.
-              console.log('[bridge] removeItem: starting 10s disconnect timer');
-              _wnjDisconnectTimer = setTimeout(_wnjDoDisconnect, 10000);
+              console.log('[bridge] removeItem: starting 3s disconnect timer');
+              _wnjDisconnectTimer = setTimeout(_wnjDoDisconnect, 3000);
             }
           }
         };
