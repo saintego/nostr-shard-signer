@@ -562,26 +562,28 @@
   function probeNativeExtension(existingNostr) {
     return new Promise(function (resolve) {
       if (!existingNostr || typeof existingNostr.getPublicKey !== "function") {
-        resolve(false);
+        resolve(null);
         return;
       }
       const timer = setTimeout(function () {
-        resolve(false);
+        resolve(null);
       }, EXTENSION_TIMEOUT_MS);
       try {
         existingNostr
           .getPublicKey()
-          .then(function () {
+          .then(function (pubkey) {
             clearTimeout(timer);
-            resolve(true);
+            // Return the pubkey so callers can dispatch AUTH_STATE without a
+            // second getPublicKey() round-trip.
+            resolve(typeof pubkey === "string" && pubkey.length > 0 ? pubkey : null);
           })
           .catch(function () {
             clearTimeout(timer);
-            resolve(false);
+            resolve(null);
           });
       } catch (_) {
         clearTimeout(timer);
-        resolve(false);
+        resolve(null);
       }
     });
   }
@@ -646,13 +648,20 @@
     global.addEventListener("message", onMessage);
 
     if (!config.forceIframe && nativeNostr) {
-      const works = await probeNativeExtension(nativeNostr);
-      if (works) {
+      const nativePubkey = await probeNativeExtension(nativeNostr);
+      if (nativePubkey) {
         // The native extension is responsive — keep it and skip everything.
         global.removeEventListener("message", onMessage);
         initialized = false;
         console.info(
           "nostr-bridge: responsive native extension found; iframe skipped.",
+        );
+        // Notify the page so any auth-aware code (portal, app UI) can show
+        // the connected state immediately without a second getPublicKey() call.
+        global.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "AUTH_STATE", loggedIn: true, pubkey: nativePubkey },
+          }),
         );
         return;
       }
