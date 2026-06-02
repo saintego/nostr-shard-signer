@@ -308,8 +308,20 @@
 
     <!-- shown when not connected -->
     <div id="gate-logged-out">
-      <h2>Connect your Nostr key to continue</h2>
-      <p>Use Alby, any NIP-07 extension, or a NIP-46 remote signer.<br>Your key never leaves your signer.</p>
+      <h2>Developer Portal</h2>
+      <p>
+        <strong>Nostr Shard Signer</strong> gives any web app a <code>window.nostr</code> signer —
+        no browser extension required. Users log in with Google, Apple, or X via Web3Auth;
+        their Nostr key is derived and held inside a sandboxed cross-origin iframe,
+        never touching the parent page.
+      </p>
+      <p style="margin-top:0.75rem">
+        This portal lets you register your Web3Auth <code>clientId</code> and allowed domains
+        so the signer trusts your app.
+        Connect a Nostr key (Alby or any NIP-07 extension) to get started, or
+        <a href="https://github.com/saintego/nostr-shard-signer" target="_blank" rel="noopener"
+           style="color:#a78bfa">read the docs</a> first.
+      </p>
     </div>
 
     <!-- shown when connected -->

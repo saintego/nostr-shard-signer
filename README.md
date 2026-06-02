@@ -74,8 +74,9 @@ The iframe resizes its container by sending `{ type: "RESIZE", state: "button" |
 ```
 nostr-shard-signer/
 ├── nostr-bridge.js          # Parent wrapper — injects iframe, proxies window.nostr
-├── bunker/
-│   └── signer.html          # Secure bunker — holds key, signs events, renders UI
+├── bunker/                  # Vite + React + TypeScript bunker app
+│   ├── src/                 # App source (compiles → signer.html on GitHub Pages)
+│   └── vite.config.ts
 ├── portal/
 │   └── index.html           # Developer portal — register/update clientIds via UI
 ├── registrar/
@@ -116,14 +117,14 @@ console.log('ROOT_PUBKEY_HEX      =', pk);
 "
 ```
 
-#### b. Configure `signer.html`
+#### b. Configure the bunker
 
-Replace the placeholder constant in `bunker/signer.html`:
+In `bunker/src/App.tsx` (or the compiled output), replace the placeholder:
 
-```js
-const ROOT_PUBKEY_HEX = "__ROOT_PUBKEY_HEX__";
+```ts
+const ROOT_PUBKEY_HEX = '__ROOT_PUBKEY_HEX__';
 // → your actual hex public key, e.g.:
-const ROOT_PUBKEY_HEX = "a3b2...";
+const ROOT_PUBKEY_HEX = 'a3b2...';
 ```
 
 Optionally adjust:
@@ -131,7 +132,13 @@ Optionally adjust:
 - `REGISTRY_RELAYS` — array of relays that host your NIP-33 events
 - `PUBLISH_RELAYS` — relays to broadcast profile updates to
 
-`signer.html` uses ESM (`<script type="module">`) with nostr-tools v2 and Web3Auth modal@9 loaded from CDN — no bundler needed.
+The bunker is a Vite + React + TypeScript app. Build it with:
+
+```bash
+cd bunker && npm install && npm run build
+```
+
+The compiled output is published to GitHub Pages as `signer.html` by the deploy workflow.
 
 #### c. Create the Cloudflare KV namespaces (once)
 
