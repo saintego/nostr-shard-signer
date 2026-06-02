@@ -600,7 +600,9 @@
   // ── Native extension disconnect helper ──────────────────────────────────────
   function _nativeExtensionDisconnect() {
     if (activeMode !== MODE_WNJ) return;
-    console.log("[bridge] _nativeExtensionDisconnect: probe failed → loggedOut");
+    console.log(
+      "[bridge] _nativeExtensionDisconnect: probe failed → loggedOut",
+    );
     activeMode = MODE_IFRAME;
     authState = "loggedOut";
     currentPubkey = null;
@@ -608,7 +610,10 @@
     applySize("button");
     var cwDisc = iframeWindow();
     if (cwDisc)
-      cwDisc.postMessage({ type: "WNJ_DISCONNECT" }, config._bunkerMessageOrigin);
+      cwDisc.postMessage(
+        { type: "WNJ_DISCONNECT" },
+        config._bunkerMessageOrigin,
+      );
     global.dispatchEvent(
       new MessageEvent("message", {
         data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
@@ -736,26 +741,29 @@
         // Detect native extension disconnect (e.g. user locks/logs out of Alby).
         // On each tab focus, silently probe getPublicKey with a timeout.
         // If the probe fails or times out, send WNJ_DISCONNECT to the iframe.
-        var _nativeProbeInFlight = false;
-        var _nativeNostrRef = nativeNostr;
+        let _nativeProbeInFlight = false;
+        const _nativeNostrRef = nativeNostr;
         global.document.addEventListener("visibilitychange", function () {
           if (global.document.visibilityState !== "visible") return;
           if (activeMode !== MODE_WNJ || _nativeProbeInFlight) return;
           _nativeProbeInFlight = true;
-          var probeTimer = setTimeout(function () {
+          const probeTimer = setTimeout(function () {
             _nativeProbeInFlight = false;
             _nativeExtensionDisconnect();
           }, EXTENSION_TIMEOUT_MS);
           try {
-            _nativeNostrRef.getPublicKey().then(function (pk) {
-              clearTimeout(probeTimer);
-              _nativeProbeInFlight = false;
-              if (!pk || pk !== currentPubkey) _nativeExtensionDisconnect();
-            }).catch(function () {
-              clearTimeout(probeTimer);
-              _nativeProbeInFlight = false;
-              _nativeExtensionDisconnect();
-            });
+            _nativeNostrRef
+              .getPublicKey()
+              .then(function (pk) {
+                clearTimeout(probeTimer);
+                _nativeProbeInFlight = false;
+                if (!pk || pk !== currentPubkey) _nativeExtensionDisconnect();
+              })
+              .catch(function () {
+                clearTimeout(probeTimer);
+                _nativeProbeInFlight = false;
+                _nativeExtensionDisconnect();
+              });
           } catch (_) {
             clearTimeout(probeTimer);
             _nativeProbeInFlight = false;
@@ -867,7 +875,9 @@
               console.log(
                 "[bridge] WNJ bunker pointer found with no saved session — auto-reconnecting",
               );
-              wnjGetPublicKey().catch(function () { /* ignore */ });
+              wnjGetPublicKey().catch(function () {
+                /* ignore */
+              });
             }
           } catch (_) {}
         }
