@@ -324,8 +324,13 @@
       }
       authState = data.loggedIn ? "loggedIn" : "loggedOut";
       currentPubkey = data.pubkey || null;
-      activeMode = MODE_IFRAME; // reset; iframe auth-state change ends WNJ mode
-      if (containerEl) containerEl.style.display = ""; // restore iframe if WNJ was hiding it
+      // Only reset activeMode when not in WNJ mode; WNJ routing must not be
+      // overridden by the iframe echoing back its own loggedIn:true after
+      // receiving a WNJ_SESSION message.
+      if (activeMode !== MODE_WNJ) {
+        activeMode = MODE_IFRAME; // reset; iframe auth-state change ends WNJ mode
+        if (containerEl) containerEl.style.display = ""; // restore iframe if WNJ was hiding it
+      }
       if (!data.loggedIn) clearSession(); // user logged out — clear cached session
       applySize(data.loggedIn ? "avatar" : "button"); // also controls WNJ button visibility
       // Notify the portal page so it can update its UI automatically.
@@ -363,8 +368,22 @@
       return;
     }
     if (data.type === "WNJ_LOGOUT") {
-      // User clicked logout in the WNJ profile widget inside the iframe.
-      if (wnjDisconnectFn) wnjDisconnectFn();
+      // Explicit user-initiated disconnect from the WNJ profile widget.
+      // Bypass the pointer-presence check in _wnjDoDisconnect — the pointer
+      // may still be present because the extension is still connected, but
+      // the user explicitly chose to disconnect the profile.
+      if (activeMode === MODE_WNJ) {
+        activeMode = MODE_IFRAME;
+        authState = "loggedOut";
+        currentPubkey = null;
+        clearSession();
+        applySize("button");
+        global.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
+          }),
+        );
+      }
       // Tell the iframe to reset to login view.
       const cw = iframeWindow();
       if (cw)
@@ -765,6 +784,13 @@
           clearSession();
           if (containerEl) containerEl.style.display = "";
           applySize("button");
+          // Notify the iframe so it exits WNJ profile mode (resets to login view).
+          var cwDisc = iframeWindow();
+          if (cwDisc)
+            cwDisc.postMessage(
+              { type: "WNJ_DISCONNECT" },
+              config._bunkerMessageOrigin,
+            );
           global.dispatchEvent(
             new MessageEvent("message", {
               data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },

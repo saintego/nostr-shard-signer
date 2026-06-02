@@ -59,7 +59,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // ── Pending signing confirmation ──────────────────────────────────────────
     const [pendingConf, setPendingConf] = useState<PendingConfirmation | null>(null);
     // ── WNJ profile mode: set when bridge sends WNJ_SESSION ───────────────────────
-    const [wnjPubkey, setWnjPubkey] = useState<string | null>(null); const confCallbackRef = useRef<{
+    const [wnjPubkey, setWnjPubkey] = useState<string | null>(null);
+    const confCallbackRef = useRef<{
         resolve: (result: string) => void;
         reject: (e: Error) => void;
     } | null>(null);
@@ -120,7 +121,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 setKeyInfo({ publicKeyHex: pk, nsecStr: '', npubStr: npubEncode(pk) });
                 postToParent({ type: 'AUTH_STATE', loggedIn: true, pubkey: pk });
                 setView('avatar');
-                fetchProfile(pk, DEFAULT_PUBLISH_RELAYS)
+                fetchProfile(pk, publishRelays)
                     .then(profile => { if (profile) setUserProfile(profile); })
                     .catch(() => { /* ignore */ });
                 return;
@@ -180,7 +181,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent]);
+    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays]);
 
     useEffect(() => {
         const listener = (event: MessageEvent) => handleMessageRef.current(event);
