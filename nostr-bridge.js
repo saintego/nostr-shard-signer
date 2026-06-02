@@ -141,6 +141,7 @@
       isFloating
         ? "  bottom: " + (wnjNostr ? "72px" : "24px") + "; right: 24px;"
         : "",
+      isFloating ? "  max-width: calc(100vw - 32px);" : "", // clamp on narrow screens
       "  z-index: 8999;", // below WNJ modal (9000) so WNJ always floats above
       "  transition: width 0.25s ease, height 0.25s ease;",
       "  overflow: hidden;",
@@ -779,12 +780,18 @@
           if (key === "wnj:bunkerPointer") {
             console.log('[bridge] removeItem wnj:bunkerPointer: activeMode=%s', activeMode);
             if (activeMode === MODE_WNJ) {
+              // Clear the bridge session NOW — before any async timer — so that if
+              // the page is reloaded within the grace window the session is already
+              // gone and the user won't be auto-reconnected.
+              clearSession();
               // Cancel any existing timer (debounce rapid remove/re-add cycles).
               if (_wnjDisconnectTimer !== null) clearTimeout(_wnjDisconnectTimer);
-              // Use a 10 s grace period — NIP-46 reconnect (WebSocket + handshake)
-              // can take several seconds on slow connections.
-              console.log('[bridge] removeItem: starting 3s disconnect timer');
-              _wnjDisconnectTimer = setTimeout(_wnjDoDisconnect, 3000);
+              // 300 ms is enough time for WNJ to re-add the pointer if this is a
+              // reconnect (WNJ reconnect fires setItem without removeItem, but we
+              // keep a tiny window for edge cases).  300 ms also means logout UI
+              // is nearly instant rather than the old 3–10 s delay.
+              console.log('[bridge] removeItem: session cleared; firing disconnect in 300ms');
+              _wnjDisconnectTimer = setTimeout(_wnjDoDisconnect, 300);
             }
           }
         };
