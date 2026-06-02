@@ -56,6 +56,7 @@
   let wnjHostEl = null; // WNJ's shadow-host element, captured after CDN load
   let activeMode = MODE_IFRAME; // MODE_IFRAME | MODE_WNJ
   let sessionRestoreProtect = false; // true for one AUTH_STATE cycle after session restore
+  let wnjDisconnectFn = null; // set inside init() when WNJ is loaded; callable from onMessage
 
   // ── Session cache ─────────────────────────────────────────────────────────────
   // Persists the last successful login across page reloads so the UI immediately
@@ -243,11 +244,8 @@
       document.body.appendChild(wnjBtnEl);
     }
 
-    // In WNJ mode (restored from session cache), keep the iframe hidden —
-    // WNJ handles all signing, so the OAuth iframe widget should not be visible.
-    if (activeMode === MODE_WNJ) {
-      containerEl.style.display = "none";
-    }
+    // WNJ mode: iframe is always shown; it will display the WNJ user's profile
+    // once the bridge sends it a WNJ_SESSION message after AUTH_STATE arrives.
   }
 
   // ── postMessage helpers ──────────────────────────────────────────────────────
@@ -294,6 +292,16 @@
       // the iframe's Web3Auth has no session but WNJ is still handling signing.
       // Do not let the iframe's bootstrap "not connected" override the WNJ session.
       if (!data.loggedIn && activeMode === MODE_WNJ) {
+        // Iframe's Web3Auth has no session, but WNJ is handling signing.
+        // Show the WNJ user's Nostr profile inside the iframe.
+        const cw = iframeWindow();
+        if (cw && currentPubkey) {
+          cw.postMessage(
+            { type: 'WNJ_SESSION', pubkey: currentPubkey },
+            config._bunkerMessageOrigin,
+          );
+        }
+        applySize('avatar');
         flushQueue();
         return;
       }
@@ -354,7 +362,14 @@
       );
       return;
     }
-
+    if (data.type === "WNJ_LOGOUT") {
+      // User clicked logout in the WNJ profile widget inside the iframe.
+      if (wnjDisconnectFn) wnjDisconnectFn();
+      // Tell the iframe to reset to login view.
+      const cw = iframeWindow();
+      if (cw) cw.postMessage({ type: 'WNJ_DISCONNECT' }, config._bunkerMessageOrigin);
+      return;
+    }
     if (data.type === "RESIZE") {
       // Validate state before applying to prevent unexpected size changes
       if (!["button", "avatar", "modal"].includes(data.state)) return;
@@ -457,8 +472,14 @@
       authState = "loggedIn";
       currentPubkey = pubkey;
       saveSession(pubkey, MODE_WNJ);
-      // WNJ connected: hide the OAuth iframe widget — WNJ handles signing now.
-      if (containerEl) containerEl.style.display = "none";
+      // WNJ connected: show WNJ user's profile in the iframe widget.
+      const cw = iframeWindow();
+      if (cw) {
+        cw.postMessage(
+          { type: 'WNJ_SESSION', pubkey: pubkey },
+          config._bunkerMessageOrigin,
+        );
+      }
       if (wnjBtnEl) wnjBtnEl.style.display = "none";
       // Notify the portal page.
       global.dispatchEvent(
@@ -736,6 +757,7 @@
             }),
           );
         };
+        wnjDisconnectFn = _wnjDoDisconnect; // expose to outer scope for WNJ_LOGOUT handler
 
         var _origSetItem = localStorage.setItem.bind(localStorage);
         localStorage.setItem = function (key, value) {
@@ -764,7 +786,13 @@
               authState = "loggedIn";
               currentPubkey = pubkey;
               saveSession(pubkey, MODE_WNJ);
-              if (containerEl) containerEl.style.display = "none";
+              var cwRecover = iframeWindow();
+              if (cwRecover) {
+                cwRecover.postMessage(
+                  { type: 'WNJ_SESSION', pubkey: pubkey },
+                  config._bunkerMessageOrigin,
+                );
+              }
               global.dispatchEvent(
                 new MessageEvent("message", {
                   data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
@@ -823,10 +851,10 @@
         savedSession.mode, !!wnjNostr, activeMode);
 
       if (activeMode === MODE_WNJ) {
-        // WNJ is handling signing — iframe widget is not needed.
+        // WNJ is handling signing — iframe shows the WNJ user's profile.
+        // WNJ_SESSION is sent when the iframe's AUTH_STATE:false arrives.
         sessionRestoreProtect = false; // no AUTH_SUCCESS expected from iframe
-        if (containerEl) containerEl.style.display = "none";
-        console.log('[bridge] WNJ mode: wnj:bunkerPointer in storage =',
+        console.log('[bridge] WNJ mode: wnj:bunkerPointer in storage =',  
           localStorage.getItem('wnj:bunkerPointer'));
       } else {
         // IFRAME mode: keep sessionRestoreProtect to block the iframe's initial

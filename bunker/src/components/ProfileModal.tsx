@@ -8,6 +8,7 @@ interface Props {
     profile: UserProfile;
     publishRelays: string[];
     autoApproveKinds: Set<number>;
+    isWnjMode?: boolean;
     onSaveProfile: (profile: UserProfile) => Promise<void>;
     onExportKey: () => void;
     onLogout: () => void;
@@ -28,6 +29,7 @@ export function ProfileModal({
     profile,
     publishRelays,
     autoApproveKinds,
+    isWnjMode = false,
     onSaveProfile,
     onExportKey,
     onLogout,
@@ -110,6 +112,51 @@ export function ProfileModal({
                 </button>
             </div>
 
+            {/* ── WNJ profile mode: read-only view, no signing capabilities ── */}
+            {isWnjMode ? (
+                <div className="tab-content">
+                    <div className="key-section">
+                        <label>Public key (npub)</label>
+                        <div className="key-row">
+                            <code className="key-display">{keyInfo.npubStr}</code>
+                            <button
+                                className="copy-btn"
+                                onClick={() => copyText(keyInfo.npubStr, setNpubCopied)}
+                                aria-label="Copy npub"
+                            >
+                                {npubCopied ? '✓' : '⧉'}
+                            </button>
+                        </div>
+                    </div>
+                    {profile.name && (
+                        <div className="field-row">
+                            <label>Display name</label>
+                            <input type="text" value={profile.name} disabled />
+                        </div>
+                    )}
+                    {profile.about && (
+                        <div className="field-row">
+                            <label>About</label>
+                            <textarea rows={3} value={profile.about} disabled />
+                        </div>
+                    )}
+                    {profile.lud16 && (
+                        <div className="field-row">
+                            <label>Lightning address</label>
+                            <input type="email" value={profile.lud16} disabled />
+                        </div>
+                    )}
+                    <p className="settings-hint">
+                        Signing is handled by your connected extension or bunker.
+                    </p>
+                    <div className="modal-actions">
+                        <button className="action-btn btn-danger" onClick={onLogout}>
+                            Disconnect
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <>
             <div className="tab-bar">
                 {(['profile', 'keys', 'settings'] as TabId[]).map(tab => (
                     <button
@@ -280,6 +327,8 @@ export function ProfileModal({
                         </div>
                     </section>
                 </div>
+            )}
+                </>
             )}
         </div>
     );
