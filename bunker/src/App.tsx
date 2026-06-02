@@ -59,7 +59,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // ── Pending signing confirmation ──────────────────────────────────────────
     const [pendingConf, setPendingConf] = useState<PendingConfirmation | null>(null);
     // ── WNJ profile mode: set when bridge sends WNJ_SESSION ───────────────────────
-    const [wnjPubkey, setWnjPubkey] = useState<string | null>(null);    const confCallbackRef = useRef<{
+    const [wnjPubkey, setWnjPubkey] = useState<string | null>(null); const confCallbackRef = useRef<{
         resolve: (result: string) => void;
         reject: (e: Error) => void;
     } | null>(null);
