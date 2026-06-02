@@ -311,11 +311,38 @@
       <h2>Developer Portal</h2>
       <p>
         <strong>Nostr Shard Signer</strong> gives any web app a <code>window.nostr</code> signer —
-        no browser extension required. Users log in with Google, Apple, or X via Web3Auth;
-        their Nostr key is derived and held inside a sandboxed cross-origin iframe,
-        never touching the parent page.
+        no browser extension required. One script tag, two login paths:
       </p>
-      <p style="margin-top:0.75rem">
+
+      <div style="margin-top:1.25rem;display:flex;flex-direction:column;gap:0.75rem;text-align:left">
+        <div style="background:#111;border:1px solid #222;border-radius:8px;padding:1rem">
+          <div style="font-size:0.8125rem;font-weight:600;margin-bottom:0.35rem">
+            🔐 Web3Auth OAuth
+          </div>
+          <div style="font-size:0.8rem;color:#888;line-height:1.55">
+            Users log in with <strong style="color:#ccc">Google, Apple, or X</strong> — no existing Nostr key needed.
+            The key is derived via MPC and held exclusively inside a sandboxed cross-origin iframe,
+            never touching the parent page's memory.
+          </div>
+        </div>
+
+        <div style="background:#111;border:1px solid #222;border-radius:8px;padding:1rem">
+          <div style="font-size:0.8125rem;font-weight:600;margin-bottom:0.35rem">
+            🗝️ NIP-46 Bunker <span style="font-weight:400;color:#888">via <code>window.nostr.js</code></span>
+          </div>
+          <div style="font-size:0.8rem;color:#888;line-height:1.55">
+            Users who already hold their own Nostr key can connect via any
+            <strong style="color:#ccc">NIP-46 remote signer</strong> —
+            <a href="https://nsec.app" target="_blank" rel="noopener" style="color:#a78bfa">nsec.app</a>,
+            <a href="https://github.com/greenart7c3/Amber" target="_blank" rel="noopener" style="color:#a78bfa">Amber</a>,
+            or a self-hosted <a href="https://nsecbunker.com" target="_blank" rel="noopener" style="color:#a78bfa">nsecbunker</a>.
+            The bridge loads <code>window.nostr.js</code> as the signing backend;
+            the parent app never sees the private key.
+          </div>
+        </div>
+      </div>
+
+      <p style="margin-top:1rem;font-size:0.8rem;color:#666">
         This portal lets you register your Web3Auth <code>clientId</code> and allowed domains
         so the signer trusts your app.
         Connect a Nostr key (Alby or any NIP-07 extension) to get started, or

@@ -1,6 +1,17 @@
 # nostr-shard-signer
 
-A cross-origin iframe authentication system for Nostr. Bridges a Web3Auth MPC OAuth provider into a standard `window.nostr` object using a sandboxed iframe — your private key never touches the parent page's memory.
+Drop one `<script>` tag into any web page and your users get a fully-functional `window.nostr` signer — no browser extension, no nsec copy-paste required.
+
+**Two login paths, one API:**
+
+| Mode | Who it's for | How it works |
+| ---- | ------------ | ------------ |
+| **Web3Auth OAuth** | Users new to Nostr or who prefer social login | Google, Apple, or X → MPC key is derived and held inside a sandboxed cross-origin iframe. The nsec never leaves that context. |
+| **NIP-46 Bunker** (via `window.nostr.js`) | Users who already hold their own Nostr key | [`window.nostr.js`](https://github.com/nostr-connect/window.nostr.js) connects silently to a NIP-46 bunker (nsec.app, Amber, etc.) over an encrypted relay channel. The parent app sees only signed events — never the key. |
+
+The bridge detects a stored session on load and switches modes transparently. Both expose an identical `window.nostr` API, so client code is the same regardless of which path the user chose.
+
+> **Need zero client-side key reconstruction?** For maximum custody control, users can point the NIP-46 mode at a self-hosted bunker (e.g. [nsecbunker](https://nsecbunker.com)) or use [nsec.app](https://nsec.app) as the remote signer — nostr-shard-signer just passes calls through.
 
 ## Security Model
 
@@ -66,6 +77,50 @@ A cross-origin iframe authentication system for Nostr. Bridges a Web3Auth MPC OA
 ```
 
 The iframe resizes its container by sending `{ type: "RESIZE", state: "button" | "avatar" | "modal" }` messages to the parent.
+
+---
+
+## Login Modes
+
+### Mode 1 — Web3Auth OAuth (default)
+
+Users click the login button inside the iframe, pick a social provider (Google, Apple, X), and Web3Auth derives a Nostr keypair via MPC. The nsec is reconstructed only inside the cross-origin iframe context and is never serialised to `localStorage` or sent over the wire.
+
+Unlike storing an nsec on a server, MPC splits the key into threshold shares distributed across independent nodes — no single party, including Web3Auth itself, ever holds the complete key, so a server breach yields only an unusable fragment.
+
+This is the recommended mode for apps whose users may not have a Nostr identity yet.
+
+### Mode 2 — NIP-46 Bunker via `window.nostr.js`
+
+For users who already control their Nostr key, the bridge optionally loads [`window.nostr.js`](https://github.com/nostr-connect/window.nostr.js) (WNJ) — a lightweight NIP-46 client that connects to any remote bunker over Nostr relays.
+
+**How the handoff works:**
+
+1. `NostrBridge.init()` loads the WNJ CDN bundle (if `forceIframe: false`).
+2. WNJ shows its own connect UI (bunker URL entry or QR scan for Amber).
+3. Once the user connects, WNJ stores the bunker session in `localStorage` and exposes `window.nostr`.
+4. The bridge detects WNJ's session and switches to `MODE_WNJ`: all `window.nostr` calls are routed to WNJ; the Web3Auth iframe is hidden.
+5. On subsequent page loads the session is restored silently — no UI shown, no modal opened.
+
+**Compatible remote signers:**
+
+| Signer | Platform | Notes |
+| ------ | -------- | ----- |
+| [nsec.app](https://nsec.app) | Web | Hosted bunker, easy onboarding |
+| [Amber](https://github.com/greenart7c3/Amber) | Android | Phone acts as bunker via NIP-46 |
+| [nsecbunker](https://nsecbunker.com) | Self-hosted | Full custody, relay of your choice |
+
+**`NostrBridge.init()` option:**
+
+```js
+NostrBridge.init({
+  clientId:    "YOUR_WEB3AUTH_CLIENT_ID",
+  bunkerOrigin: "https://saintego.github.io/nostr-shard-signer/signer.html",
+  forceIframe: false,  // default — loads WNJ; set true to skip WNJ entirely
+});
+```
+
+Setting `forceIframe: true` disables WNJ loading and always uses the Web3Auth iframe, regardless of any stored bunker session.
 
 ---
 
