@@ -462,6 +462,12 @@
     // Sync listener — registered before init's async work completes.
     window.addEventListener("message", (e) => {
       if (e.data?.type !== "AUTH_STATE") return;
+      // Only handle synthetic events dispatched by nostr-bridge (origin === '').
+      // Raw postMessages from the signer iframe arrive with the iframe's origin
+      // (https://saintego.github.io) and are filtered by the bridge before
+      // re-dispatch; ignoring them here prevents the iframe's "no session" report
+      // from showing the logged-out view while WNJ is handling signing.
+      if (e.origin !== '') return;
       _authReceived = true;
       if (e.data.loggedIn && e.data.pubkey) {
         showConnected(e.data.pubkey);
