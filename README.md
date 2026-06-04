@@ -50,7 +50,7 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 // Initialize the bridge (required once)
 await NostrBridge.init({
   clientId: "YOUR_WEB3AUTH_CLIENT_ID",
-  bunkerOrigin: "https://saintego.github.io/nostr-shard-signer"
+  bunkerOrigin: "https://saintego.github.io/nostr-shard-signer",
 });
 
 // Then use standard NIP-07 API — no special bridge calls needed
@@ -62,7 +62,7 @@ const event = {
   kind: 1,
   created_at: Math.floor(Date.now() / 1000),
   tags: [],
-  content: "Hello Nostr!"
+  content: "Hello Nostr!",
 };
 const signed = await window.nostr.signEvent(event);
 
@@ -72,6 +72,7 @@ const decrypted = await window.nostr.nip04?.decrypt("sender-pubkey", encrypted);
 ```
 
 **That's it.** Your app now has:
+
 - ✅ Web3Auth OAuth for new users (Google, Apple, X)
 - ✅ NIP-46 bunker support for existing Nostr users (Alby, Amber, nsec.app)
 - ✅ Automatic session persistence across page reloads
@@ -80,6 +81,7 @@ const decrypted = await window.nostr.nip04?.decrypt("sender-pubkey", encrypted);
 ### Why no big rewrite is needed
 
 The bridge **only** uses the standard NIP-07 API:
+
 - `window.nostr.getPublicKey()`
 - `window.nostr.signEvent(event)`
 - `window.nostr.nip04.encrypt/decrypt()`
