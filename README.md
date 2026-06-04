@@ -34,7 +34,7 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 1. Visit the [Developer Portal](https://saintego.github.io/nostr-shard-signer/portal/)
 2. Connect your Nostr key (Alby, Amber, or any NIP-07 extension)
 3. Go to **Register clientId** tab
-4. Enter your Web3Auth `clientId` (get one free from [Web3Auth](https://web3auth.io))
+4. Enter your Web3Auth `clientId` (get one free from [Web3Auth](https://web3auth.io), add there `https://saintego.github.io` to domains allowed for that clientId)
 5. Enter your app's domain (e.g., `https://myapp.com`)
 6. Submit — your domain is now authorized
 
@@ -51,7 +51,7 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 await NostrBridge.init({
   clientId: "YOUR_WEB3AUTH_CLIENT_ID",
   bunkerOrigin: "https://saintego.github.io/nostr-shard-signer",
-  registrarUrl: "https://nostr-shard-registrar.nostr-shard-signer.workers.dev"
+  registrarUrl: "https://nostr-shard-registrar.nostr-shard-signer.workers.dev",
 });
 
 // Then use standard NIP-07 API — no special bridge calls needed
