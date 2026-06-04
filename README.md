@@ -51,6 +51,7 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 await NostrBridge.init({
   clientId: "YOUR_WEB3AUTH_CLIENT_ID",
   bunkerOrigin: "https://saintego.github.io/nostr-shard-signer",
+  registrarUrl: "https://nostr-shard-registrar.nostr-shard-signer.workers.dev"
 });
 
 // Then use standard NIP-07 API — no special bridge calls needed
