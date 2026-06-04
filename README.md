@@ -27,6 +27,88 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 
 ---
 
+## Getting Started (2 minutes)
+
+### 1. Register your app (one-time setup)
+
+1. Visit the [Developer Portal](https://saintego.github.io/nostr-shard-signer/portal/)
+2. Connect your Nostr key (Alby, Amber, or any NIP-07 extension)
+3. Go to **Register clientId** tab
+4. Enter your Web3Auth `clientId` (get one free from [Web3Auth](https://web3auth.io))
+5. Enter your app's domain (e.g., `https://myapp.com`)
+6. Submit — your domain is now authorized
+
+### 2. Add one script tag to your app
+
+```html
+<script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
+```
+
+### 3. Call standard `window.nostr` — just like any NIP-07 extension
+
+```js
+// Initialize the bridge (required once)
+await NostrBridge.init({
+  clientId: "YOUR_WEB3AUTH_CLIENT_ID",
+  bunkerOrigin: "https://saintego.github.io/nostr-shard-signer"
+});
+
+// Then use standard NIP-07 API — no special bridge calls needed
+const pubkey = await window.nostr.getPublicKey();
+console.log("User pubkey:", pubkey);
+
+// Sign an event
+const event = {
+  kind: 1,
+  created_at: Math.floor(Date.now() / 1000),
+  tags: [],
+  content: "Hello Nostr!"
+};
+const signed = await window.nostr.signEvent(event);
+
+// Encrypt/decrypt (if needed)
+const encrypted = await window.nostr.nip04?.encrypt("target-pubkey", "secret");
+const decrypted = await window.nostr.nip04?.decrypt("sender-pubkey", encrypted);
+```
+
+**That's it.** Your app now has:
+- ✅ Web3Auth OAuth for new users (Google, Apple, X)
+- ✅ NIP-46 bunker support for existing Nostr users (Alby, Amber, nsec.app)
+- ✅ Automatic session persistence across page reloads
+- ✅ Zero friction — users pick their preferred login path
+
+### Why no big rewrite is needed
+
+The bridge **only** uses the standard NIP-07 API:
+- `window.nostr.getPublicKey()`
+- `window.nostr.signEvent(event)`
+- `window.nostr.nip04.encrypt/decrypt()`
+- `window.nostr.nip44.encrypt/decrypt()`
+
+If your app already uses any Nostr extension (Alby, nos2x, etc.), replacing it with this bridge is a **drop-in substitute** — your code stays the same.
+
+### Optional: React to login/logout (advanced)
+
+If you need to update your UI when users log in or out, listen for the `AUTH_STATE` bridge event:
+
+```js
+window.addEventListener("message", (e) => {
+  if (e.data?.type === "AUTH_STATE" && e.origin === "") {
+    if (e.data.loggedIn) {
+      console.log("User logged in:", e.data.pubkey);
+      // Show main app
+    } else {
+      console.log("User logged out");
+      // Show login screen
+    }
+  }
+});
+```
+
+> **Most apps don't need this.** If `window.nostr.getPublicKey()` succeeds, the user is logged in. If it throws, they're not — simple as that.
+
+---
+
 ## Architecture
 
 ```

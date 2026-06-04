@@ -1,29 +1,53 @@
 /**
  * nostr-bridge.js
  *
- * Parent wrapper that injects the cross-origin iframe bunker and proxies
- * window.nostr calls via NIP-46 RPC over postMessage.
+ * Injects window.nostr into any web page — supporting Web3Auth OAuth, NIP-46 bunkers (Alby,
+ * Amber, nsec.app), and native extensions. The private key is held only in a sandboxed
+ * cross-origin iframe and never accessible to parent page JS.
  *
- * Usage:
+ * PUBLIC API — Use standard NIP-07 calls:
+ *
+ *   window.nostr.getPublicKey()                     // returns hex pubkey
+ *   window.nostr.signEvent(event)                   // returns signed event
+ *   window.nostr.nip04?.encrypt(pubkey, plaintext) // returns ciphertext
+ *   window.nostr.nip04?.decrypt(pubkey, ciphertext)// returns plaintext
+ *   window.nostr.nip44?.encrypt(pubkey, plaintext) // returns ciphertext
+ *   window.nostr.nip44?.decrypt(pubkey, ciphertext)// returns plaintext
+ *
+ * INITIALIZATION (required):
+ *
  *   <script src="nostr-bridge.js"></script>
  *   <script>
  *     NostrBridge.init({
- *       clientId:     "YOUR_WEB3AUTH_CLIENT_ID",
- *       bunkerOrigin: "https://bunker.yourdomain.com",   // required
- *       forceIframe:  false,
- *       layout:       "floating",      // "floating" | "in-place"
- *       buttonSize:   "standard",      // "standard" | "large_social_grid"
- *       mountSelector: "#nostr-btn",   // only used when layout === "in-place"
+ *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // required
+ *       bunkerOrigin:   "https://yourdomain.com/path",// required
+ *       forceIframe:    false,                        // skip native extensions if true
+ *       layout:         "floating",                   // "floating" | "in-place"
+ *       buttonSize:     "standard",                   // "standard" | "large_social_grid"
+ *       mountSelector:  "#nostr-btn",                 // only used when layout === "in-place"
  *     });
  *   </script>
  *
+ * OPTIONAL: React to login/logout (listen for AUTH_STATE events):
+ *
+ *   window.addEventListener("message", (e) => {
+ *     if (e.data?.type === "AUTH_STATE" && e.origin === "") {
+ *       if (e.data.loggedIn) console.log("Logged in:", e.data.pubkey);
+ *       else console.log("Logged out");
+ *     }
+ *   });
+ *
+ * OPTIONAL BRIDGE METHODS (internal use, not typically needed):
+ *   - NostrBridge.getSavedSession()   // Get cached session from localStorage
+ *   - NostrBridge.getAuthState()      // Get current auth state
+ *
  * Security notes:
- *  - bunkerOrigin is required and sanitized to its bare origin (no path/query).
- *  - All postMessage calls target the pinned bunkerOrigin exactly (no wildcard).
- *  - event.source is checked against the specific iframe contentWindow.
- *  - "null" origins are rejected unconditionally.
- *  - A 5-second probe timeout prevents locked extensions from hanging the queue.
- *  - AUTH_STATE is expected within 10 s; pending queue is flushed as logged-out otherwise.
+ *  - The private key is held ONLY in a cross-origin iframe; Same-Origin Policy makes
+ *    it unreachable from parent page JS, regardless of XSS attacks.
+ *  - bunkerOrigin must be set; it is validated on every postMessage.
+ *  - event.source is checked against the specific iframe; "null" origins rejected.
+ *  - Native extension probes have a 5-second timeout to prevent hanging.
+ *  - Disconnect detection (Alby/WNJ): probed on tab focus regain via visibilitychange.
  */
 
 (function (global) {

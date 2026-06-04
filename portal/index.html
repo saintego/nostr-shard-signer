@@ -432,16 +432,13 @@
     // Portal client ID — registered for https://saintego.github.io via the Register tab.
     // Users with a NIP-07 extension (Alby etc.) will use it; others get the iframe signer.
     const PORTAL_CLIENT_ID = "BFD4KzWaR5gUqPApqWAZaEAu3agiAlwY7aDdhIco35GoDGu2Sh7apq5k5OSb-j6F3HihWibrvD3br_abtQz_jSc";
-    // Start init early; capture the Promise so we can fall back to
-    // getAuthState() after it resolves if the message listener somehow
-    // missed the session-restore AUTH_STATE dispatch.
-    const _initPromise = (typeof NostrBridge !== "undefined")
-      ? NostrBridge.init({
-          clientId:     PORTAL_CLIENT_ID,
-          bunkerOrigin: window.location.origin + "/nostr-shard-signer",
-          registrarUrl: REGISTRAR_URL,
-        })
-      : Promise.resolve();
+    // Initialize the bridge (required once)
+    if (typeof NostrBridge !== "undefined") {
+      NostrBridge.init({
+        clientId:     PORTAL_CLIENT_ID,
+        bunkerOrigin: window.location.origin + "/nostr-shard-signer",
+      });
+    }
 
     // ── DOM refs ────────────────────────────────────────────────────────────────
     const pubkeyDisplay  = document.getElementById("pubkey-display");
@@ -455,11 +452,9 @@
     const resultRegister = document.getElementById("result-register");
     const resultUpdate   = document.getElementById("result-update");
 
-    // ── nostr-post signer (NIP-07 via window.nostr) ─────────────────────────────
-    // @nostr-post/signer is bundled inside the CDN build.
-    // We wait for the module to register before using it.
+    // ── Standard NIP-07 window.nostr ──────────────────────────────────────────
     let _pubkey = null;
-    let _authReceived = false; // true once any AUTH_STATE message is handled
+    let _authReceived = false;
 
     function shortPubkey(hex) {
       return hex.slice(0, 8) + "…" + hex.slice(-6);
@@ -480,23 +475,10 @@
       gateLoggedOut.style.display = "block";
     }
 
-    // Pre-show connected state immediately from localStorage — gives instant
-    // visual feedback on reload without waiting for init() to complete.
-    // The bridge's AUTH_STATE messages will confirm or correct this below.
-    const _preSession = (typeof NostrBridge !== "undefined" && NostrBridge.getSavedSession)
-      ? NostrBridge.getSavedSession()
-      : null;
-    if (_preSession?.pubkey) showConnected(_preSession.pubkey);
-
-    // Sync listener — registered before init's async work completes.
+    // Listen for bridge login/logout events (optional, for reactive UI)
     window.addEventListener("message", (e) => {
-      if (e.data?.type !== "AUTH_STATE") return;
-      // Only handle synthetic events dispatched by nostr-bridge (origin === '').
-      // Raw postMessages from the signer iframe arrive with the iframe's origin
-      // (https://saintego.github.io) and are filtered by the bridge before
-      // re-dispatch; ignoring them here prevents the iframe's "no session" report
-      // from showing the logged-out view while WNJ is handling signing.
-      if (e.origin !== '') return;
+      // Bridge dispatches AUTH_STATE with origin === '' (synthetic event)
+      if (e.data?.type !== "AUTH_STATE" || e.origin !== '') return;
       _authReceived = true;
       if (e.data.loggedIn && e.data.pubkey) {
         showConnected(e.data.pubkey);
@@ -505,14 +487,17 @@
       }
     });
 
-    // Fallback: once init() resolves, if no AUTH_STATE event arrived yet
-    // (edge case where dispatch outran the listener), pull state directly.
-    _initPromise.then(() => {
-      if (!_authReceived && typeof NostrBridge !== "undefined" && NostrBridge.getAuthState) {
-        const s = NostrBridge.getAuthState();
-        if (s.loggedIn && s.pubkey) showConnected(s.pubkey);
+    // Try to get pubkey on startup (shows UI immediately if user is already logged in)
+    (async () => {
+      try {
+        if (window.nostr) {
+          const pk = await window.nostr.getPublicKey();
+          if (pk && !_authReceived) showConnected(pk);
+        }
+      } catch (_) {
+        // User not logged in or extension threw — that's OK
       }
-    });
+    })();
 
     // ── Tabs ─────────────────────────────────────────────────────────────────────
     document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -562,7 +547,11 @@
         return;
       }
       if (!_pubkey) {
-        showResult(resultRegister, "warning", "Connect your Nostr key first.");
+        showResult(resultRegister, "warning", "Connect your Nostr key first (iframe or extension).");
+        return;
+      }
+      if (!window.nostr) {
+        showResult(resultRegister, "error", "window.nostr not available. Refresh the page.");
         return;
       }
 
@@ -617,7 +606,11 @@
         return;
       }
       if (!_pubkey) {
-        showResult(resultUpdate, "warning", "Connect your Nostr key first.");
+        showResult(resultUpdate, "warning", "Connect your Nostr key first (iframe or extension).");
+        return;
+      }
+      if (!window.nostr) {
+        showResult(resultUpdate, "error", "window.nostr not available. Refresh the page.");
         return;
       }
 
