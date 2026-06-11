@@ -253,6 +253,7 @@
         "background:rgb(107, 33, 168)",
         "color:#fff",
         "font-size:13px",
+        "font-weight:600",
         "font-family:system-ui,sans-serif",
         "cursor:pointer",
         "z-index:8998", // below iframe (8999) and WNJ modal (9000)
