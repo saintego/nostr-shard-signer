@@ -250,7 +250,7 @@
         "height:40px",
         "border:none",
         "border-radius:8px",
-        "background:#1a1033",
+        "background:rgb(107, 33, 168)",
         "color:#fff",
         "font-size:13px",
         "font-family:system-ui,sans-serif",
