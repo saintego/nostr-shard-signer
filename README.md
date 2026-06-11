@@ -1,5 +1,13 @@
 # nostr-shard-signer
 
+> [!WARNING]  
+> **ALPHA RELEASE — USE AT YOUR OWN RISK**  
+> `nostr-shard-signer` is currently in **Alpha** and has **not** undergone a formal security audit.
+>
+> Because this library manages private key reconstruction in a browser/iframe context, it is vulnerable to frontend supply chain attacks (e.g., if the CDN or iframe host is compromised, keys could be exposed). **Do not use this to secure high-value wallets or significant funds.**
+>
+> Security reviews, testing, and pull requests are highly encouraged!
+
 Drop one `<script>` tag into any web page and your users get a fully-functional `window.nostr` signer — no browser extension, no nsec copy-paste required.
 
 **Two login paths, one API:**
@@ -34,7 +42,7 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 1. Visit the [Developer Portal](https://saintego.github.io/nostr-shard-signer/portal/)
 2. Connect your Nostr key (Alby, Amber, or any NIP-07 extension)
 3. Go to **Register clientId** tab
-4. Enter your Web3Auth `clientId` (get one free from [Web3Auth](https://web3auth.io), add there `https://saintego.github.io` to domains allowed for that clientId)
+4. Enter your Web3Auth `clientId` (get one free from [Web3Auth](https://web3auth.io) and whitelist `https://saintego.github.io` in Project Settings->Domains->Allowlist URLs)
 5. Enter your app's domain (e.g., `https://myapp.com`)
 6. Submit — your domain is now authorized
 
@@ -200,7 +208,7 @@ For users who already control their Nostr key, the bridge optionally loads [`win
 ```js
 NostrBridge.init({
   clientId: "YOUR_WEB3AUTH_CLIENT_ID",
-  bunkerOrigin: "https://saintego.github.io/nostr-shard-signer/signer.html",
+  bunkerOrigin: "https://saintego.github.io/nostr-shard-signer",
   forceIframe: false, // default — loads WNJ; set true to skip WNJ entirely
 });
 ```
@@ -521,6 +529,17 @@ Nonces are stored with a 5-minute TTL and consumed on first use.
 - [ ] Configure `REGISTRY_RELAYS` in `signer.html` to relays you control or trust
 - [ ] Set up Cloudflare Rate Limiting rules on the registrar endpoints
 - [ ] Configure your Web3Auth dashboard verifiers to match your `clientId`
+
+## 🚧 Known Issues & TODOs
+
+If you are contributing or using this in production, please be aware of the following architectural quirks currently being worked on:
+
+- [ ] **Extension Override Lockout:** If a user has a NIP-07 extension installed (like Alby), the bridge detects it and completely skips the Web3Auth iframe. Currently, if an Alby user _wants_ to log in with Google, there is no UI toggle to let them do so.
+  - **Workaround:** Parent apps must manually implement two login buttons and call `NostrBridge.init({ forceIframe: true })` to bypass the extension check.
+- [ ] **Logout State Syncing:** When a user logs out from inside the iframe or WNJ, the internal `window.nostr` proxy is destroyed, but the parent app's UI is not automatically notified. The app will visually appear "logged in" until it tries to sign an event and fails.
+  - **TODO:** The bridge needs to fire a native `window.dispatchEvent(new CustomEvent('nostr:logout'))` that the parent app can listen to.
+- [ ] **Web3Auth Modal UI Jitter:** When the Web3Auth OAuth modal "unfolds" inside the iframe, it requires a lot of screen space. Because the iframe container is initially sized strictly to the login button, the Web3Auth UI can get cut off or squish the background.
+  - **TODO:** The iframe must dispatch the `RESIZE` (modal state) message to expand to `100vw/100vh` _before_ the Web3Auth UI attempts to render.
 
 ---
 
