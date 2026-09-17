@@ -185,7 +185,7 @@ This is the recommended mode for apps whose users may not have a Nostr identity 
 
 ### Mode 2 — NIP-46 Bunker via `window.nostr.js`
 
-For users who already control their Nostr key, the bridge optionally loads [`window.nostr.js`](https://github.com/nostr-connect/window.nostr.js) (WNJ) — a lightweight NIP-46 client that connects to any remote bunker over Nostr relays.
+For users who already control their Nostr key, the bridge optionally loads [`window.nostr.js`](https://github.com/fiatjaf/window.nostr.js) (WNJ) — a lightweight NIP-46 client that connects to any remote bunker over Nostr relays.
 
 **How the handoff works:**
 
