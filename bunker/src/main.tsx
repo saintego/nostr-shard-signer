@@ -11,6 +11,8 @@ const urlParams = {
     clientId: searchParams.get('clientId') ?? '',
     buttonSize: (searchParams.get('buttonSize') ?? 'standard') as 'standard' | 'large_social_grid',
     registrarUrl: (searchParams.get('registrarUrl') ?? '').replace(/\/$/, ''),
+    // Set by the bridge when window.nostr.js is available on the parent page.
+    nostrSigner: searchParams.get('nostrSigner') === '1',
 };
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

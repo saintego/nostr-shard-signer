@@ -365,21 +365,45 @@ body {
 #error-banner small { font-size: 12px; color: #6b7280; line-height: 1.5; }
 
 /* ── Loading spinner ── */
+/* Only shown on first load, while the iframe is still button/avatar sized, so it
+   takes the sign-in button's shape and colour instead of a blank white box. */
 #loading-overlay {
   position: fixed;
-  inset: 0;
-  background: rgba(255,255,255,0.9);
+  inset: 8px 6px;
+  background: #7c3aed;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
-  border-radius: 16px;
+  border-radius: 8px;
 }
 .spinner {
-  width: 28px; height: 28px;
-  border: 3px solid #e5e7eb;
-  border-top-color: #7c3aed;
+  width: 22px; height: 22px;
+  border: 3px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.75s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── "Nostr signer or bunker" card above Web3Auth's sheet ── */
+.nostr-signer-card {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 100000; /* above Web3Auth's modal section (99998) */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 20px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.nostr-signer-card:hover { background: #faf5ff; }
+.choice-title { font-size: 15px; font-weight: 700; color: #111827; }
+.choice-sub { font-size: 13px; color: #6b7280; line-height: 1.4; }

@@ -19,6 +19,7 @@ export interface PendingConfirmation {
 export type ViewName =
   | "loading"
   | "login"
+  | "connecting"
   | "avatar"
   | "profile"
   | "export"

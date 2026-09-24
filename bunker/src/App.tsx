@@ -13,6 +13,7 @@ import { npubEncode } from 'nostr-tools/nip19';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { ErrorBanner } from './components/ErrorBanner';
 import { LoginView } from './components/LoginView';
+import { NostrSignerCard } from './components/NostrSignerCard';
 import { AvatarView } from './components/AvatarView';
 import { ConfirmView } from './components/ConfirmView';
 import { ProfileModal } from './components/ProfileModal';
@@ -26,11 +27,12 @@ interface AppProps {
     urlParams: {
         clientId: string;
         registrarUrl: string;
+        nostrSigner: boolean;
     };
 }
 
 export function App({ parentOrigin, urlParams }: AppProps) {
-    const { clientId, registrarUrl } = urlParams;
+    const { clientId, registrarUrl, nostrSigner } = urlParams;
 
     // ── View routing ──────────────────────────────────────────────────────────
     const [view, setView] = useState<ViewName>('loading');
@@ -395,8 +397,13 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         if (!w3a) return;
         // Expand iframe to modal size so Web3Auth's overlay fits
         postToParent({ type: 'RESIZE', state: 'modal' });
+        setView('connecting');
         try {
             await w3a.connect();
+            // Web3Auth's modal is gone; show the button-sized spinner while the
+            // key and profile load ('loading' skips the view-driven RESIZE).
+            setView('loading');
+            postToParent({ type: 'RESIZE', state: 'button' });
             const km = await extractKey(w3a);
             let w3aProfile: { name?: string; picture?: string } | undefined;
             try {
@@ -406,13 +413,25 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             await onLoginSuccess(km, w3aProfile);
         } catch (e) {
             // Restore button size (user cancelled or error)
-            postToParent({ type: 'RESIZE', state: 'button' });
+            setView('login');
             const msg = (e as Error).message ?? '';
             if (!/cancel|close|dismiss/i.test(msg)) {
                 showError('Login failed', msg);
             }
         }
     }, [postToParent, onLoginSuccess, showError]);
+
+    // "Nostr signer or bunker" picked next to Web3Auth's sheet: the bridge opens
+    // window.nostr.js on the parent page, and closing Web3Auth rejects connect(),
+    // which returns this iframe to the button.
+    const handleNostrSigner = useCallback(() => {
+        postToParent({ type: 'OPEN_NOSTR_SIGNER' });
+        web3authRef.current?.loginModal?.closeModal();
+    }, [postToParent]);
+
+    const handleSignerCardHeight = useCallback((height: number) => {
+        postToParent({ type: 'RESIZE', state: 'modal', height });
+    }, [postToParent]);
 
     const handleApprove = useCallback(() => {
         const cb = confCallbackRef.current;
@@ -468,6 +487,13 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     if (view === 'loading') return <LoadingOverlay />;
     if (view === 'error' && error) return <ErrorBanner msg={error.msg} detail={error.detail} />;
     if (view === 'login') return <LoginView onConnect={handleConnect} />;
+    // Web3Auth's modal is open and draws its own UI over the iframe; with
+    // window.nostr.js on the parent page, offer it right above that sheet.
+    if (view === 'connecting') {
+        return nostrSigner
+            ? <NostrSignerCard onClick={handleNostrSigner} onHeight={handleSignerCardHeight} />
+            : null;
+    }
 
     if (view === 'confirm' && pendingConf) {
         return (

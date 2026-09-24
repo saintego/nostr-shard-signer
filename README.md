@@ -190,7 +190,7 @@ For users who already control their Nostr key, the bridge optionally loads [`win
 **How the handoff works:**
 
 1. `NostrBridge.init()` loads the WNJ CDN bundle (if `forceIframe: false`).
-2. WNJ shows its own connect UI (bunker URL entry or QR scan for Amber).
+2. Clicking **Sign in** opens the Web3Auth login with a *Nostr signer or bunker* option right above it. Picking that opens WNJ's connect UI (bunker URL entry or QR scan for Amber).
 3. Once the user connects, WNJ stores the bunker session in `localStorage` and exposes `window.nostr`.
 4. The bridge detects WNJ's session and switches to `MODE_WNJ`: all `window.nostr` calls are routed to WNJ; the Web3Auth iframe is hidden.
 5. On subsequent page loads the session is restored silently — no UI shown, no modal opened.
@@ -202,6 +202,8 @@ For users who already control their Nostr key, the bridge optionally loads [`win
 | [nsec.app](https://nsec.app)                  | Web         | Hosted bunker, easy onboarding     |
 | [Amber](https://github.com/greenart7c3/Amber) | Android     | Phone acts as bunker via NIP-46    |
 | [nsecbunker](https://nsecbunker.com)          | Self-hosted | Full custody, relay of your choice |
+
+Any other NIP-46 remote signer works too: paste its `bunker://` URL, or scan the `nostrconnect://` QR code with the signer app.
 
 **`NostrBridge.init()` option:**
 

@@ -59,7 +59,7 @@
   const IFRAME_AUTH_STATE_TIMEOUT_MS = 10000; // How long to wait for AUTH_STATE from iframe
   const IFRAME_ID = "nostr-signer-iframe";
   const CONTAINER_ID = "nostr-signer-container";
-  const WNJ_BTN_ID = "nostr-wnj-btn"; // trigger button injected below the iframe when WNJ is available
+  const WNJ_STYLE_ID = "nostr-bridge-wnj-fix"; // style injected into WNJ's shadow root
   const MODE_IFRAME = "iframe"; // signing routed to the iframe bunker
   const MODE_WNJ = "wnj"; // signing routed to window.nostr.js signer
 
@@ -114,8 +114,10 @@
     floating: {
       button: {
         // Single "Sign in" button — Web3Auth modal opens inside the iframe
-        standard: { w: 220, h: 80 },
-        large_social_grid: { w: 220, h: 80 },
+        // Height hugs the ~40px button so the container's shadow outlines the
+        // button itself rather than an empty box around it.
+        standard: { w: 220, h: 56 },
+        large_social_grid: { w: 220, h: 56 },
       },
       avatar: { w: 48, h: 48 },
       modal: { w: 420, h: 580 },
@@ -130,7 +132,9 @@
     },
   };
 
-  function applySize(state) {
+  // height (px) optionally overrides the modal height; the signer sends it when it
+  // shows extra UI alongside Web3Auth's sheet and needs a taller iframe.
+  function applySize(state, height) {
     if (!containerEl) return;
     const layout = config.layout === "in-place" ? "in-place" : "floating";
     const lmap = SIZE_MAP[layout];
@@ -142,16 +146,11 @@
       dims = lmap[state];
     }
     if (!dims) return;
+    if (state === "modal" && height) dims = { w: dims.w, h: height };
     containerEl.style.width =
       typeof dims.w === "number" ? dims.w + "px" : dims.w;
     containerEl.style.height =
       typeof dims.h === "number" ? dims.h + "px" : dims.h;
-    // WNJ trigger is only shown while the sign-in modal is open AND the user
-    // is not already logged in (so it never shows when the profile modal opens).
-    var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
-    if (wnjBtnEl)
-      wnjBtnEl.style.display =
-        state === "modal" && authState !== "loggedIn" ? "" : "none";
   }
 
   // ── DOM helpers ──────────────────────────────────────────────────────────────
@@ -164,9 +163,10 @@
       "#" + CONTAINER_ID + " {",
       "  position: " + (isFloating ? "fixed" : "relative") + ";",
       isFloating
-        ? "  bottom: " + (wnjNostr ? "72px" : "24px") + "; right: 24px;"
+        ? "  bottom: calc(24px + env(safe-area-inset-bottom, 0px)); right: 24px;"
         : "",
       isFloating ? "  max-width: calc(100vw - 32px);" : "", // clamp on narrow screens
+      isFloating ? "  max-height: calc(100vh - 48px);" : "", // ...and short ones
       "  z-index: 8999;", // below WNJ modal (9000) so WNJ always floats above
       "  transition: width 0.25s ease, height 0.25s ease;",
       "  overflow: hidden;",
@@ -178,6 +178,11 @@
       "#" + IFRAME_ID + " {",
       "  width: 100%; height: 100%;",
       "  border: none; background: transparent; display: block;",
+      // The signer document is light-only. If the host page uses a dark
+      // color-scheme, the iframe would inherit it and Chrome would paint an
+      // opaque white backdrop behind the (transparent) signer, turning the
+      // button into a white box. Matching schemes keeps the iframe transparent.
+      "  color-scheme: normal;",
       "}",
     ].join("\n");
     document.head.appendChild(style);
@@ -193,6 +198,9 @@
     if (config.registrarUrl) {
       url.searchParams.set("registrarUrl", config.registrarUrl);
     }
+    // Tells the signer to offer "Nostr signer or bunker" in its sign-in chooser;
+    // picking it posts OPEN_NOSTR_SIGNER back so we open window.nostr.js.
+    if (wnjNostr) url.searchParams.set("nostrSigner", "1");
     return url.toString();
   }
 
@@ -234,39 +242,6 @@
       (mount || document.body).appendChild(containerEl);
     } else {
       document.body.appendChild(containerEl);
-    }
-
-    // If WNJ is available, inject a trigger button below the iframe widget.
-    // WNJ startHidden=true suppresses its own floating button; this button
-    // is the visible entry point that stacks below the iframe button.
-    if (wnjNostr && config.layout !== "in-place") {
-      var wnjBtnEl = document.createElement("button");
-      wnjBtnEl.id = WNJ_BTN_ID;
-      wnjBtnEl.style.cssText = [
-        "position:fixed",
-        "bottom:24px",
-        "right:24px",
-        "width:220px",
-        "height:40px",
-        "border:none",
-        "border-radius:8px",
-        "background:rgb(107, 33, 168)",
-        "color:#fff",
-        "font-size:13px",
-        "font-weight:600",
-        "font-family:system-ui,sans-serif",
-        "cursor:pointer",
-        "z-index:8998", // below iframe (8999) and WNJ modal (9000)
-        "box-shadow:0 4px 24px rgba(0,0,0,0.18)",
-        "display:none",
-      ].join(";");
-      wnjBtnEl.textContent = "Sign in with Extension or Bunker";
-      wnjBtnEl.addEventListener("click", function () {
-        wnjGetPublicKey().catch(function () {
-          /* user cancelled */
-        });
-      });
-      document.body.appendChild(wnjBtnEl);
     }
 
     // WNJ mode: iframe is always shown; it will display the WNJ user's profile
@@ -415,6 +390,15 @@
         cw.postMessage({ type: "WNJ_DISCONNECT" }, config._bunkerMessageOrigin);
       return;
     }
+    if (data.type === "OPEN_NOSTR_SIGNER") {
+      // User picked "Nostr signer or bunker" in the signer's sign-in chooser.
+      if (wnjNostr && activeMode !== MODE_WNJ) {
+        wnjGetPublicKey().catch(function () {
+          /* user cancelled */
+        });
+      }
+      return;
+    }
     if (data.type === "RESIZE") {
       // Validate state before applying to prevent unexpected size changes
       if (!["button", "avatar", "modal"].includes(data.state)) return;
@@ -425,7 +409,11 @@
       // the host app still shows the user as logged in (from savedSession).
       // The 10-second safety timer is responsible for the final transition.
       if (sessionRestoreProtect && data.state === "button") return;
-      applySize(data.state);
+      var height =
+        typeof data.height === "number" && data.height >= 200 && data.height <= 1200
+          ? Math.round(data.height)
+          : undefined;
+      applySize(data.state, height);
       return;
     }
 
@@ -497,15 +485,10 @@
   //      (user cancelled or wnj not set up) fall through to iframe queue.
   //   4. iframe queue — authState unknown (still loading) or loggedOut.
   function wnjGetPublicKey() {
-    // No z-index manipulation needed here: the CSS already establishes the
-    // correct stacking order for all three layers:
-    //   WNJ modal (90000)  >  iframe container (89999)  >  WNJ button (89998)
-    // WNJ's modal therefore always floats above both without any JS intervention.
-    // Because we never hide anything on click, a cancelled WNJ flow (promise
-    // that never resolves) leaves both the iframe widget and the WNJ button
+    // No z-index manipulation needed here: WNJ's modal (9000) sits above the
+    // iframe container (8999). Because we never hide anything on click, a
+    // cancelled WNJ flow (promise that never resolves) leaves the iframe widget
     // fully visible and clickable.
-    var wnjBtnEl = document.getElementById(WNJ_BTN_ID);
-
     return wnjNostr.getPublicKey().then(function (pubkey) {
       if (!pubkey) {
         // Some WNJ builds resolve with null/undefined on cancel.
@@ -525,7 +508,6 @@
           config._bunkerMessageOrigin,
         );
       }
-      if (wnjBtnEl) wnjBtnEl.style.display = "none";
       // Notify the portal page.
       global.dispatchEvent(
         new MessageEvent("message", {
@@ -620,6 +602,25 @@
       s.onerror = resolve; // silently degrade if CDN is unavailable or hash mismatch
       document.head.appendChild(s);
     });
+  }
+
+  // WNJ's connect panel has no max-height: on a short phone screen it grows
+  // past the top edge (bottom-anchored), hiding the bunker input and close
+  // button with no way to scroll. Cap it to the viewport and let it scroll.
+  function injectWnjStyles() {
+    var root = wnjHostEl && wnjHostEl.shadowRoot;
+    if (!root || root.getElementById(WNJ_STYLE_ID)) return;
+    var style = document.createElement("style");
+    style.id = WNJ_STYLE_ID;
+    style.textContent = [
+      ".draggable > div {",
+      "  max-height: calc(100vh - 16px);",
+      "  max-height: calc(100dvh - 16px);",
+      "  overflow-y: auto;",
+      "  overscroll-behavior: contain;",
+      "}",
+    ].join("\n");
+    root.appendChild(style);
   }
 
   // ── Native extension disconnect helper ──────────────────────────────────────
@@ -820,6 +821,7 @@
             return true;
           }
         });
+        injectWnjStyles();
 
         // Detect WNJ disconnect: WNJ v0.7.0 calls
         // localStorage.removeItem("wnj:bunkerPointer") when the user disconnects,
