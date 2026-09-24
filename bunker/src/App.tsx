@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Web3Auth } from '@web3auth/modal';
 
 import type { ViewName, UserProfile, KeyInfo, PendingConfirmation } from './types';
-import { validateEmbedding } from './lib/origin';
+import { validateEmbedding, isLocalhostOrigin } from './lib/origin';
 import { fetchRegistrarConfig, isAuthorized } from './lib/registry';
 import { initWeb3Auth, extractKey } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
@@ -231,7 +231,13 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            const authorized = await isAuthorized(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
+            // Local testing only: the registrar refuses localhost domains, so a build
+            // made with VITE_LOCAL_TEST=true (scripts/local.sh) skips the registry
+            // check for localhost parents. Normal builds never set the flag.
+            const localTestBypass = import.meta.env.VITE_LOCAL_TEST === 'true' && isLocalhostOrigin(parentOrigin);
+            if (localTestBypass) console.warn('[signer] VITE_LOCAL_TEST: skipping registry check for', parentOrigin);
+
+            const authorized = localTestBypass || await isAuthorized(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
             if (cancelled) return;
             if (!authorized) {
                 showError('Access denied', `"${parentOrigin}" is not authorized for this clientId.`);

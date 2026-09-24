@@ -44,3 +44,13 @@ export function validateEmbedding(parentOrigin: string): boolean {
     return true;
   }
 }
+
+/** True for http(s)://localhost and 127.0.0.1 origins (any port). */
+export function isLocalhostOrigin(origin: string): boolean {
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  } catch (_) {
+    return false;
+  }
+}
