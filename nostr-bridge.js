@@ -166,7 +166,7 @@
         ? "  bottom: calc(24px + env(safe-area-inset-bottom, 0px)); right: 24px;"
         : "",
       isFloating ? "  max-width: calc(100vw - 32px);" : "", // clamp on narrow screens
-      isFloating ? "  max-height: calc(100vh - 48px);" : "", // ...and short ones
+      isFloating ? "  max-height: calc(100vh - 32px);" : "", // ...and short ones
       "  z-index: 8999;", // below WNJ modal (9000) so WNJ always floats above
       "  transition: width 0.25s ease, height 0.25s ease;",
       "  overflow: hidden;",

@@ -386,24 +386,67 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── "Nostr signer or bunker" card above Web3Auth's sheet ── */
-.nostr-signer-card {
+/* ── "Nostr signer or bunker" panel under Web3Auth's sheet ──
+   Styled as the bottom part of Web3Auth's sheet: same white surface, its "OR"
+   divider and a pill button like its MetaMask row. */
+.nostr-signer-panel {
   position: fixed;
   left: 0;
   right: 0;
+  bottom: 0;
   z-index: 100000; /* above Web3Auth's modal section (99998) */
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 12px 20px;
-  border: none;
-  border-radius: 20px;
+  gap: 8px;
+  padding: 4px 32px 16px;
   background: #fff;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s;
 }
-.nostr-signer-card:hover { background: #faf5ff; }
-.choice-title { font-size: 15px; font-weight: 700; color: #111827; }
-.choice-sub { font-size: 13px; color: #6b7280; line-height: 1.4; }
+.nostr-signer-panel.compact .nostr-signer-caption { display: none; }
+/* A transform makes the section the containing block for Web3Auth's fixed
+   overlay, so translating it lifts the whole bottom-anchored sheet above the
+   panel. --w3a-shift is set by NostrSignerCard. !important because Web3Auth
+   sets position: relative inline on the section. */
+body.w3a-shifted #w3a-parent-container {
+  position: fixed !important;
+  inset: 0;
+  transform: translateY(calc(-1 * var(--w3a-shift, 0px)));
+}
+.nostr-signer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 48px;
+  padding: 0 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 9999px;
+  background: #fff;
+  font-size: 16px;
+  color: #1f2937;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.nostr-signer-btn svg { color: #7c3aed; flex-shrink: 0; }
+.nostr-signer-btn:hover { background: #f9fafb; border-color: #d1d5db; }
+.nostr-signer-btn:active { background: #f3f4f6; }
+.nostr-signer-btn:focus-visible { outline: 2px solid #7c3aed; outline-offset: 2px; }
+.nostr-signer-caption {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #6b7280;
+  text-align: center;
+}
+/* Matches Web3Auth's own "OR" divider (Inter is loaded by Web3Auth). */
+.nostr-signer-or {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  color: #9ca3af;
+  text-transform: uppercase;
+}
+.nostr-signer-or::before,
+.nostr-signer-or::after { content: ""; flex: 1; border-top: 1px solid #e5e7eb; }
