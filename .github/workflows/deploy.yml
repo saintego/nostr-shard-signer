@@ -61,6 +61,16 @@ jobs:
       - id: deploy
         uses: actions/deploy-pages@v4
 
+      # Sites that load the bridge from jsDelivr (@main) would otherwise get the
+      # cached old copy for up to 12h while Pages already serves the new signer.
+      # Runs after the Pages deploy so bridge and signer switch together.
+      # Non-fatal: a failed purge only delays the CDN update.
+      - name: Purge jsDelivr cache for nostr-bridge.js
+        continue-on-error: true
+        run: |
+          curl -fsS --retry 3 --retry-delay 5 \
+            "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/nostr-bridge.js"
+
   # ── Job 2: Cloudflare Worker ───────────────────────────────────────────────────
   worker:
     name: Deploy Cloudflare Worker
