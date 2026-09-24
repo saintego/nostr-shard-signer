@@ -34,13 +34,22 @@ export async function loginWith(
   await web3auth.connectTo("auth", { authConnection: provider } as any);
 }
 
+/**
+ * The active session's provider. Web3Auth v11 moved it from `web3auth.provider`
+ * (now write-only, always reads undefined) to `web3auth.connection`.
+ */
+export function getProvider(web3auth: Web3Auth) {
+  return web3auth.connection?.ethereumProvider ?? null;
+}
+
 /** Extract and validate the raw secp256k1 private key from the Web3Auth session. */
 export async function extractKey(web3auth: Web3Auth): Promise<KeyMaterial> {
-  if (!web3auth.provider) throw new Error("No provider after login");
+  const provider = getProvider(web3auth);
+  if (!provider) throw new Error("No provider after login");
 
   // provider.request is typed generically; cast to avoid verbose overloading
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawKey = (await (web3auth.provider as any).request({
+  const rawKey = (await (provider as any).request({
     method: "private_key",
   })) as string;
 

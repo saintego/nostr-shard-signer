@@ -4,7 +4,7 @@ import type { Web3Auth } from '@web3auth/modal';
 import type { ViewName, UserProfile, KeyInfo, PendingConfirmation } from './types';
 import { validateEmbedding, isLocalhostOrigin } from './lib/origin';
 import { fetchRegistrarConfig, isAuthorized } from './lib/registry';
-import { initWeb3Auth, extractKey } from './lib/web3auth';
+import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { requiresConfirmation, processRpc, DEFAULT_AUTO_APPROVE_KINDS } from './lib/crypto';
@@ -276,7 +276,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const w3aAny = w3a as any;
-            const hasProvider = !!w3aAny.provider;
+            const hasProvider = !!getProvider(w3a);
 
             console.log('[signer] session check: connected=%s provider=%s cachedConnector=%s connectedConnectorName=%s status=%s',
                 w3a.connected,
