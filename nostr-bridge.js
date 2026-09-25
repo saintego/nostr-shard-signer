@@ -16,17 +16,22 @@
  *
  * INITIALIZATION (required):
  *
- *   <script src="nostr-bridge.js"></script>
+ *   <script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
  *   <script>
  *     NostrBridge.init({
- *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // required
- *       bunkerOrigin:   "https://yourdomain.com/path",// required
+ *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // required; register it + your domain in the portal
+ *       // Everything below is optional:
+ *       bunkerOrigin:   "https://yourdomain.com/path",// self-hosted signer; defaults to the hosted one
+ *       registrarUrl:   "https://registrar.example",  // defaults to the hosted registrar with the hosted signer
  *       forceIframe:    false,                        // skip native extensions if true
  *       layout:         "floating",                   // "floating" | "in-place"
  *       buttonSize:     "standard",                   // "standard" | "large_social_grid"
  *       mountSelector:  "#nostr-btn",                 // only used when layout === "in-place"
  *     });
  *   </script>
+ *
+ * Docs for AI coding agents: https://saintego.github.io/nostr-shard-signer/llms.txt
+ * TypeScript types:          https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts
  *
  * OPTIONAL: React to login/logout (listen for AUTH_STATE events):
  *
@@ -37,6 +42,14 @@
  *     }
  *   });
  *
+ * OPTIONAL: React to setup errors (also logged to the console with a fix hint):
+ *
+ *   window.addEventListener("message", (e) => {
+ *     if (e.data?.type === "SIGNER_ERROR" && e.origin === "") {
+ *       console.log(e.data.code, e.data.message, e.data.hint);
+ *     }
+ *   });
+ *
  * OPTIONAL BRIDGE METHODS (internal use, not typically needed):
  *   - NostrBridge.getSavedSession()   // Get cached session from localStorage
  *   - NostrBridge.getAuthState()      // Get current auth state
@@ -44,7 +57,7 @@
  * Security notes:
  *  - The private key is held ONLY in a cross-origin iframe; Same-Origin Policy makes
  *    it unreachable from parent page JS, regardless of XSS attacks.
- *  - bunkerOrigin must be set; it is validated on every postMessage.
+ *  - bunkerOrigin is validated on every postMessage.
  *  - event.source is checked against the specific iframe; "null" origins rejected.
  *  - Native extension probes have a 5-second timeout to prevent hanging.
  *  - Disconnect detection (Alby/WNJ): probed on tab focus regain via visibilitychange.
@@ -62,6 +75,32 @@
   const WNJ_STYLE_ID = "nostr-bridge-wnj-fix"; // style injected into WNJ's shadow root
   const MODE_IFRAME = "iframe"; // signing routed to the iframe bunker
   const MODE_WNJ = "wnj"; // signing routed to window.nostr.js signer
+
+  // Hosted deployment, used when init() is called without bunkerOrigin.
+  const DEFAULT_BUNKER_ORIGIN = "https://saintego.github.io/nostr-shard-signer";
+  const DEFAULT_REGISTRAR_URL =
+    "https://nostr-shard-registrar.nostr-shard-signer.workers.dev";
+  const PORTAL_URL = "https://saintego.github.io/nostr-shard-signer/portal/";
+  const DOCS_URL = "https://saintego.github.io/nostr-shard-signer/llms.txt";
+
+  // Fix hints for SIGNER_ERROR codes sent by signer.html. They are logged in the
+  // host page's console, which is where developers (and coding agents) look.
+  const SIGNER_ERROR_HINTS = {
+    DOMAIN_NOT_REGISTERED:
+      "Register this page's origin for your clientId in the portal (" +
+      PORTAL_URL +
+      "), using the Update Domains tab if the clientId is already registered. " +
+      "localhost cannot be registered. The registry lookup is cached per tab, so reload in a new tab afterwards.",
+    WEB3AUTH_INIT_FAILED:
+      "Check that clientId is your Web3Auth client ID and that the signer origin (" +
+      "https://saintego.github.io for the hosted signer) is in the Web3Auth dashboard under " +
+      "Project Settings → Domains → Allowlist URLs.",
+    MISSING_ROOT_PUBKEY:
+      "The signer could not load the registry key. With the hosted signer, omit bunkerOrigin and " +
+      "registrarUrl so the defaults are used; a self-hosted signer needs a reachable registrarUrl.",
+    NOT_EMBEDDED:
+      "signer.html only works inside the iframe that nostr-bridge.js creates; do not open or embed it directly.",
+  };
 
   // ── State ────────────────────────────────────────────────────────────────────
   let config = {};
@@ -81,6 +120,7 @@
   let activeMode = MODE_IFRAME; // MODE_IFRAME | MODE_WNJ
   let sessionRestoreProtect = false; // true for one AUTH_STATE cycle after session restore
   let wnjDisconnectFn = null; // set inside init() when WNJ is loaded; callable from onMessage
+  let signerError = null; // set when signer.html reports a setup error before AUTH_STATE
 
   // ── Session cache ─────────────────────────────────────────────────────────────
   // Persists the last successful login across page reloads so the UI immediately
@@ -254,7 +294,10 @@
   }
 
   function postToIframe(msg) {
-    if (!iframeReady) throw new Error("nostr-bridge: iframe not ready yet");
+    if (!iframeReady)
+      throw new Error(
+        "nostr-bridge: iframe not ready yet (was NostrBridge.init() called and the page body loaded?)",
+      );
     const cw = iframeWindow();
     if (!cw) throw new Error("nostr-bridge: iframe not available");
     const target = resolvedOrigin || config.bunkerOrigin;
@@ -399,6 +442,31 @@
       }
       return;
     }
+    if (data.type === "SIGNER_ERROR") {
+      const code = typeof data.code === "string" ? data.code : "SIGNER_ERROR";
+      const message = typeof data.message === "string" ? data.message : "";
+      const hint = SIGNER_ERROR_HINTS[code] || "";
+      console.error(
+        "nostr-bridge: signer error " + code + ": " + message +
+          (hint ? "\n→ " + hint : "") + "\nDocs: " + DOCS_URL,
+      );
+      if (code !== "LOGIN_FAILED") {
+        signerError = "nostr-bridge: signer error " + code + ": " + message;
+        // Setup failed before the iframe reported AUTH_STATE: fail queued calls
+        // now with the real cause instead of after the AUTH_STATE timeout. Not
+        // when window.nostr.js is loaded — users can still sign in through it.
+        if (authState === "unknown" && !wnjNostr) {
+          authState = "loggedOut";
+          flushQueue();
+        }
+      }
+      global.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "SIGNER_ERROR", code: code, message: message, hint: hint },
+        }),
+      );
+      return;
+    }
     if (data.type === "RESIZE") {
       // Validate state before applying to prevent unexpected size changes
       if (!["button", "avatar", "modal"].includes(data.state)) return;
@@ -429,6 +497,17 @@
     }
   }
 
+  // Callers usually hit this by calling window.nostr before the user signed in,
+  // so say how sign-in happens rather than just that it has not.
+  function notLoggedInError() {
+    return new Error(
+      signerError ||
+        "nostr-bridge: user is not logged in. The user signs in by clicking the " +
+          "nostr-bridge widget's Sign in button; listen for the AUTH_STATE message " +
+          "event to know when they have. Docs: " + DOCS_URL,
+    );
+  }
+
   // ── Queue management ─────────────────────────────────────────────────────────
   function flushQueue() {
     const queue = pendingQueue.splice(0);
@@ -438,7 +517,7 @@
           .then(item.resolve)
           .catch(item.reject);
       } else {
-        item.reject(new Error("nostr-bridge: user is not logged in"));
+        item.reject(notLoggedInError());
       }
     }
   }
@@ -452,7 +531,7 @@
         return;
       }
       if (authState === "loggedOut") {
-        reject(new Error("nostr-bridge: user is not logged in"));
+        reject(notLoggedInError());
         return;
       }
 
@@ -461,7 +540,12 @@
         "req_" + reqCounter++ + "_" + Math.random().toString(36).slice(2, 8);
       const timer = setTimeout(function () {
         delete pendingRequests[id];
-        reject(new Error("nostr-bridge: RPC timeout for '" + method + "'"));
+        reject(
+          new Error(
+            "nostr-bridge: RPC timeout for '" + method + "' after " +
+              RPC_TIMEOUT_MS / 1000 + "s (the user may not have answered the signer's confirmation prompt)",
+          ),
+        );
       }, RPC_TIMEOUT_MS);
 
       pendingRequests[id] = { resolve, reject, timer };
@@ -689,15 +773,34 @@
       return;
     }
     if (!userConfig || !userConfig.clientId) {
-      throw new Error("nostr-bridge: clientId is required");
+      throw new Error(
+        "nostr-bridge: clientId is required. Use your Web3Auth client ID and register it " +
+          "with this page's domain at " + PORTAL_URL,
+      );
     }
-    if (!userConfig.bunkerOrigin) {
-      throw new Error("nostr-bridge: bunkerOrigin is required");
+    userConfig = Object.assign({}, userConfig);
+    // With the hosted signer, the hosted registrar is the matching default: the
+    // signer needs it to verify domain registrations.
+    const bunkerOriginGiven = userConfig.bunkerOrigin || DEFAULT_BUNKER_ORIGIN;
+    if (
+      !userConfig.registrarUrl &&
+      bunkerOriginGiven.replace(/\/$/, "") === DEFAULT_BUNKER_ORIGIN
+    ) {
+      userConfig.registrarUrl = DEFAULT_REGISTRAR_URL;
     }
 
     // Sanitize bunkerOrigin: keep origin + optional path, drop query/fragment.
     // This allows project-site hosting like /nostr-shard-signer on GitHub Pages.
-    const bunkerUrl = new URL(userConfig.bunkerOrigin);
+    let bunkerUrl;
+    try {
+      bunkerUrl = new URL(bunkerOriginGiven);
+    } catch (_) {
+      throw new Error(
+        "nostr-bridge: bunkerOrigin must be an absolute URL like " +
+          DEFAULT_BUNKER_ORIGIN + " (got " + JSON.stringify(bunkerOriginGiven) +
+          "). Omit it to use the hosted signer.",
+      );
+    }
     const normalizedPath =
       bunkerUrl.pathname === "/" ? "" : bunkerUrl.pathname.replace(/\/$/, "");
     const sanitizedOrigin = bunkerUrl.origin + normalizedPath;

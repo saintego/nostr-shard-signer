@@ -17,6 +17,8 @@ site=$root/nostr-shard-signer
 rm -rf "$root"
 mkdir -p "$site/portal"
 cp nostr-bridge.js "$site/nostr-bridge.js"
+cp llms.txt llms-full.txt "$site/"
+cp -r examples "$site/examples"
 cp bunker/dist/index.html "$site/signer.html"
 cp -r bunker/dist/assets "$site/assets"
 cp portal/index.html "$site/portal/index.html"

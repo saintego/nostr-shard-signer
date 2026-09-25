@@ -44,9 +44,12 @@ jobs:
         # _site/assets/      → Vite-hashed JS/CSS chunks
         # _site/nostr-bridge.js → bridge script loaded by portal
         # _site/portal/index.html, _site/index.html → developer portal
+        # _site/llms*.txt, _site/examples/ → docs for AI coding agents
         run: |
           mkdir -p _site/portal
           cp nostr-bridge.js _site/nostr-bridge.js
+          cp llms.txt llms-full.txt _site/
+          cp -r examples _site/examples
           cp bunker/dist/index.html _site/signer.html
           cp -r bunker/dist/assets _site/assets
           cp portal/index.html _site/portal/index.html

@@ -81,10 +81,13 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         [parentOrigin],
     );
 
-    const showError = useCallback((msg: string, detail = '') => {
+    // code is also posted to the parent as SIGNER_ERROR, so nostr-bridge.js can
+    // log it with a fix hint in the host page's console (where developers look).
+    const showError = useCallback((msg: string, detail = '', code = 'SIGNER_ERROR') => {
         setError({ msg, detail });
         setView('error');
-    }, []);
+        postToParent({ type: 'SIGNER_ERROR', code, message: detail ? `${msg}: ${detail}` : msg });
+    }, [postToParent]);
 
     // After login succeeds, populate key state and fetch the Nostr profile.
     // w3aProfile carries the OAuth provider's name + picture (e.g. from Google),
@@ -208,13 +211,13 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         const bootstrap = async () => {
             // 1. Embedding check
             if (!validateEmbedding(parentOrigin)) {
-                showError('Unauthorized context', 'This signer must be embedded in an authorized page.');
+                showError('Unauthorized context', 'This signer must be embedded in an authorized page.', 'NOT_EMBEDDED');
                 return;
             }
 
             // 2. clientId required
             if (!clientId) {
-                showError('Missing configuration', 'No clientId provided.');
+                showError('Missing configuration', 'No clientId provided.', 'MISSING_CLIENT_ID');
                 return;
             }
 
@@ -229,7 +232,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
             // 4. NIP-33 authorization check (fail closed if root pubkey is missing/placeholder)
             if (activeRootPubkey === ROOT_PUBKEY_HEX || /^__/.test(activeRootPubkey)) {
-                showError('Signer misconfiguration', 'Missing root registry public key. Configure registrarUrl or replace __ROOT_PUBKEY_HEX__.');
+                showError('Signer misconfiguration', 'Missing root registry public key. Configure registrarUrl or replace __ROOT_PUBKEY_HEX__.', 'MISSING_ROOT_PUBKEY');
                 return;
             }
 
@@ -242,7 +245,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const authorized = localTestBypass || await isAuthorized(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
             if (cancelled) return;
             if (!authorized) {
-                showError('Access denied', `"${parentOrigin}" is not authorized for this clientId.`);
+                showError('Access denied', `"${parentOrigin}" is not authorized for this clientId.`, 'DOMAIN_NOT_REGISTERED');
                 return;
             }
 
@@ -254,7 +257,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 console.log('[signer] initWeb3Auth: done');
             } catch (e) {
                 console.error('[signer] initWeb3Auth: error', e);
-                if (!cancelled) showError('Web3Auth init failed', (e as Error).message);
+                if (!cancelled) showError('Web3Auth init failed', (e as Error).message, 'WEB3AUTH_INIT_FAILED');
                 return;
             }
             if (cancelled) return;
@@ -383,7 +386,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         };
 
         bootstrap().catch(e => {
-            if (!cancelled) showError('Initialization error', (e as Error).message);
+            if (!cancelled) showError('Initialization error', (e as Error).message, 'INIT_ERROR');
         });
 
         return () => { cancelled = true; };
@@ -416,7 +419,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             setView('login');
             const msg = (e as Error).message ?? '';
             if (!/cancel|close|dismiss/i.test(msg)) {
-                showError('Login failed', msg);
+                showError('Login failed', msg, 'LOGIN_FAILED');
             }
         }
     }, [postToParent, onLoginSuccess, showError]);
