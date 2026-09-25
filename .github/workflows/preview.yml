@@ -1,0 +1,109 @@
+name: PR Preview
+
+# Deploys each PR's build to Cloudflare Pages at a fixed https URL, so the
+# signer can be tested on a real origin (the registry refuses localhost).
+# Every PR deploys to the same "preview" alias, so the URL only has to be
+# registered once; the most recently pushed PR wins.
+#
+# One-time setup:
+#   - CLOUDFLARE_API_TOKEN also needs the "Cloudflare Pages: Edit" permission.
+#   - After the first run, register the preview origin (see the PR comment) in
+#     the portal's Update Domains tab for each clientId you test with (including
+#     the portal's own), and add it to the Web3Auth Allowlist URLs.
+#
+# Doesn't deploy the registrar Worker; the preview uses the production one.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# One preview deployment at a time, since all PRs share the alias.
+concurrency:
+  group: preview
+  cancel-in-progress: false
+
+env:
+  PAGES_PROJECT: nostr-shard-signer
+
+jobs:
+  preview:
+    name: Deploy preview to Cloudflare Pages
+    runs-on: ubuntu-latest
+    # Secrets aren't available to PRs from forks.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build signer (Vite)
+        run: npm run build --workspace=bunker
+
+      # Nested under /nostr-shard-signer/ to match the GitHub Pages URL: the
+      # portal loads /nostr-shard-signer/nostr-bridge.js and uses that path as
+      # its bunkerOrigin.
+      - name: Assemble site
+        run: |
+          scripts/assemble-site.sh _preview/nostr-shard-signer
+          echo "/ /nostr-shard-signer/portal/ 302" > _preview/_redirects
+
+      - name: Create Pages project if missing
+        run: |
+          npx wrangler pages project list | grep -q " $PAGES_PROJECT " ||
+            npx wrangler pages project create "$PAGES_PROJECT" --production-branch=main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy
+        id: deploy
+        run: |
+          npx wrangler pages deploy _preview --project-name="$PAGES_PROJECT" \
+            --branch=preview --commit-dirty=true | tee deploy.log
+          # Alias URL of the "preview" branch, e.g. https://preview.<project>.pages.dev
+          host=$(grep -oE 'https://[a-z0-9-]+\.[a-z0-9-]+\.pages\.dev' deploy.log | head -1 |
+            sed -E 's#https://[a-z0-9-]+\.#https://preview.#')
+          echo "url=$host" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Comment preview URL on the PR
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+        with:
+          script: |
+            const url = process.env.PREVIEW_URL;
+            const marker = "<!-- pr-preview -->";
+            const body = [
+              marker,
+              `Preview of ${context.sha.slice(0, 7)} deployed:`,
+              "",
+              `- Portal: ${url}/nostr-shard-signer/portal/`,
+              `- Bridge: ${url}/nostr-shard-signer/nostr-bridge.js (use \`bunkerOrigin: "${url}/nostr-shard-signer"\`)`,
+              `- Example: ${url}/nostr-shard-signer/examples/minimal.html`,
+              "",
+              `The origin \`${url}\` must be registered for the clientId in the portal and in the Web3Auth Allowlist URLs. All PRs share this URL; the latest push wins.`,
+            ].join("\n");
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find((c) => c.body?.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
