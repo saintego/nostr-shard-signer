@@ -345,6 +345,15 @@ https://<user>.github.io/nostr-shard-signer/signer.html        ← iframe bunker
 https://<user>.github.io/nostr-shard-signer/portal/            ← developer portal
 ```
 
+### PR previews
+
+Pull requests from this repo are built and deployed to Cloudflare Pages (`.github/workflows/preview.yml`) at one shared https URL, which the workflow posts as a PR comment. The registry refuses localhost, so use this URL to test signer changes. One-time setup:
+
+- Give `CLOUDFLARE_API_TOKEN` the **Cloudflare Pages: Edit** permission as well.
+- Register the preview origin in the portal (**Update Domains**) for every clientId you test with, including the portal's own, and add it to the Web3Auth Allowlist URLs.
+
+All PRs share the URL, so the most recent push wins. The preview uses the production registrar Worker.
+
 ### 3. Register your first clientId
 
 **Option A — Portal UI** (recommended)
