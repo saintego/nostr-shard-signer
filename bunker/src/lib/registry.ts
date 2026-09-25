@@ -20,11 +20,13 @@ export async function isAuthorized(
   rootPubkeyHex: string,
   registryRelays: string[],
 ): Promise<boolean> {
+  // Only a positive cached answer is trusted: a domain added after this tab
+  // cached the entry must not stay rejected until the tab is closed.
   const cacheKey = `__nbr_${clientId}`;
   const cached = sessionStorage.getItem(cacheKey);
   if (cached) {
     try {
-      return checkDomain(JSON.parse(cached) as RegistryContent, origin);
+      if (checkDomain(JSON.parse(cached) as RegistryContent, origin)) return true;
     } catch (_) {}
   }
 
@@ -36,8 +38,13 @@ export async function isAuthorized(
       { authors: [rootPubkeyHex], kinds: [30078], "#d": [clientId], limit: 1 },
       { maxWait: 8000 },
     );
-    if (events.length > 0 && events[0].pubkey === rootPubkeyHex) {
-      content = JSON.parse(events[0].content) as RegistryContent;
+    // Each relay answers with its own latest version, and a relay that missed
+    // an update still holds an older one: use the newest.
+    const newest = events
+      .filter((e) => e.pubkey === rootPubkeyHex)
+      .sort((a, b) => b.created_at - a.created_at)[0];
+    if (newest) {
+      content = JSON.parse(newest.content) as RegistryContent;
     }
   } catch (_) {
   } finally {
