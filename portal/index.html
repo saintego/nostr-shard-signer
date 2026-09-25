@@ -747,11 +747,11 @@
         const { pubkey: rootPubkey, relays } = await fetchRootMeta();
         const filter = { kinds: [30078], authors: [rootPubkey], "#p": [_pubkey] };
 
-        let events = [];
-        for (const relay of relays) {
-          try { events = await queryRelay(relay, filter); } catch (_) {}
-          if (events.length > 0) break;
-        }
+        // Ask every relay: each may hold a different subset (a relay that was
+        // down or added later misses registrations), and a relay that missed an
+        // update holds an older version, which the dedup below replaces.
+        const results = await Promise.allSettled(relays.map(r => queryRelay(r, filter)));
+        const events = results.flatMap(r => r.status === "fulfilled" ? r.value : []);
 
         // Deduplicate by d-tag (keep most recent per clientId)
         const byClientId = new Map();

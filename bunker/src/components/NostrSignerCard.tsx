@@ -8,6 +8,8 @@ const SHIFTED_CLASS = 'w3a-shifted';
 type Fit = 'full' | 'compact' | 'none';
 
 interface Props {
+    /** "extension" when the page has a NIP-07 extension (window.nostr.js can't load next to it). */
+    kind: 'bunker' | 'extension';
     onClick: () => void;
     /** Asks the parent to size the iframe so Web3Auth's sheet and the panel both fit. */
     onHeight: (height: number) => void;
@@ -23,7 +25,7 @@ interface Props {
  * dropped, and if even that doesn't fit the panel is hidden and the sheet left
  * untouched, so its close button is never pushed off the top.
  */
-export function NostrSignerCard({ onClick, onHeight }: Props) {
+export function NostrSignerCard({ kind, onClick, onHeight }: Props) {
     const panelRef = useRef<HTMLDivElement>(null);
     const fullHeightRef = useRef(0); // panel height with caption, once measured
     const [fit, setFit] = useState<Fit>('full');
@@ -73,14 +75,16 @@ export function NostrSignerCard({ onClick, onHeight }: Props) {
         >
             <div className="nostr-signer-or">or</div>
             <button className="nostr-signer-btn" onClick={onClick}>
-                <span>Nostr signer or bunker</span>
+                <span>{kind === 'extension' ? 'Browser extension' : 'Nostr signer or bunker'}</span>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <circle cx="7.5" cy="15.5" r="5.5" />
                     <path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3" />
                 </svg>
             </button>
             <p className="nostr-signer-caption">
-                Your own key via Amber, nsec.app, nsecBunker or any NIP-46 bunker
+                {kind === 'extension'
+                    ? 'Your own key via Alby, nos2x or another NIP-07 extension'
+                    : 'Your own key via Amber, nsec.app, nsecBunker or any NIP-46 bunker'}
             </p>
         </div>
     );
