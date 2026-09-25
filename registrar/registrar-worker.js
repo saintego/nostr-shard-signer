@@ -208,15 +208,30 @@ function publishToRelay(relayUrl, event) {
   });
 }
 
-/** Broadcast to all configured relays; resolves as soon as one succeeds. */
+/**
+ * Broadcast to all configured relays and wait for every one to answer (or time
+ * out): returning on the first OK would let the runtime cancel the other
+ * sockets once the response is sent, leaving the event on a single relay.
+ * Throws, naming each relay's failure, if no relay accepted the event.
+ */
 async function broadcastEvent(env, event) {
   const relayUrls = (env.RELAY_URLS || "wss://relay.damus.io")
     .split(",")
     .map((u) => u.trim())
     .filter(Boolean);
 
-  await Promise.any(relayUrls.map((url) => publishToRelay(url, event)));
-  return { published: 1, total: relayUrls.length };
+  const results = await Promise.allSettled(
+    relayUrls.map((url) => publishToRelay(url, event)),
+  );
+  const published = results.filter((r) => r.status === "fulfilled").length;
+  if (published === 0) {
+    throw new Error(
+      results
+        .map((r, i) => relayUrls[i] + ": " + (r.reason?.message || r.reason))
+        .join("; "),
+    );
+  }
+  return { published, total: relayUrls.length };
 }
 
 // ── KV helpers (two separate namespaces) ─────────────────────────────────────
