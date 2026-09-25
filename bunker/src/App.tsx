@@ -27,7 +27,7 @@ interface AppProps {
     urlParams: {
         clientId: string;
         registrarUrl: string;
-        nostrSigner: boolean;
+        nostrSigner: 'bunker' | 'extension' | null;
     };
 }
 
@@ -494,7 +494,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // window.nostr.js on the parent page, offer it right above that sheet.
     if (view === 'connecting') {
         return nostrSigner
-            ? <NostrSignerCard onClick={handleNostrSigner} onHeight={handleSignerCardHeight} />
+            ? <NostrSignerCard kind={nostrSigner} onClick={handleNostrSigner} onHeight={handleSignerCardHeight} />
             : null;
     }
 

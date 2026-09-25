@@ -83,8 +83,8 @@ Registered origins must be https with a real domain name. localhost, IP addresse
 | `mountSelector` | string (CSS selector)               | none                                                 | Where the widget renders with `layout: "in-place"`; falls back to `<body>` |
 
 Throws if `clientId` is missing or `bunkerOrigin` is not a valid URL. On load it:
-1. Probes an installed NIP-07 extension (up to 5 s). If it answers, signing goes through it.
-2. Otherwise loads window.nostr.js so users can connect a NIP-46 bunker (nsec.app, Amber, nsecbunker).
+1. Asks an installed NIP-07 extension for the pubkey (waits up to 5 s). If it answers, signing goes through it. If it doesn't (locked, or waiting for the user to approve), the sign-in chooser offers "Browser extension", and a late approval still signs the user in.
+2. Without an extension, loads window.nostr.js so users can connect a NIP-46 bunker (nsec.app, Amber, nsecbunker). It can't load next to an extension, so extension users are not offered bunkers.
 3. Replaces `window.nostr` with its own object, and injects the signer iframe (the Sign in button / avatar widget).
 4. Restores a session from a previous visit if there is one.
 

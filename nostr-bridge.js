@@ -121,6 +121,8 @@
   let sessionRestoreProtect = false; // true for one AUTH_STATE cycle after session restore
   let wnjDisconnectFn = null; // set inside init() when WNJ is loaded; callable from onMessage
   let signerError = null; // set when signer.html reports a setup error before AUTH_STATE
+  let nativeNostrRef = null; // NIP-07 extension found on the page at init, if any
+  let nativeWatchInstalled = false; // visibilitychange disconnect probe added
 
   // ── Session cache ─────────────────────────────────────────────────────────────
   // Persists the last successful login across page reloads so the UI immediately
@@ -238,9 +240,14 @@
     if (config.registrarUrl) {
       url.searchParams.set("registrarUrl", config.registrarUrl);
     }
-    // Tells the signer to offer "Nostr signer or bunker" in its sign-in chooser;
-    // picking it posts OPEN_NOSTR_SIGNER back so we open window.nostr.js.
-    if (wnjNostr) url.searchParams.set("nostrSigner", "1");
+    // Tells the signer to offer a Nostr signer in its sign-in chooser; picking
+    // it posts OPEN_NOSTR_SIGNER back so we open window.nostr.js or ask the
+    // extension. "extension" changes the option's label.
+    if (wnjNostr)
+      url.searchParams.set(
+        "nostrSigner",
+        wnjNostr === nativeNostrRef ? "extension" : "1",
+      );
     return url.toString();
   }
 
@@ -580,26 +587,32 @@
           "nostr-bridge: WNJ returned no pubkey (user cancelled)",
         );
       }
-      activeMode = MODE_WNJ;
-      authState = "loggedIn";
-      currentPubkey = pubkey;
-      saveSession(pubkey, MODE_WNJ);
-      // WNJ connected: show WNJ user's profile in the iframe widget.
-      const cw = iframeWindow();
-      if (cw) {
-        cw.postMessage(
-          { type: "WNJ_SESSION", pubkey: pubkey },
-          config._bunkerMessageOrigin,
-        );
-      }
-      // Notify the portal page.
-      global.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
-        }),
-      );
+      onSignerConnected(pubkey);
       return pubkey;
     });
+  }
+
+  // wnjNostr (window.nostr.js or an extension) returned a pubkey: route
+  // signing to it, show the user's profile in the iframe widget, notify the page.
+  function onSignerConnected(pubkey) {
+    activeMode = MODE_WNJ;
+    authState = "loggedIn";
+    currentPubkey = pubkey;
+    sessionRestoreProtect = false;
+    saveSession(pubkey, MODE_WNJ);
+    const cw = iframeWindow();
+    if (cw) {
+      cw.postMessage(
+        { type: "WNJ_SESSION", pubkey: pubkey },
+        config._bunkerMessageOrigin,
+      );
+    }
+    if (wnjNostr === nativeNostrRef) watchNativeExtension();
+    global.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
+      }),
+    );
   }
 
   function buildNostrProxy() {
@@ -731,17 +744,57 @@
     );
   }
 
+  // Detect native extension disconnect (e.g. user locks/logs out of Alby).
+  // On each tab focus, silently probe getPublicKey with a timeout.
+  // If the probe fails or times out, send WNJ_DISCONNECT to the iframe.
+  function watchNativeExtension() {
+    if (nativeWatchInstalled) return;
+    nativeWatchInstalled = true;
+    let probeInFlight = false;
+    global.document.addEventListener("visibilitychange", function () {
+      if (global.document.visibilityState !== "visible") return;
+      if (activeMode !== MODE_WNJ || probeInFlight) return;
+      probeInFlight = true;
+      const probeTimer = setTimeout(function () {
+        probeInFlight = false;
+        _nativeExtensionDisconnect();
+      }, EXTENSION_TIMEOUT_MS);
+      try {
+        nativeNostrRef
+          .getPublicKey()
+          .then(function (pk) {
+            clearTimeout(probeTimer);
+            probeInFlight = false;
+            if (!pk || pk !== currentPubkey) _nativeExtensionDisconnect();
+          })
+          .catch(function () {
+            clearTimeout(probeTimer);
+            probeInFlight = false;
+            _nativeExtensionDisconnect();
+          });
+      } catch (_) {
+        clearTimeout(probeTimer);
+        probeInFlight = false;
+        _nativeExtensionDisconnect();
+      }
+    });
+  }
+
   // ── Native extension probe ───────────────────────────────────────────────────
   // Probes the pre-existing window.nostr (if any) with a timeout.
   // If the extension is installed but locked/unresponsive it will time out and
-  // we fall through to injecting the iframe bunker.
-  function probeNativeExtension(existingNostr) {
+  // we fall through to injecting the iframe bunker. An extension that is only
+  // waiting for the user to approve its prompt answers later: onLate gets that
+  // pubkey.
+  function probeNativeExtension(existingNostr, onLate) {
     return new Promise(function (resolve) {
       if (!existingNostr || typeof existingNostr.getPublicKey !== "function") {
         resolve(null);
         return;
       }
+      let timedOut = false;
       const timer = setTimeout(function () {
+        timedOut = true;
         resolve(null);
       }, EXTENSION_TIMEOUT_MS);
       try {
@@ -749,11 +802,15 @@
           .getPublicKey()
           .then(function (pubkey) {
             clearTimeout(timer);
+            const pk =
+              typeof pubkey === "string" && pubkey.length > 0 ? pubkey : null;
+            if (timedOut) {
+              if (pk) onLate(pk);
+              return;
+            }
             // Return the pubkey so callers can dispatch AUTH_STATE without a
             // second getPublicKey() round-trip.
-            resolve(
-              typeof pubkey === "string" && pubkey.length > 0 ? pubkey : null,
-            );
+            resolve(pk);
           })
           .catch(function () {
             clearTimeout(timer);
@@ -845,63 +902,40 @@
     global.addEventListener("message", onMessage);
 
     if (!config.forceIframe && nativeNostr) {
-      const nativePubkey = await probeNativeExtension(nativeNostr);
+      nativeNostrRef = nativeNostr;
+      const nativePubkey = await probeNativeExtension(
+        nativeNostr,
+        function (latePubkey) {
+          // The user approved the extension's prompt after the timeout. Don't
+          // replace a login that happened in the meantime.
+          if (authState === "loggedIn") return;
+          console.info("nostr-bridge: extension answered late; signing in with it.");
+          onSignerConnected(latePubkey);
+          flushQueue();
+        },
+      );
+      // The extension is the Nostr signer on offer either way: window.nostr.js
+      // refuses to install next to it. If it didn't answer (locked, or waiting
+      // for the user to approve), the sign-in chooser offers it, and picking
+      // that asks the extension again.
+      wnjNostr = nativeNostr;
       if (nativePubkey) {
-        // The native extension is responsive — use it as the WNJ signer so
-        // the bridge iframe can display the user's profile.
-        wnjNostr = nativeNostr;
-        activeMode = MODE_WNJ;
-        authState = "loggedIn";
-        currentPubkey = nativePubkey;
-        saveSession(nativePubkey, MODE_WNJ);
-        sessionRestoreProtect = false;
         console.info(
           "nostr-bridge: native extension active; delegating signing to it, showing profile in iframe.",
         );
-        // Notify portal immediately; the iframe receives WNJ_SESSION when it boots
-        // and sends its AUTH_STATE:false message.
-        global.dispatchEvent(
-          new MessageEvent("message", {
-            data: { type: "AUTH_STATE", loggedIn: true, pubkey: nativePubkey },
-          }),
-        );
+        // The iframe receives WNJ_SESSION when it boots and sends its
+        // AUTH_STATE:false message.
+        onSignerConnected(nativePubkey);
         flushQueue();
-
-        // Detect native extension disconnect (e.g. user locks/logs out of Alby).
-        // On each tab focus, silently probe getPublicKey with a timeout.
-        // If the probe fails or times out, send WNJ_DISCONNECT to the iframe.
-        let _nativeProbeInFlight = false;
-        const _nativeNostrRef = nativeNostr;
-        global.document.addEventListener("visibilitychange", function () {
-          if (global.document.visibilityState !== "visible") return;
-          if (activeMode !== MODE_WNJ || _nativeProbeInFlight) return;
-          _nativeProbeInFlight = true;
-          const probeTimer = setTimeout(function () {
-            _nativeProbeInFlight = false;
-            _nativeExtensionDisconnect();
-          }, EXTENSION_TIMEOUT_MS);
-          try {
-            _nativeNostrRef
-              .getPublicKey()
-              .then(function (pk) {
-                clearTimeout(probeTimer);
-                _nativeProbeInFlight = false;
-                if (!pk || pk !== currentPubkey) _nativeExtensionDisconnect();
-              })
-              .catch(function () {
-                clearTimeout(probeTimer);
-                _nativeProbeInFlight = false;
-                _nativeExtensionDisconnect();
-              });
-          } catch (_) {
-            clearTimeout(probeTimer);
-            _nativeProbeInFlight = false;
-            _nativeExtensionDisconnect();
-          }
-        });
-
-        // Fall through — skip WNJ CDN load (wnjNostr already set) and inject iframe below.
+      } else {
+        console.info(
+          "nostr-bridge: extension did not answer within " +
+            EXTENSION_TIMEOUT_MS / 1000 +
+            "s; offering it in the sign-in chooser.",
+        );
       }
+
+      // Fall through — skip WNJ CDN load (wnjNostr already set) and inject iframe below.
     }
 
     if (!config.forceIframe && !wnjNostr) {
