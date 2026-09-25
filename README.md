@@ -10,6 +10,8 @@
 
 Drop one `<script>` tag into any web page and your users get a fully-functional `window.nostr` signer — no browser extension, no nsec copy-paste required.
 
+> **Using an AI coding agent?** Point it at [`llms.txt`](https://saintego.github.io/nostr-shard-signer/llms.txt) (short) or [`llms-full.txt`](https://saintego.github.io/nostr-shard-signer/llms-full.txt) (complete reference). Types: [`nostr-bridge.d.ts`](nostr-bridge.d.ts). Working page: [`examples/minimal.html`](examples/minimal.html).
+
 **Two login paths, one API:**
 
 | Mode                                      | Who it's for                                  | How it works                                                                                                                                                                                                                |
@@ -55,14 +57,11 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 ### 3. Call standard `window.nostr` — just like any NIP-07 extension
 
 ```js
-// Initialize the bridge (required once)
-await NostrBridge.init({
-  clientId: "YOUR_WEB3AUTH_CLIENT_ID",
-  bunkerOrigin: "https://saintego.github.io/nostr-shard-signer",
-  registrarUrl: "https://nostr-shard-registrar.nostr-shard-signer.workers.dev",
-});
+// Initialize the bridge (required once). bunkerOrigin and registrarUrl
+// default to the hosted signer; set them only when self-hosting.
+await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
 
-// Then use standard NIP-07 API — no special bridge calls needed
+// After the user signs in via the widget, use the standard NIP-07 API
 const pubkey = await window.nostr.getPublicKey();
 console.log("User pubkey:", pubkey);
 
@@ -117,6 +116,10 @@ window.addEventListener("message", (e) => {
 ```
 
 > **Most apps don't need this.** If `window.nostr.getPublicKey()` succeeds, the user is logged in. If it throws, they're not — simple as that.
+
+### Setup errors
+
+If the signer can't start (domain not registered for the clientId, Web3Auth allowlist missing, …) the bridge logs `nostr-bridge: signer error CODE: …` with a fix hint in the page console, and dispatches `{ type: "SIGNER_ERROR", code, message, hint }` the same way as `AUTH_STATE`. The codes are listed in [`llms-full.txt`](llms-full.txt).
 
 ---
 
@@ -210,7 +213,6 @@ Any other NIP-46 remote signer works too: paste its `bunker://` URL, or scan the
 ```js
 NostrBridge.init({
   clientId: "YOUR_WEB3AUTH_CLIENT_ID",
-  bunkerOrigin: "https://saintego.github.io/nostr-shard-signer",
   forceIframe: false, // default — loads WNJ; set true to skip WNJ entirely
 });
 ```
@@ -224,6 +226,9 @@ Setting `forceIframe: true` disables WNJ loading and always uses the Web3Auth if
 ```
 nostr-shard-signer/
 ├── nostr-bridge.js          # Parent wrapper — injects iframe, proxies window.nostr
+├── nostr-bridge.d.ts        # TypeScript declarations for NostrBridge and window.nostr
+├── llms.txt, llms-full.txt  # Docs for AI coding agents (published to GitHub Pages)
+├── examples/minimal.html    # Minimal integration example
 ├── bunker/                  # Vite + React + TypeScript bunker app
 │   ├── src/                 # App source (compiles → signer.html on GitHub Pages)
 │   └── vite.config.ts
@@ -366,7 +371,7 @@ A successful response returns the Nostr event ID of the published NIP-33 record:
 
 ### 4. Integrate `nostr-bridge.js` into your app
 
-`bunkerOrigin` is **required** — NostrBridge throws if it is omitted.
+For a self-hosted signer, pass `bunkerOrigin` (and `registrarUrl` if the signer gets its root pubkey from your registrar). Without them, the bridge uses the hosted signer and registrar.
 
 ```html
 <!-- In your parent app's <head> -->
@@ -374,7 +379,8 @@ A successful response returns the Nostr event ID of the published NIP-33 record:
 <script>
   NostrBridge.init({
     clientId: "YOUR_WEB3AUTH_CLIENT_ID",
-    bunkerOrigin: "https://bunker.yourdomain.com", // required
+    bunkerOrigin: "https://bunker.yourdomain.com", // your self-hosted signer
+    registrarUrl: "https://nostr-shard-registrar.<account>.workers.dev",
     layout: "floating", // or "in-place"
     buttonSize: "standard", // or "large_social_grid"
     forceIframe: false, // true = skip native extension check
@@ -382,10 +388,10 @@ A successful response returns the Nostr event ID of the published NIP-33 record:
 </script>
 ```
 
-`window.nostr` is injected synchronously, so calls made before the iframe loads are automatically queued.
+`window.nostr` is installed once `NostrBridge.init()` resolves (await it). Calls made before the iframe reports its auth state are queued automatically.
 
 ```js
-// Works immediately — queued if iframe hasn't reported AUTH_STATE yet
+// After `await NostrBridge.init(...)` — queued if the iframe hasn't reported AUTH_STATE yet
 const pubkey = await window.nostr.getPublicKey();
 const signed = await window.nostr.signEvent({
   kind: 1,
@@ -525,7 +531,7 @@ Nonces are stored with a 5-minute TTL and consumed on first use.
 
 **After first deploy**
 
-- [ ] Pass `bunkerOrigin` (your Pages `signer.html` URL) to `NostrBridge.init()` — it is required
+- [ ] Pass `bunkerOrigin` (your Pages `signer.html` URL) and `registrarUrl` to `NostrBridge.init()` — otherwise the hosted signer is used
 - [ ] Add SRI hashes to CDN `<script>` tags in `signer.html`
 - [ ] Restrict `Access-Control-Allow-Origin` in `registrar-worker.js` to your admin origins
 - [ ] Configure `REGISTRY_RELAYS` in `signer.html` to relays you control or trust

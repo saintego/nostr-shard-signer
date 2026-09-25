@@ -1,0 +1,160 @@
+# nostr-shard-signer: full reference for coding agents
+
+> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init({ clientId })` gives the page a standard `window.nostr`. Users sign in with Google/Apple/X through Web3Auth (the key exists only inside a cross-origin iframe), or with their own NIP-07 extension or NIP-46 bunker. Alpha software with no security audit; not for high-value keys.
+
+Source: https://github.com/saintego/nostr-shard-signer
+Types: https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts
+
+## 1. Prerequisites (the developer does these once, by hand)
+
+1. Create a Web3Auth project at https://web3auth.io and copy its client ID.
+2. In the Web3Auth dashboard, add `https://saintego.github.io` under Project Settings → Domains → Allowlist URLs. The signer iframe runs on that origin, not on the app's.
+3. Open the portal at https://saintego.github.io/nostr-shard-signer/portal/, connect a Nostr key, and register the client ID together with the app's origin (e.g. `https://myapp.com`). To add origins later (staging, custom domains), use the portal's Update Domains tab.
+
+Registered origins must be https with a real domain name. localhost, IP addresses and http are refused, so the signer can't be tested from localhost. Use a deployed preview or an https tunnel with its own registered domain.
+
+## 2. Complete example
+
+```html
+<!doctype html>
+<html>
+  <head>
+    <script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
+  </head>
+  <body>
+    <p id="status">Loading…</p>
+    <button id="publish" disabled>Publish note</button>
+    <script type="module">
+      import { SimplePool } from "https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js";
+      const RELAYS = ["wss://relay.damus.io", "wss://nos.lol"];
+      const statusEl = document.getElementById("status");
+      const publishBtn = document.getElementById("publish");
+
+      function render({ loggedIn, pubkey }) {
+        statusEl.textContent = loggedIn ? "Signed in as " + pubkey : "Click Sign in (bottom-right).";
+        publishBtn.disabled = !loggedIn;
+      }
+
+      // Attach before init(): a restored session is announced during init().
+      window.addEventListener("message", (e) => {
+        if (e.origin !== "") return; // bridge events have an empty origin
+        if (e.data?.type === "AUTH_STATE") render(e.data);
+        if (e.data?.type === "SIGNER_ERROR") statusEl.textContent = e.data.message + " " + e.data.hint;
+      });
+
+      await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
+      render(NostrBridge.getAuthState());
+
+      publishBtn.addEventListener("click", async () => {
+        const signed = await window.nostr.signEvent({
+          kind: 1,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [],
+          content: "Hello Nostr!",
+        });
+        const pool = new SimplePool();
+        await Promise.any(pool.publish(RELAYS, signed));
+        pool.close(RELAYS);
+      });
+    </script>
+  </body>
+</html>
+```
+
+### In a framework (React, Vue, Svelte…)
+
+- Put the `<script src=…nostr-bridge.js>` tag in the HTML shell (`index.html`, `app.html`, or the root layout's head). Do not import it from JS.
+- Call `NostrBridge.init()` once, client-side only (e.g. a top-level effect or `onMount`). A second call only logs "already initialized". With SSR, never call it on the server.
+- Keep auth state in app state, updated from the `AUTH_STATE` listener.
+- TypeScript: copy `nostr-bridge.d.ts` into the project to type `window.NostrBridge` and `window.nostr`.
+
+## 3. API
+
+### `NostrBridge.init(config): Promise<void>`
+
+| Option          | Type                                | Default                                              | Notes |
+| --------------- | ----------------------------------- | ---------------------------------------------------- | ----- |
+| `clientId`      | string                              | required                                             | Web3Auth client ID, registered in the portal |
+| `bunkerOrigin`  | string (absolute URL)               | `https://saintego.github.io/nostr-shard-signer`      | Only for a self-hosted signer |
+| `registrarUrl`  | string                              | hosted registrar, when `bunkerOrigin` is the default | Only for a self-hosted signer |
+| `forceIframe`   | boolean                             | `false`                                              | `true`: ignore an installed extension and don't offer bunkers; always use Web3Auth |
+| `layout`        | `"floating"` \| `"in-place"`        | `"floating"`                                         | Floating widget sits bottom-right |
+| `buttonSize`    | `"standard"` \| `"large_social_grid"` | `"standard"`                                       | |
+| `mountSelector` | string (CSS selector)               | none                                                 | Where the widget renders with `layout: "in-place"`; falls back to `<body>` |
+
+Throws if `clientId` is missing or `bunkerOrigin` is not a valid URL. On load it:
+1. Probes an installed NIP-07 extension (up to 5 s). If it answers, signing goes through it.
+2. Otherwise loads window.nostr.js so users can connect a NIP-46 bunker (nsec.app, Amber, nsecbunker).
+3. Replaces `window.nostr` with its own object, and injects the signer iframe (the Sign in button / avatar widget).
+4. Restores a session from a previous visit if there is one.
+
+### `NostrBridge.getAuthState(): { loggedIn: boolean, pubkey: string | null }`
+
+Synchronous. Use it after `await init()` in case the listener missed an event.
+
+### `NostrBridge.getSavedSession(): { pubkey, mode: "iframe" | "wnj" } | null`
+
+Session cached in localStorage from a previous visit. Works before `init()`, e.g. to render the signed-in UI without a flash.
+
+### `window.nostr` (standard NIP-07)
+
+| Method | Returns | Notes |
+| ------ | ------- | ----- |
+| `getPublicKey()` | `Promise<string>` | 64-char hex pubkey |
+| `signEvent({ kind, created_at, tags, content })` | `Promise<{ id, pubkey, sig, … }>` | `pubkey` is filled in by the signer |
+| `nip04.encrypt(pubkeyHex, plaintext)` / `nip04.decrypt(pubkeyHex, ciphertext)` | `Promise<string>` | Legacy DMs |
+| `nip44.encrypt(pubkeyHex, plaintext)` / `nip44.decrypt(pubkeyHex, ciphertext)` | `Promise<string>` | |
+
+Behaviour:
+- Calls made while the signer is still loading are queued. After that, calls made while logged out reject with "nostr-bridge: user is not logged in…".
+- Don't rely on `window.nostr` calls to open a login prompt. The user signs in by clicking the widget.
+- With Web3Auth login, kinds 1 (note) and 7 (reaction) are signed without asking. Other kinds, `nip04.encrypt` and both decrypts show a confirmation in the widget. Extensions and bunkers apply their own rules.
+- With Web3Auth login, calls reject after 30 s without an answer from the signer, e.g. an unanswered confirmation.
+
+## 4. Events
+
+The bridge dispatches `MessageEvent`s on `window`. They have `event.origin === ""`. Ignore anything else, because real postMessage traffic always has a non-empty origin.
+
+| `event.data` | When |
+| ------------ | ---- |
+| `{ type: "AUTH_STATE", loggedIn: true, pubkey }` | Sign-in, or session restored on load |
+| `{ type: "AUTH_STATE", loggedIn: false, pubkey: null }` | Sign-out, or restored session expired |
+| `{ type: "SIGNER_ERROR", code, message, hint }` | The signer iframe failed; see section 5 |
+
+`AUTH_STATE` can fire more than once with the same value; make handlers idempotent.
+
+## 5. Errors and fixes
+
+Signer errors are also logged with `console.error` in the host page as `nostr-bridge: signer error CODE: message`, followed by a hint.
+
+| Code / message | Cause | Fix |
+| -------------- | ----- | --- |
+| `DOMAIN_NOT_REGISTERED` | The page origin is not registered for this clientId | Register the exact origin (scheme + host + port) in the portal. The lookup is cached per browser tab, so test in a new tab |
+| `WEB3AUTH_INIT_FAILED` | Wrong clientId, or the signer origin is not allowlisted | Check the clientId; add `https://saintego.github.io` to the Web3Auth Allowlist URLs |
+| `MISSING_ROOT_PUBKEY` | The signer can't reach the registrar | Omit `bunkerOrigin`/`registrarUrl` to use the defaults; if self-hosting, fix `registrarUrl` |
+| `NOT_EMBEDDED` | `signer.html` was opened directly | Only load it through `nostr-bridge.js` |
+| `LOGIN_FAILED` | The OAuth login failed (not cancelled) | Usually transient; the user can retry |
+| "nostr-bridge: clientId is required…" | `init()` without `clientId` | Pass it |
+| "nostr-bridge: bunkerOrigin must be an absolute URL…" | Bad `bunkerOrigin` | Omit it, or pass a full https URL |
+| "nostr-bridge: user is not logged in…" | Call made before sign-in | Wait for `AUTH_STATE` with `loggedIn: true` |
+| "nostr-bridge: RPC timeout…" | No answer within 30 s | The user ignored the confirmation; retry |
+| "nostr-bridge: already initialized" (warning) | `init()` called twice | Call it once, e.g. guard against React StrictMode double effects |
+
+## 6. Don'ts
+
+- Don't install or import `nostr-bridge.js` from npm. It is only published as a script at the URL above.
+- Don't assign `window.nostr` yourself after `init()`. The bridge keeps its own object there.
+- Don't ask the user for their nsec or build a key-import UI. Users who have a key use an extension or a bunker through the widget.
+- Don't expect npub values. Pubkeys are hex. Use nostr-tools `nip19.npubEncode` for display.
+- Don't expect the bridge to publish events or talk to relays for the app.
+- Don't hide or cover the widget container `#nostr-signer-container`. It is the only sign-in UI.
+
+## 7. Security model (short)
+
+- With Web3Auth login, the private key is reconstructed only inside the cross-origin signer iframe. Parent-page JS, including XSS, cannot read it.
+- Each (clientId, origin) pair is checked against a NIP-33 registry on Nostr relays before the signer works on a page.
+- The signer is loaded from a CDN, so a compromise of the signer host could expose keys. Alpha, unaudited: not for high-value keys.
+
+## 8. Self-hosting
+
+Self-hosting means your own GitHub Pages signer, Cloudflare Worker registrar and root key. Pass `bunkerOrigin` and `registrarUrl`. See "Deployment" in https://github.com/saintego/nostr-shard-signer#readme.

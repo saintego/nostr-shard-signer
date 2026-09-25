@@ -1,0 +1,66 @@
+<!doctype html>
+<!--
+  Minimal nostr-shard-signer integration: sign in, show the pubkey, publish a note.
+
+  To run it on your own site:
+    1. Get a Web3Auth client ID (https://web3auth.io) and add https://saintego.github.io
+       to its Allowlist URLs (Project Settings → Domains).
+    2. Register the client ID with your site's origin in the portal:
+       https://saintego.github.io/nostr-shard-signer/portal/
+       (localhost cannot be registered.)
+    3. Replace YOUR_WEB3AUTH_CLIENT_ID below and serve this file from that origin.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nostr-shard-signer example</title>
+    <!-- Classic script, not a module: it defines window.NostrBridge. -->
+    <script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
+  </head>
+  <body>
+    <p id="status">Loading…</p>
+    <textarea id="note" rows="3" cols="40">Hello Nostr!</textarea>
+    <button id="publish" disabled>Publish note</button>
+
+    <script type="module">
+      import { SimplePool } from "https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js";
+
+      const RELAYS = ["wss://relay.damus.io", "wss://nos.lol"];
+      const statusEl = document.getElementById("status");
+      const publishBtn = document.getElementById("publish");
+
+      function render({ loggedIn, pubkey }) {
+        statusEl.textContent = loggedIn
+          ? "Signed in as " + pubkey
+          : "Click “Sign in” in the bottom-right corner.";
+        publishBtn.disabled = !loggedIn;
+      }
+
+      // Attach before init(): a restored session is announced during init().
+      // origin === "" marks events dispatched by the bridge itself.
+      window.addEventListener("message", (e) => {
+        if (e.origin !== "") return;
+        if (e.data?.type === "AUTH_STATE") render(e.data);
+        if (e.data?.type === "SIGNER_ERROR") statusEl.textContent = e.data.message + " " + e.data.hint;
+      });
+
+      await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
+      render(NostrBridge.getAuthState());
+
+      publishBtn.addEventListener("click", async () => {
+        const signed = await window.nostr.signEvent({
+          kind: 1,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [],
+          content: document.getElementById("note").value,
+        });
+        // The bridge only signs; publishing to relays is up to the app.
+        const pool = new SimplePool();
+        await Promise.any(pool.publish(RELAYS, signed));
+        pool.close(RELAYS);
+        statusEl.textContent = "Published " + signed.id;
+      });
+    </script>
+  </body>
+</html>

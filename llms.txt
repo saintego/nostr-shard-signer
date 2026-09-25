@@ -1,0 +1,47 @@
+# nostr-shard-signer
+
+> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init({ clientId })` gives the page a standard `window.nostr` (getPublicKey, signEvent, nip04, nip44). Users sign in with Google/Apple/X through Web3Auth (the key is held only in a cross-origin iframe), or with their own NIP-07 extension or NIP-46 bunker. Alpha software with no security audit; not for high-value keys.
+
+Use it when a Nostr web app should work for users who have no browser extension. App code only uses the standard NIP-07 API, so code written for Alby or nos2x works unchanged.
+
+## Canonical integration
+
+```html
+<script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
+<script type="module">
+  window.addEventListener("message", (e) => {
+    if (e.origin !== "" || e.data?.type !== "AUTH_STATE") return;
+    // e.data.loggedIn: boolean, e.data.pubkey: hex string | null
+  });
+  await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
+  // After the user has signed in:
+  const pubkey = await window.nostr.getPublicKey(); // hex
+  const signed = await window.nostr.signEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [], content: "hi" });
+</script>
+```
+
+## Rules
+
+- Load `nostr-bridge.js` with a plain `<script>` tag from the URL above. It is not on npm and is not an ES module; do not `import` it or bundle it.
+- Call `NostrBridge.init()` once per page and await it before using `window.nostr`.
+- Only `clientId` is required. Leave out `bunkerOrigin` and `registrarUrl` unless you self-host the signer.
+- The `clientId` must be registered with the page's exact origin in the portal (https://saintego.github.io/nostr-shard-signer/portal/). localhost cannot be registered, so test on a deployed https origin.
+- The Web3Auth project must list `https://saintego.github.io` in its Allowlist URLs.
+- The user signs in by clicking the widget's "Sign in" button (bottom-right by default). `window.nostr` calls reject with "nostr-bridge: user is not logged in" until then. Listen for `AUTH_STATE` instead of polling.
+- Bridge events are `message` events on `window` with `event.origin === ""`. Check the origin.
+- The bridge signs and encrypts only. Publishing to relays is the app's job (e.g. nostr-tools `SimplePool`).
+- Pubkeys are hex, not npub. Convert with nostr-tools `nip19` if needed.
+- Never ask for or handle the user's nsec.
+- Setup problems appear as `SIGNER_ERROR` events and as console errors with a fix hint.
+
+## Docs
+
+- [Full reference for agents](https://saintego.github.io/nostr-shard-signer/llms-full.txt): all options, events, error codes and troubleshooting in one file
+- [TypeScript declarations](https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts): types for `NostrBridge` and `window.nostr`
+- [Minimal example](https://saintego.github.io/nostr-shard-signer/examples/minimal.html): sign in, show pubkey, publish a note
+- [README](https://github.com/saintego/nostr-shard-signer#readme): architecture, security model, self-hosting
+
+## Optional
+
+- [Developer portal](https://saintego.github.io/nostr-shard-signer/portal/): register a clientId and its domains
+- [Specification](https://github.com/saintego/nostr-shard-signer/blob/main/SPECIFICATION.md)
