@@ -20,3 +20,8 @@ id      = "c18dbae47fb04780ae6848013e804979"
 # Never commit the actual private key to source control.
 [vars]
 RELAY_URLS = "wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net,wss://relay.nostr.net,wss://nostr.mom"
+
+# Daily registry sync: re-sends registry events to relays that lost or missed
+# them and refreshes the GET /health report.
+[triggers]
+crons = ["17 3 * * *"]

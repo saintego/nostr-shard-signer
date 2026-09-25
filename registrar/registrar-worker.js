@@ -14,8 +14,16 @@
  *
  * Endpoints:
  *   GET  /pubkey    — return root pubkey hex + configured relay URLs (public, no auth)
+ *   GET  /health    — report of the last registry sync (public, no auth)
  *   POST /register   — claim a new clientId → domain binding
  *   POST /update     — two-phase: (1) issue challenge nonce, (2) verify and update domains
+ *   POST /sync       — run the registry sync now (at most once per SYNC_COOLDOWN_SEC)
+ *
+ * Registry sync (daily cron, see wrangler.toml, or POST /sync):
+ *   Relays don't sync with each other and may lose data, so every published
+ *   registry event is also kept in REGISTRY_KV (event:{clientId}). The sync
+ *   reads all relays, keeps the newest event per clientId, backfills KV, and
+ *   re-sends the stored signed event to every relay that lacks it.
  *
  * Security model:
  *   - /register is open: anyone can claim an unclaimed clientId.
@@ -31,6 +39,12 @@ import { finalizeEvent, verifyEvent, nip19, getPublicKey } from "nostr-tools";
 
 const KV_PREFIX_CLAIM = "claim:"; // claim:{clientId}  → JSON  (in REGISTRY_KV)
 const KV_PREFIX_NONCE = "nonce:"; // nonce:{clientId}  → JSON  (in CHALLENGES_KV, TTL-bound)
+const KV_PREFIX_EVENT = "event:"; // event:{clientId}  → signed registry event (in REGISTRY_KV)
+const KV_HEALTH = "health:last"; // report of the last sync (in REGISTRY_KV)
+const SYNC_COOLDOWN_SEC = 300; // minimum gap between POST /sync runs
+// A registration on fewer relays than this (or on fewer than all of them, when
+// fewer relays are configured) makes /health report "degraded".
+const MIN_HEALTHY_COPIES = 3;
 const NONCE_TTL_SEC = 300; // 5 minutes
 const MAX_DOMAINS = 50; // per clientId
 const MAX_CLIENT_ID_LEN = 512;
@@ -113,7 +127,7 @@ function isValidHexPubkey(str) {
 const CORS_HEADERS = {
   // PRODUCTION: restrict to your own admin/integration origins, not "*"
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -208,6 +222,13 @@ function publishToRelay(relayUrl, event) {
   });
 }
 
+function getRelayUrls(env) {
+  return (env.RELAY_URLS || "wss://relay.damus.io")
+    .split(",")
+    .map((u) => u.trim())
+    .filter(Boolean);
+}
+
 /**
  * Broadcast to all configured relays and wait for every one to answer (or time
  * out): returning on the first OK would let the runtime cancel the other
@@ -215,10 +236,7 @@ function publishToRelay(relayUrl, event) {
  * Throws, naming each relay's failure, if no relay accepted the event.
  */
 async function broadcastEvent(env, event) {
-  const relayUrls = (env.RELAY_URLS || "wss://relay.damus.io")
-    .split(",")
-    .map((u) => u.trim())
-    .filter(Boolean);
+  const relayUrls = getRelayUrls(env);
 
   const results = await Promise.allSettled(
     relayUrls.map((url) => publishToRelay(url, event)),
@@ -232,6 +250,207 @@ async function broadcastEvent(env, event) {
     );
   }
   return { published, total: relayUrls.length };
+}
+
+// ── Registry sync ─────────────────────────────────────────────────────────────
+
+/** Fetch all events matching filter from one relay (until EOSE or timeout). */
+function queryRelay(relayUrl, filter) {
+  return new Promise((resolve, reject) => {
+    const events = [];
+    let ws;
+    const timer = setTimeout(() => {
+      try {
+        ws.close();
+      } catch (_) {}
+      reject(new Error("Timeout"));
+    }, 10_000);
+    try {
+      ws = new WebSocket(relayUrl);
+    } catch (err) {
+      clearTimeout(timer);
+      reject(err);
+      return;
+    }
+    ws.addEventListener("open", () =>
+      ws.send(JSON.stringify(["REQ", "sync", filter])),
+    );
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("WebSocket error"));
+    });
+    ws.addEventListener("message", (e) => {
+      let msg;
+      try {
+        msg = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      if (!Array.isArray(msg) || msg[1] !== "sync") return;
+      if (msg[0] === "EVENT") events.push(msg[2]);
+      else if (msg[0] === "EOSE" || msg[0] === "CLOSED") {
+        clearTimeout(timer);
+        ws.close();
+        msg[0] === "EOSE"
+          ? resolve(events)
+          : reject(new Error(msg[2] || "Relay closed the subscription"));
+      }
+    });
+  });
+}
+
+/**
+ * Send several events over one connection. Resolves with the ids the relay
+ * accepted once every event is answered, or on timeout with those so far.
+ */
+function publishEventsToRelay(relayUrl, events) {
+  return new Promise((resolve) => {
+    const accepted = new Set();
+    let answered = 0;
+    let ws;
+    const finish = () => {
+      clearTimeout(timer);
+      try {
+        ws.close();
+      } catch (_) {}
+      resolve(accepted);
+    };
+    const timer = setTimeout(finish, 15_000);
+    try {
+      ws = new WebSocket(relayUrl);
+    } catch (_) {
+      finish();
+      return;
+    }
+    ws.addEventListener("open", () => {
+      for (const ev of events) ws.send(JSON.stringify(["EVENT", ev]));
+    });
+    ws.addEventListener("error", finish);
+    ws.addEventListener("message", (e) => {
+      let msg;
+      try {
+        msg = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      if (!Array.isArray(msg) || msg[0] !== "OK") return;
+      if (msg[2] !== false) accepted.add(msg[1]);
+      if (++answered >= events.length) finish();
+    });
+  });
+}
+
+function dTag(event) {
+  return event.tags?.find((t) => t[0] === "d")?.[1];
+}
+
+/**
+ * Make every configured relay and KV hold the newest registry event of every
+ * clientId. Stores and returns a health report.
+ */
+async function syncRegistry(env) {
+  const rootHex = getPublicKey(getRootPrivkeyBytes(env));
+  const relayUrls = getRelayUrls(env);
+
+  const stored = await loadStoredEvents(env);
+  const reads = await Promise.allSettled(
+    relayUrls.map((url) =>
+      queryRelay(url, { kinds: [30078], authors: [rootHex] }),
+    ),
+  );
+
+  // Newest valid event per clientId across KV and all relays. Relay data is
+  // untrusted: only events with a valid root signature count.
+  const newest = new Map();
+  const consider = (ev) => {
+    const d = ev && dTag(ev);
+    if (!d || ev.kind !== 30078 || ev.pubkey !== rootHex) return;
+    const cur = newest.get(d);
+    if (cur && (cur.id === ev.id || cur.created_at >= ev.created_at)) return;
+    if (!verifyEvent(ev)) return;
+    newest.set(d, ev);
+  };
+  for (const ev of stored.values()) consider(ev);
+  for (const r of reads) if (r.status === "fulfilled") r.value.forEach(consider);
+
+  // Backfill KV (events published before KV storage existed, or updated
+  // elsewhere).
+  let kvBackfilled = 0;
+  for (const [d, ev] of newest) {
+    if (stored.get(d)?.id !== ev.id) {
+      await saveEvent(env, d, ev);
+      kvBackfilled++;
+    }
+  }
+
+  // Re-send to each reachable relay whatever it lacks. Unreachable relays are
+  // left for the next run.
+  const copies = new Map([...newest.keys()].map((d) => [d, 0]));
+  const relays = await Promise.all(
+    relayUrls.map(async (url, i) => {
+      if (reads[i].status === "rejected") {
+        return { url, reachable: false, error: reads[i].reason?.message || String(reads[i].reason) };
+      }
+      const held = new Set(reads[i].value.map((ev) => ev.id));
+      const missing = [...newest.values()].filter((ev) => !held.has(ev.id));
+      const accepted = missing.length
+        ? await publishEventsToRelay(url, missing)
+        : new Set();
+      for (const [d, ev] of newest) {
+        if (held.has(ev.id) || accepted.has(ev.id)) copies.set(d, copies.get(d) + 1);
+      }
+      return {
+        url,
+        reachable: true,
+        missing: missing.length,
+        repaired: accepted.size,
+      };
+    }),
+  );
+
+  const wanted = Math.min(MIN_HEALTHY_COPIES, relayUrls.length);
+  const underReplicated = [...copies]
+    .filter(([, n]) => n < wanted)
+    .map(([clientId, n]) => ({ clientId, copies: n }));
+  const reachable = relays.filter((r) => r.reachable).length;
+  const report = {
+    status:
+      underReplicated.length === 0 && reachable * 2 >= relayUrls.length
+        ? "ok"
+        : "degraded",
+    checkedAt: new Date().toISOString(),
+    registrations: newest.size,
+    kvBackfilled,
+    relaysReachable: reachable + "/" + relayUrls.length,
+    relays,
+    underReplicated,
+  };
+  await env.REGISTRY_KV.put(KV_HEALTH, JSON.stringify(report));
+  if (report.status !== "ok") {
+    console.warn("Registry sync degraded:", JSON.stringify(report));
+  }
+  return report;
+}
+
+async function handleHealth(env) {
+  const raw = await env.REGISTRY_KV.get(KV_HEALTH);
+  return jsonOk(
+    raw ? JSON.parse(raw) : { status: "unknown", message: "No sync has run yet. POST /sync to run one." },
+  );
+}
+
+async function handleSync(env) {
+  const raw = await env.REGISTRY_KV.get(KV_HEALTH);
+  const last = raw ? JSON.parse(raw) : null;
+  const ageSec = last ? (Date.now() - Date.parse(last.checkedAt)) / 1000 : Infinity;
+  if (ageSec < SYNC_COOLDOWN_SEC) {
+    return jsonErr(
+      "Sync ran " + Math.round(ageSec) + "s ago; try again in " +
+        Math.ceil(SYNC_COOLDOWN_SEC - ageSec) + "s. GET /health shows its report.",
+      429,
+    );
+  }
+  return jsonOk(await syncRegistry(env));
 }
 
 // ── KV helpers (two separate namespaces) ─────────────────────────────────────
@@ -251,6 +470,27 @@ async function saveClaim(env, clientId, registrantHex, domains) {
     KV_PREFIX_CLAIM + clientId,
     JSON.stringify({ registrantHex, domains }),
   );
+}
+
+async function saveEvent(env, clientId, event) {
+  await env.REGISTRY_KV.put(KV_PREFIX_EVENT + clientId, JSON.stringify(event));
+}
+
+/** All stored registry events, keyed by clientId. */
+async function loadStoredEvents(env) {
+  const events = new Map();
+  let cursor;
+  do {
+    const page = await env.REGISTRY_KV.list({ prefix: KV_PREFIX_EVENT, cursor });
+    for (const { name } of page.keys) {
+      const raw = await env.REGISTRY_KV.get(name);
+      try {
+        if (raw) events.set(name.slice(KV_PREFIX_EVENT.length), JSON.parse(raw));
+      } catch (_) {}
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return events;
 }
 
 async function saveChallenge(env, clientId, nonce, registrantHex) {
@@ -358,6 +598,7 @@ async function handleRegister(request, env) {
     await saveClaim(env, clientId, registrantHex, existing.domains);
     try {
       const broadcast = await broadcastEvent(env, event);
+      await saveEvent(env, clientId, event);
       return jsonOk({ ok: true, event: event.id, ...broadcast });
     } catch (err) {
       // Roll back the domain addition on broadcast failure
@@ -379,6 +620,7 @@ async function handleRegister(request, env) {
   await saveClaim(env, clientId, registrantHex, [normalizedDomain]);
   try {
     const broadcast = await broadcastEvent(env, event);
+    await saveEvent(env, clientId, event);
     return jsonOk({ ok: true, event: event.id, ...broadcast }, 201);
   } catch (err) {
     await env.REGISTRY_KV.delete(KV_PREFIX_CLAIM + clientId);
@@ -541,6 +783,7 @@ async function handleUpdate(request, env) {
   );
   const broadcast = await broadcastEvent(env, event);
   await saveClaim(env, clientId, existing.registrantHex, uniqueDomains);
+  await saveEvent(env, clientId, event);
 
   return jsonOk({
     ok: true,
@@ -558,10 +801,7 @@ async function handleUpdate(request, env) {
  */
 function handlePubkey(env) {
   const pubkey = getPublicKey(getRootPrivkeyBytes(env));
-  const relays = (env.RELAY_URLS || "wss://relay.damus.io")
-    .split(",")
-    .map((u) => u.trim())
-    .filter(Boolean);
+  const relays = getRelayUrls(env);
   return new Response(JSON.stringify({ pubkey, relays }), {
     headers: {
       "Content-Type": "application/json",
@@ -589,6 +829,12 @@ class InMemoryKV {
     this._store.delete(key);
     return Promise.resolve();
   }
+  list({ prefix = "" } = {}) {
+    const keys = [...this._store.keys()]
+      .filter((name) => name.startsWith(prefix))
+      .map((name) => ({ name }));
+    return Promise.resolve({ keys, list_complete: true });
+  }
 }
 
 export default {
@@ -607,6 +853,13 @@ export default {
         );
       }
       return handlePubkey(env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/health") {
+      if (!env.REGISTRY_KV) {
+        return jsonErr("Worker misconfiguration: REGISTRY_KV binding is missing", 500);
+      }
+      return handleHealth(env);
     }
 
     if (request.method !== "POST") {
@@ -639,6 +892,8 @@ export default {
           return await handleRegister(request, env);
         case "/update":
           return await handleUpdate(request, env);
+        case "/sync":
+          return await handleSync(env);
         default:
           return jsonErr("Not found", 404);
       }
@@ -647,5 +902,10 @@ export default {
       console.error("Registrar unhandled error:", err);
       return jsonErr("Internal server error", 500);
     }
+  },
+
+  // Daily registry sync; schedule in wrangler.toml [triggers].
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(syncRegistry(env));
   },
 };
