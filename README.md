@@ -527,6 +527,26 @@ Nonces are stored with a 5-minute TTL and consumed on first use.
 
 ---
 
+### Registry sync, `GET /health` and `POST /sync`
+
+Relays don't sync with each other and can lose data, so the registrar keeps every registry event it publishes in `REGISTRY_KV` as well. A daily cron (`[triggers]` in `wrangler.toml`) reads all relays in `RELAY_URLS`, keeps the newest event per clientId, stores any event missing from KV, and re-sends the signed event to every relay that lacks it. Adding a relay to `RELAY_URLS` therefore fills it on the next run.
+
+`GET /health` returns the last run's report:
+
+```jsonc
+{
+  "status": "ok",                 // "degraded": a registration is on fewer than 3 relays, or under half the relays are reachable
+  "checkedAt": "2026-09-25T07:44:43.716Z",
+  "registrations": 5,
+  "kvBackfilled": 0,              // events found on relays but not yet in KV
+  "relaysReachable": "5/5",
+  "relays": [{ "url": "wss://nos.lol", "reachable": true, "missing": 2, "repaired": 2 }],
+  "underReplicated": []           // [{ clientId, copies }]
+}
+```
+
+`POST /sync` runs the sync immediately (at most once every 5 minutes) and returns the same report.
+
 ## Production Hardening Checklist
 
 **One-time setup**
