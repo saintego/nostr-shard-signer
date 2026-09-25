@@ -19,4 +19,4 @@ id      = "c18dbae47fb04780ae6848013e804979"
 # Set secrets with: wrangler secret put ROOT_PRIVATE_KEY_HEX
 # Never commit the actual private key to source control.
 [vars]
-RELAY_URLS = "wss://relay.damus.io,wss://relay.nostr.band,wss://nos.lol"
+RELAY_URLS = "wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net,wss://relay.nostr.net,wss://nostr.mom"
