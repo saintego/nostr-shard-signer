@@ -12,7 +12,7 @@ export const DEFAULT_REGISTRY_RELAYS = [
   "wss://nos.lol",
   "wss://nostr.mom",
   "wss://relay.primal.net",
-  "wss://relay.snort.social",
+  "wss://nostr.bitcoiner.social",
   "wss://nostr.oxtr.dev",
   "wss://offchain.pub",
 ];

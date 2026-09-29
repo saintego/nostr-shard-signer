@@ -399,14 +399,26 @@ async function syncRegistry(env) {
       const { accepted, rejected } = missing.length
         ? await publishEventsToRelay(url, missing)
         : { accepted: new Set(), rejected: [] };
-      for (const [d, ev] of newest) {
-        if (held.has(ev.id) || accepted.has(ev.id)) copies.set(d, copies.get(d) + 1);
+      // Some relays answer OK but never store the event (damus and snort did):
+      // read the re-sent events back and count only what the relay returns.
+      let kept = new Set();
+      if (accepted.size) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const after = await queryRelay(url, { kinds: [30078], authors: [rootHex], ids: [...accepted] });
+          kept = new Set(after.map((ev) => ev.id));
+        } catch (_) {}
       }
+      for (const [d, ev] of newest) {
+        if (held.has(ev.id) || kept.has(ev.id)) copies.set(d, copies.get(d) + 1);
+      }
+      const dropped = accepted.size - kept.size;
       return {
         url,
         reachable: true,
         missing: missing.length,
-        repaired: accepted.size,
+        repaired: kept.size,
+        ...(dropped ? { dropped } : {}),
         ...(rejected.length ? { rejected } : {}),
       };
     }),

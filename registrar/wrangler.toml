@@ -19,10 +19,11 @@ id      = "c18dbae47fb04780ae6848013e804979"
 # Set secrets with: wrangler secret put ROOT_PRIVATE_KEY_HEX
 # Never commit the actual private key to source control.
 [vars]
-# Relays must keep kind 30078 events from this key: damus never kept them
-# (every sync "missing", nothing repaired) and relay.nostr.net stopped answering.
+# Relays must keep kind 30078 events from this key: damus never took them and
+# snort answers OK but never returns them (every sync "missing");
+# relay.nostr.net stopped answering.
 # Keep bunker/src/lib/nostr.ts DEFAULT_REGISTRY_RELAYS in step.
-RELAY_URLS = "wss://nos.lol,wss://nostr.mom,wss://relay.primal.net,wss://relay.snort.social,wss://nostr.oxtr.dev,wss://offchain.pub"
+RELAY_URLS = "wss://nos.lol,wss://nostr.mom,wss://relay.primal.net,wss://nostr.bitcoiner.social,wss://nostr.oxtr.dev,wss://offchain.pub"
 
 # Daily registry sync: re-sends registry events to relays that lost or missed
 # them and refreshes the GET /health report.
