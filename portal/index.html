@@ -290,6 +290,14 @@
 
     #gate-logged-out h2 { font-size: 1.125rem; margin-bottom: 0.5rem; color: #888; }
 
+    #registry-stats {
+      display: none;
+      margin: -0.5rem 0 1.25rem;
+      font-size: 0.8125rem;
+      color: #888;
+    }
+    #registry-stats strong { color: #a78bfa; font-weight: 600; }
+
     #spinner {
       display: none;
       font-size: 0.8125rem;
@@ -306,6 +314,9 @@
 
       </div>
     </header>
+
+    <!-- filled from the relays by loadRegistryStats() -->
+    <div id="registry-stats"></div>
 
     <!-- shown when not connected -->
     <div id="gate-logged-out">
@@ -803,6 +814,50 @@
     }
 
     document.getElementById("btn-load-registrations").onclick = loadRegistrations;
+
+    // ── Registry stats ──────────────────────────────────────────────────────────
+    // Counts every clientId the root key has registered and their distinct
+    // allowed domains (localhost excluded), read straight from the relays.
+    // Updates as each relay answers; stays hidden if none does.
+    async function loadRegistryStats() {
+      const statsEl = document.getElementById("registry-stats");
+      const { pubkey: rootPubkey, relays } = await fetchRootMeta();
+      const { verifyEvent } = await import("https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js");
+      const filter = { kinds: [30078], authors: [rootPubkey] };
+
+      // Newest signed event per clientId, as for My Registrations.
+      const byClientId = new Map();
+      const render = () => {
+        const domains = new Set();
+        for (const ev of byClientId.values()) {
+          let allowed = [];
+          try { allowed = JSON.parse(ev.content).allowed_domains || []; } catch (_) {}
+          for (const d of allowed) {
+            let host;
+            try { host = new URL(d.startsWith("http") ? d : `https://${d}`).hostname.toLowerCase(); } catch (_) { continue; }
+            if (host === "localhost" || host === "127.0.0.1" || host === "[::1]") continue;
+            domains.add(host);
+          }
+        }
+        const plural = (n, word) => `<strong>${n}</strong> ${word}${n === 1 ? "" : "s"}`;
+        statsEl.innerHTML = `${plural(byClientId.size, "registered app")} · ${plural(domains.size, "domain")}`;
+        statsEl.style.display = "block";
+      };
+
+      await Promise.allSettled(relays.map(async (r) => {
+        for (const ev of await queryRelay(r, filter)) {
+          const d = ev.tags?.find(t => t[0] === "d")?.[1];
+          if (!d || ev.pubkey !== rootPubkey) continue;
+          const cur = byClientId.get(d);
+          if (cur && cur.created_at >= ev.created_at) continue;
+          if (!verifyEvent(ev)) continue;
+          byClientId.set(d, ev);
+        }
+        if (byClientId.size) render();
+      }));
+    }
+
+    loadRegistryStats().catch(() => {});
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
     function showResult(el, type, html) {
