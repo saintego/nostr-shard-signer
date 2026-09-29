@@ -570,7 +570,7 @@
       // Convert hex pubkey to npub using nostr-post's bundled nostr-tools
       let npub;
       try {
-        const { nip19 } = await import("https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js");
+        const { nip19 } = await import("https://cdn.jsdelivr.net/npm/nostr-tools@2/+esm");
         npub = nip19.npubEncode(_pubkey);
       } catch {
         npub = _pubkey; // fallback: send hex, Worker accepts both
@@ -628,7 +628,7 @@
 
       let npub;
       try {
-        const { nip19 } = await import("https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js");
+        const { nip19 } = await import("https://cdn.jsdelivr.net/npm/nostr-tools@2/+esm");
         npub = nip19.npubEncode(_pubkey);
       } catch {
         npub = _pubkey;
@@ -822,7 +822,7 @@
     async function loadRegistryStats() {
       const statsEl = document.getElementById("registry-stats");
       const { pubkey: rootPubkey, relays } = await fetchRootMeta();
-      const { verifyEvent } = await import("https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js");
+      const { verifyEvent } = await import("https://cdn.jsdelivr.net/npm/nostr-tools@2/+esm");
       const filter = { kinds: [30078], authors: [rootPubkey] };
 
       // Newest signed event per clientId, as for My Registrations.
