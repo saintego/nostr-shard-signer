@@ -3,7 +3,7 @@ import type { Web3Auth } from '@web3auth/modal';
 
 import type { ViewName, UserProfile, KeyInfo, PendingConfirmation } from './types';
 import { validateEmbedding, isLocalhostOrigin } from './lib/origin';
-import { fetchRegistrarConfig, isAuthorized } from './lib/registry';
+import { fetchRegistrarConfig, checkAuthorization } from './lib/registry';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
@@ -51,6 +51,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     const privateKeyRef = useRef<Uint8Array | null>(null);
     const [keyInfo, setKeyInfo] = useState<KeyInfo | null>(null);
     const web3authRef = useRef<Web3Auth | null>(null);
+    // The Sign in button shows on the registry's provisional answer; anything
+    // that exposes the key (login, restored session) waits for this final one.
+    const authFinalRef = useRef<Promise<boolean>>(Promise.resolve(false));
 
     // ── Profile and settings (persisted in localStorage) ──────────────────────
     const [userProfile, setUserProfile] = useState<UserProfile>({});
@@ -111,7 +114,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setSetupError(message);
         postToParent({ type: 'SIGNER_ERROR', code, message });
         // A WNJ_SESSION may already have switched the view to the avatar.
-        setView(v => (v === 'loading' ? 'login' : v));
+        setView(v => (v === 'loading' || v === 'connecting' ? 'login' : v));
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
     }, [nostrSigner, showError, postToParent]);
 
@@ -272,6 +275,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
+            // Web3Auth init shows no UI and exposes nothing until a session is
+            // resolved below, so run it while the registry is being checked.
+            const w3aInit = initWeb3Auth(clientId).then(
+                w3a => ({ w3a, err: null }),
+                (err: unknown) => ({ w3a: null, err }),
+            );
+            console.log('[signer] initWeb3Auth: start');
+
             // 3. Fetch optional registrar config (extends registry relays / root pubkey)
             const regConfig = await fetchRegistrarConfig(registrarUrl);
             if (cancelled) return;
@@ -293,25 +304,43 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const localTestBypass = import.meta.env.VITE_LOCAL_TEST === 'true' && isLocalhostOrigin(parentOrigin);
             if (localTestBypass) console.warn('[signer] VITE_LOCAL_TEST: skipping registry check for', parentOrigin);
 
-            const authorized = localTestBypass || await isAuthorized(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
-            if (cancelled) return;
-            if (!authorized) {
-                failSetup('Access denied', `"${parentOrigin}" is not authorized for this clientId.`, 'DOMAIN_NOT_REGISTERED');
+            const auth = localTestBypass
+                ? { provisional: Promise.resolve(true), final: Promise.resolve(true) }
+                : checkAuthorization(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
+            authFinalRef.current = auth.final;
+            const denyDomain = () => failSetup('Access denied', `"${parentOrigin}" is not authorized for this clientId.`, 'DOMAIN_NOT_REGISTERED');
+
+            if (!(await auth.provisional)) {
+                if (!cancelled) denyDomain();
                 return;
             }
+            if (cancelled) return;
+
+            // A newer registry event (from a slower relay) removed this domain:
+            // drop Web3Auth so the button falls back like an unregistered domain.
+            // No logout — the Web3Auth session belongs to the signer, not this
+            // page, and logging out would sign the user out on registered sites.
+            let revoked = false;
+            auth.final.then(ok => {
+                if (ok || cancelled) return;
+                revoked = true;
+                console.warn('[signer] registry: newer event revokes', parentOrigin);
+                const w3a = web3authRef.current;
+                web3authRef.current = null;
+                w3a?.loginModal?.closeModal();
+                denyDomain();
+            });
 
             // 5. Initialize Web3Auth
-            let w3a: Web3Auth;
-            try {
-                console.log('[signer] initWeb3Auth: start');
-                w3a = await initWeb3Auth(clientId);
-                console.log('[signer] initWeb3Auth: done');
-            } catch (e) {
-                console.error('[signer] initWeb3Auth: error', e);
-                if (!cancelled) failSetup('Web3Auth init failed', (e as Error).message, 'WEB3AUTH_INIT_FAILED');
+            const { w3a: initialized, err: initErr } = await w3aInit;
+            if (cancelled || revoked) return;
+            if (!initialized) {
+                console.error('[signer] initWeb3Auth: error', initErr);
+                failSetup('Web3Auth init failed', (initErr as Error)?.message ?? String(initErr), 'WEB3AUTH_INIT_FAILED');
                 return;
             }
-            if (cancelled) return;
+            console.log('[signer] initWeb3Auth: done');
+            const w3a: Web3Auth = initialized;
             web3authRef.current = w3a;
 
             // 6. Resolve existing session.
@@ -342,6 +371,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 w3aAny.status ?? 'unknown');
 
             const resolveSession = async () => {
+                if (!(await auth.final) || cancelled) return;
                 console.log('[signer] resolveSession: extracting key');
                 try {
                     const km = await extractKey(w3a);
@@ -472,6 +502,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             // key and profile load ('loading' skips the view-driven RESIZE).
             setView('loading');
             postToParent({ type: 'RESIZE', state: 'button' });
+            // Keep the key inside Web3Auth until the registry check is final.
+            if (!(await authFinalRef.current) || web3authRef.current !== w3a) return;
             const km = await extractKey(w3a);
             let w3aProfile: { name?: string; picture?: string } | undefined;
             try {
@@ -480,6 +512,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             } catch (_) { }
             await onLoginSuccess(km, w3aProfile);
         } catch (e) {
+            // Revoked while the modal was open: the revocation already set the view.
+            if (web3authRef.current !== w3a) return;
             // Restore button size (user cancelled or error)
             setView('login');
             const msg = (e as Error).message ?? '';
