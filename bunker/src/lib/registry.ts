@@ -14,46 +14,82 @@ export async function fetchRegistrarConfig(
   }
 }
 
-export async function isAuthorized(
+export interface Authorization {
+  /** Resolves on the first signed registry event that allows the origin (or a
+   *  cached positive answer); otherwise with `final`. Fast, but a relay that
+   *  missed a later update could still hold a revoked domain. */
+  provisional: Promise<boolean>;
+  /** The newest event once every relay has answered or `maxWait` passed.
+   *  Gate anything that exposes the key (login, session, signing) on this. */
+  final: Promise<boolean>;
+}
+
+export function checkAuthorization(
   clientId: string,
   origin: string,
   rootPubkeyHex: string,
   registryRelays: string[],
-): Promise<boolean> {
+  maxWait = 4000,
+): Authorization {
   // Only a positive cached answer is trusted: a domain added after this tab
   // cached the entry must not stay rejected until the tab is closed.
   const cacheKey = `__nbr_${clientId}`;
+  let cachedAllows = false;
   const cached = sessionStorage.getItem(cacheKey);
   if (cached) {
     try {
-      if (checkDomain(JSON.parse(cached) as RegistryContent, origin)) return true;
+      cachedAllows = checkDomain(JSON.parse(cached) as RegistryContent, origin);
     } catch (_) {}
   }
 
-  const pool = new SimplePool();
-  let content: RegistryContent | null = null;
-  try {
-    const events = await pool.querySync(
-      registryRelays,
-      { authors: [rootPubkeyHex], kinds: [30078], "#d": [clientId], limit: 1 },
-      { maxWait: 8000 },
-    );
-    // Each relay answers with its own latest version, and a relay that missed
-    // an update still holds an older one: use the newest.
-    const newest = events
-      .filter((e) => e.pubkey === rootPubkeyHex)
-      .sort((a, b) => b.created_at - a.created_at)[0];
-    if (newest) {
-      content = JSON.parse(newest.content) as RegistryContent;
-    }
-  } catch (_) {
-  } finally {
-    pool.close(registryRelays);
-  }
+  let resolveProvisional!: (ok: boolean) => void;
+  const provisional = new Promise<boolean>((r) => (resolveProvisional = r));
+  if (cachedAllows) resolveProvisional(true);
 
-  if (!content) return false;
-  sessionStorage.setItem(cacheKey, JSON.stringify(content));
-  return checkDomain(content, origin);
+  const final = new Promise<boolean>((resolve) => {
+    const pool = new SimplePool();
+    // Only the root key can sign these (the pool verifies signatures), so a
+    // relay can withhold the newest version but not forge a newer one: each
+    // relay answers with its own latest, and the newest across them wins.
+    let newest: { created_at: number; content: RegistryContent } | null = null;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(safety);
+      pool.close(registryRelays);
+      if (newest) sessionStorage.setItem(cacheKey, JSON.stringify(newest.content));
+      const ok = !!newest && checkDomain(newest.content, origin);
+      resolveProvisional(ok);
+      resolve(ok);
+    };
+    // onclose fires once every relay sent EOSE, failed, or hit maxWait.
+    const safety = setTimeout(finish, maxWait + 1000);
+    try {
+      pool.subscribeEose(
+        registryRelays,
+        { authors: [rootPubkeyHex], kinds: [30078], "#d": [clientId], limit: 1 },
+        {
+          maxWait,
+          onevent: (e) => {
+            if (e.pubkey !== rootPubkeyHex) return;
+            if (newest && newest.created_at >= e.created_at) return;
+            try {
+              newest = { created_at: e.created_at, content: JSON.parse(e.content) as RegistryContent };
+            } catch (_) {
+              return;
+            }
+            if (checkDomain(newest.content, origin)) resolveProvisional(true);
+          },
+          onclose: finish,
+        },
+      );
+    } catch (_) {
+      finish();
+    }
+  });
+
+  return { provisional, final };
 }
 
 function checkDomain(content: RegistryContent, origin: string): boolean {
