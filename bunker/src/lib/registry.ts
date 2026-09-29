@@ -29,7 +29,7 @@ export function checkAuthorization(
   origin: string,
   rootPubkeyHex: string,
   registryRelays: string[],
-  maxWait = 4000,
+  maxWait = 8000,
 ): Authorization {
   // Only a positive cached answer is trusted: a domain added after this tab
   // cached the entry must not stay rejected until the tab is closed.
