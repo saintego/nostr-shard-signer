@@ -301,11 +301,13 @@ function queryRelay(relayUrl, filter) {
 
 /**
  * Send several events over one connection. Resolves with the ids the relay
- * accepted once every event is answered, or on timeout with those so far.
+ * accepted and the reasons it gave for rejecting the rest, once every event
+ * is answered, or on timeout with those so far.
  */
 function publishEventsToRelay(relayUrl, events) {
   return new Promise((resolve) => {
     const accepted = new Set();
+    const rejected = new Set();
     let answered = 0;
     let ws;
     const finish = () => {
@@ -313,7 +315,7 @@ function publishEventsToRelay(relayUrl, events) {
       try {
         ws.close();
       } catch (_) {}
-      resolve(accepted);
+      resolve({ accepted, rejected: [...rejected] });
     };
     const timer = setTimeout(finish, 15_000);
     try {
@@ -335,6 +337,7 @@ function publishEventsToRelay(relayUrl, events) {
       }
       if (!Array.isArray(msg) || msg[0] !== "OK") return;
       if (msg[2] !== false) accepted.add(msg[1]);
+      else rejected.add(String(msg[3] || "rejected"));
       if (++answered >= events.length) finish();
     });
   });
@@ -393,9 +396,9 @@ async function syncRegistry(env) {
       }
       const held = new Set(reads[i].value.map((ev) => ev.id));
       const missing = [...newest.values()].filter((ev) => !held.has(ev.id));
-      const accepted = missing.length
+      const { accepted, rejected } = missing.length
         ? await publishEventsToRelay(url, missing)
-        : new Set();
+        : { accepted: new Set(), rejected: [] };
       for (const [d, ev] of newest) {
         if (held.has(ev.id) || accepted.has(ev.id)) copies.set(d, copies.get(d) + 1);
       }
@@ -404,6 +407,7 @@ async function syncRegistry(env) {
         reachable: true,
         missing: missing.length,
         repaired: accepted.size,
+        ...(rejected.length ? { rejected } : {}),
       };
     }),
   );

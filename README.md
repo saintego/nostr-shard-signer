@@ -578,11 +578,22 @@ Relays don't sync with each other and can lose data, so the registrar keeps ever
   "kvBackfilled": 0,              // events found on relays but not yet in KV
   "relaysReachable": "5/5",
   "relays": [{ "url": "wss://nos.lol", "reachable": true, "missing": 2, "repaired": 2 }],
+                                  // "rejected": ["<relay's reason>"] when a relay refused a re-send
   "underReplicated": []           // [{ clientId, copies }]
 }
 ```
 
-`POST /sync` runs the sync immediately (at most once every 5 minutes) and returns the same report.
+`POST /sync` runs the sync immediately (at most once every 5 minutes) and returns the same report. Neither endpoint needs auth; a sync only re-sends events the root key already signed.
+
+```bash
+# Hosted registrar; self-hosted: use your Worker URL
+curl -s -X POST https://nostr-shard-registrar.nostr-shard-signer.workers.dev/sync   # repair relays now
+curl -s https://nostr-shard-registrar.nostr-shard-signer.workers.dev/health         # last report
+```
+
+**When to run it:** the widget shows only the Nostr-signer button (no Web3Auth sign-in) and the host page's console logs `DOMAIN_NOT_REGISTERED` for a domain you did register. The signer found the registration on none of the registry relays it could reach, usually because the relays that held it dropped it or are down. Run `POST /sync`, then check `underReplicated` is empty.
+
+**Choosing relays:** a relay that always reports `missing` with `repaired: 0`, or lists `rejected` reasons, doesn't keep these events; one that stays `reachable: false` is down. Replace either in `RELAY_URLS` (and `DEFAULT_REGISTRY_RELAYS` in `bunker/src/lib/nostr.ts`). Dead relays also slow the signer: it waits for every relay (up to 8 s) before the final authorization answer.
 
 ## Production Hardening Checklist
 

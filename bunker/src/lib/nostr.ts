@@ -9,11 +9,12 @@ export const DEFAULT_PUBLISH_RELAYS = [
 
 // Fallback only; the registrar's /pubkey response supplies the real list.
 export const DEFAULT_REGISTRY_RELAYS = [
-  "wss://relay.damus.io",
   "wss://nos.lol",
-  "wss://relay.primal.net",
-  "wss://relay.nostr.net",
   "wss://nostr.mom",
+  "wss://relay.primal.net",
+  "wss://relay.snort.social",
+  "wss://nostr.oxtr.dev",
+  "wss://offchain.pub",
 ];
 
 export function publishToRelay(relayUrl: string, event: object): Promise<void> {
