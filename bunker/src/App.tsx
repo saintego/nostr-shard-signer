@@ -457,7 +457,17 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         postToParent({ type: 'RESIZE', state: 'modal' });
         setView('connecting');
         try {
-            await w3a.connect();
+            // Closing the social-login popup rejects connect() with 5114 but
+            // Web3Auth keeps its modal open on the login options; keep waiting
+            // on it (at modal size) until the user connects or closes the modal.
+            for (;;) {
+                try {
+                    await w3a.connect();
+                    break;
+                } catch (e) {
+                    if ((e as { code?: number }).code !== 5114) throw e;
+                }
+            }
             // Web3Auth's modal is gone; show the button-sized spinner while the
             // key and profile load ('loading' skips the view-driven RESIZE).
             setView('loading');
