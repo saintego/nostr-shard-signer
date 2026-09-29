@@ -3,7 +3,7 @@
 > Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init({ clientId })` gives the page a standard `window.nostr`. Users sign in with Google/Apple/X through Web3Auth (the key exists only inside a cross-origin iframe), or with their own NIP-07 extension or NIP-46 bunker. Alpha software with no security audit; not for high-value keys.
 
 Source: https://github.com/saintego/nostr-shard-signer
-Types: https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts
+Types: https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts (plus the opt-in nostr-bridge-window.d.ts for `window.nostr`)
 
 ## 1. Prerequisites (the developer does these once, by hand)
 
@@ -23,27 +23,33 @@ Registered origins must be https with a real domain name. localhost, IP addresse
   </head>
   <body>
     <p id="status">Loading…</p>
+    <button id="login" hidden>Sign in</button>
+    <button id="logout" hidden>Sign out</button>
     <button id="publish" disabled>Publish note</button>
     <script type="module">
       import { SimplePool } from "https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js";
       const RELAYS = ["wss://relay.damus.io", "wss://nos.lol"];
       const statusEl = document.getElementById("status");
       const publishBtn = document.getElementById("publish");
+      const loginBtn = document.getElementById("login");
+      const logoutBtn = document.getElementById("logout");
 
-      function render({ loggedIn, pubkey }) {
-        statusEl.textContent = loggedIn ? "Signed in as " + pubkey : "Click Sign in (bottom-right).";
+      // Called with the current state once known (restored sessions included),
+      // then on every sign-in / sign-out.
+      NostrBridge.onAuthChange(({ loggedIn, pubkey }) => {
+        statusEl.textContent = loggedIn ? "Signed in as " + pubkey : "Not signed in.";
         publishBtn.disabled = !loggedIn;
-      }
-
-      // Attach before init(): a restored session is announced during init().
-      window.addEventListener("message", (e) => {
-        if (e.origin !== "") return; // bridge events have an empty origin
-        if (e.data?.type === "AUTH_STATE") render(e.data);
-        if (e.data?.type === "SIGNER_ERROR") statusEl.textContent = e.data.message + " " + e.data.hint;
+        loginBtn.hidden = loggedIn;
+        logoutBtn.hidden = !loggedIn;
       });
+      window.addEventListener("message", (e) => {
+        if (e.origin === "" && e.data?.type === "SIGNER_ERROR")
+          statusEl.textContent = e.data.message + " " + e.data.hint;
+      });
+      loginBtn.addEventListener("click", () => NostrBridge.login());
+      logoutBtn.addEventListener("click", () => NostrBridge.logout());
 
       await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
-      render(NostrBridge.getAuthState());
 
       publishBtn.addEventListener("click", async () => {
         const signed = await window.nostr.signEvent({
@@ -64,9 +70,30 @@ Registered origins must be https with a real domain name. localhost, IP addresse
 ### In a framework (React, Vue, Svelte…)
 
 - Put the `<script src=…nostr-bridge.js>` tag in the HTML shell (`index.html`, `app.html`, or the root layout's head). Do not import it from JS.
-- Call `NostrBridge.init()` once, client-side only (e.g. a top-level effect or `onMount`). A second call only logs "already initialized". With SSR, never call it on the server.
-- Keep auth state in app state, updated from the `AUTH_STATE` listener.
-- TypeScript: copy `nostr-bridge.d.ts` into the project to type `window.NostrBridge` and `window.nostr`.
+- Call `NostrBridge.init()` client-side only (e.g. a top-level effect or `onMount`). It is idempotent: repeated calls (StrictMode, remounts) return the first call's promise, so no module-level guard is needed. With SSR, never call it on the server.
+- Keep auth state in app state, updated from `NostrBridge.onAuthChange` (return its unsubscribe function from the effect's cleanup).
+- TypeScript: copy `nostr-bridge.d.ts` into the project to type `NostrBridge`; its interfaces can be imported (`import type { NostrBridgeConfig, NostrBridgeAuthState } from "./nostr-bridge"`). It deliberately doesn't type `window.nostr`, so it coexists with other NIP-07 typings; add `nostr-bridge-window.d.ts` too if nothing else declares `window.nostr`.
+
+React:
+
+```tsx
+useEffect(() => {
+  NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
+  return NostrBridge.onAuthChange(setAuth); // { loggedIn, pubkey }
+}, []);
+// <button onClick={() => NostrBridge.login()}>Sign in</button>
+```
+
+### Without an init call
+
+The script tag can carry the config; the bridge then calls `init()` itself:
+
+```html
+<script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"
+        data-client-id="YOUR_WEB3AUTH_CLIENT_ID" data-layout="floating"></script>
+```
+
+Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, `data-registrar-url`, `data-layout`, `data-button-size`, `data-mount-selector`, `data-force-iframe` (`"true"`/`"false"`). An explicit `init()` afterwards returns the same promise; `NostrBridge.ready` resolves when it is done.
 
 ## 3. API
 
@@ -82,15 +109,33 @@ Registered origins must be https with a real domain name. localhost, IP addresse
 | `buttonSize`    | `"standard"` \| `"large_social_grid"` | `"standard"`                                       | |
 | `mountSelector` | string (CSS selector)               | none                                                 | Where the widget renders with `layout: "in-place"`; falls back to `<body>` |
 
-Throws if `clientId` is missing or `bunkerOrigin` is not a valid URL. On load it:
+Rejects if `clientId` is missing or `bunkerOrigin` is not a valid URL (a corrected call may then retry). Later calls return the first call's promise and ignore their config. On load it:
 1. Asks an installed NIP-07 extension for the pubkey (waits up to 5 s). If it answers, signing goes through it. If it doesn't (locked, or waiting for the user to approve), the sign-in chooser offers "Browser extension", and a late approval still signs the user in.
 2. Without an extension, loads window.nostr.js so users can connect a NIP-46 bunker (nsec.app, Amber, nsecbunker). It can't load next to an extension, so extension users are not offered bunkers.
 3. Replaces `window.nostr` with its own object, and injects the signer iframe (the Sign in button / avatar widget).
 4. Restores a session from a previous visit if there is one.
 
+### `NostrBridge.ready: Promise<void>`
+
+Resolves once `init()` has completed, whoever called it (e.g. the `data-client-id` auto-init).
+
+### `NostrBridge.onAuthChange(callback): () => void`
+
+`callback({ loggedIn, pubkey })` runs on every sign-in / sign-out, only when the state changes. If the state is already known when you subscribe, it also runs right away, so a restored session is never missed. Returns an unsubscribe function. Can be called before `init()`.
+
+The same data is dispatched as a `CustomEvent` on window: `window.addEventListener("nostr-bridge:auth", (e) => e.detail /* { loggedIn, pubkey } */)`.
+
+### `NostrBridge.login(): Promise<void>`
+
+Opens the sign-in modal, the same as the widget's "Sign in" button (it also offers the user's extension or NIP-46 bunker). Resolves once the modal was requested, or immediately if already logged in; the result arrives through `onAuthChange`. Rejects if `init()` was never called. Call it from a click handler.
+
+### `NostrBridge.logout(): Promise<void>`
+
+Signs the user out (Web3Auth session, or the extension/bunker connection as far as the bridge is concerned). Resolves once the logged-out state has been reported.
+
 ### `NostrBridge.getAuthState(): { loggedIn: boolean, pubkey: string | null }`
 
-Synchronous. Use it after `await init()` in case the listener missed an event.
+Synchronous current state.
 
 ### `NostrBridge.getSavedSession(): { pubkey, mode: "iframe" | "wnj" } | null`
 
@@ -107,13 +152,13 @@ Session cached in localStorage from a previous visit. Works before `init()`, e.g
 
 Behaviour:
 - Calls made while the signer is still loading are queued. After that, calls made while logged out reject with "nostr-bridge: user is not logged in…".
-- Don't rely on `window.nostr` calls to open a login prompt. The user signs in by clicking the widget.
+- Don't rely on `window.nostr` calls to open a login prompt. The user signs in through the widget, or your button calling `NostrBridge.login()`.
 - With Web3Auth login, kinds 1 (note) and 7 (reaction) are signed without asking. Other kinds, `nip04.encrypt` and both decrypts show a confirmation in the widget. Extensions and bunkers apply their own rules.
 - With Web3Auth login, calls reject after 30 s without an answer from the signer, e.g. an unanswered confirmation.
 
 ## 4. Events
 
-The bridge dispatches `MessageEvent`s on `window`. They have `event.origin === ""`. Ignore anything else, because real postMessage traffic always has a non-empty origin.
+For auth changes, prefer `NostrBridge.onAuthChange` or the `nostr-bridge:auth` event (section 3). The bridge also dispatches `MessageEvent`s on `window`, kept for existing integrations and for `SIGNER_ERROR`. They have `event.origin === ""`. Ignore anything else, because real postMessage traffic always has a non-empty origin.
 
 | `event.data` | When |
 | ------------ | ---- |
@@ -121,7 +166,7 @@ The bridge dispatches `MessageEvent`s on `window`. They have `event.origin === "
 | `{ type: "AUTH_STATE", loggedIn: false, pubkey: null }` | Sign-out, or restored session expired |
 | `{ type: "SIGNER_ERROR", code, message, hint }` | The signer iframe failed; see section 5 |
 
-`AUTH_STATE` can fire more than once with the same value; make handlers idempotent.
+`AUTH_STATE` can fire more than once with the same value; make handlers idempotent. (`onAuthChange` and `nostr-bridge:auth` skip repeats.)
 
 ## 5. Errors and fixes
 
@@ -129,16 +174,16 @@ Signer errors are also logged with `console.error` in the host page as `nostr-br
 
 | Code / message | Cause | Fix |
 | -------------- | ----- | --- |
-| `DOMAIN_NOT_REGISTERED` | The page origin is not registered for this clientId | Register the exact origin (scheme + host + port) in the portal. The lookup is cached per browser tab, so test in a new tab |
+| `DOMAIN_NOT_REGISTERED` | The page origin is not registered for this clientId. Google/Apple/X sign-in is off; an extension or bunker still works through the Sign in button | Register the exact origin (scheme + host + port) in the portal. The lookup is cached per browser tab, so test in a new tab |
 | `WEB3AUTH_INIT_FAILED` | Wrong clientId, or the signer origin is not allowlisted | Check the clientId; add `https://saintego.github.io` to the Web3Auth Allowlist URLs |
 | `MISSING_ROOT_PUBKEY` | The signer can't reach the registrar | Omit `bunkerOrigin`/`registrarUrl` to use the defaults; if self-hosting, fix `registrarUrl` |
 | `NOT_EMBEDDED` | `signer.html` was opened directly | Only load it through `nostr-bridge.js` |
 | `LOGIN_FAILED` | The OAuth login failed (not cancelled) | Usually transient; the user can retry |
 | "nostr-bridge: clientId is required…" | `init()` without `clientId` | Pass it |
 | "nostr-bridge: bunkerOrigin must be an absolute URL…" | Bad `bunkerOrigin` | Omit it, or pass a full https URL |
-| "nostr-bridge: user is not logged in…" | Call made before sign-in | Wait for `AUTH_STATE` with `loggedIn: true` |
+| "nostr-bridge: user is not logged in…" | Call made before sign-in | Wait for `onAuthChange` with `loggedIn: true`, or call `NostrBridge.login()` from a button |
 | "nostr-bridge: RPC timeout…" | No answer within 30 s | The user ignored the confirmation; retry |
-| "nostr-bridge: already initialized" (warning) | `init()` called twice | Call it once, e.g. guard against React StrictMode double effects |
+| "nostr-bridge: already initialized with clientId …" (warning) | `init()` called again with a different clientId | The first config stays in effect; reload the page to switch |
 
 ## 6. Don'ts
 
@@ -147,7 +192,7 @@ Signer errors are also logged with `console.error` in the host page as `nostr-br
 - Don't ask the user for their nsec or build a key-import UI. Users who have a key use an extension or a bunker through the widget.
 - Don't expect npub values. Pubkeys are hex. Use nostr-tools `nip19.npubEncode` for display.
 - Don't expect the bridge to publish events or talk to relays for the app.
-- Don't hide or cover the widget container `#nostr-signer-container`. It is the only sign-in UI.
+- Don't hide or cover the widget container `#nostr-signer-container`. The sign-in modal and signing confirmations open in it, also after `NostrBridge.login()`.
 
 ## 7. Security model (short)
 

@@ -1,5 +1,7 @@
 # nostr-shard-signer
 
+Nostr login for any website: one `<script>` tag gives your users a `window.nostr` signer through Google, Apple or X, or through their own NIP-46 bunker. No browser extension, no nsec copy-paste. **[Live demo →](https://saintego.github.io/nostr-shard-signer)**
+
 > [!WARNING]  
 > **ALPHA RELEASE — USE AT YOUR OWN RISK**  
 > `nostr-shard-signer` is currently in **Alpha** and has **not** undergone a formal security audit.
@@ -8,9 +10,26 @@
 >
 > Security reviews, testing, and pull requests are highly encouraged!
 
-Drop one `<script>` tag into any web page and your users get a fully-functional `window.nostr` signer — no browser extension, no nsec copy-paste required.
+## Login example
+
+```html
+<script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
+<script type="module">
+  // Fires once the state is known (restored session) and on every sign-in / sign-out.
+  NostrBridge.onAuthChange(({ loggedIn, pubkey }) => {
+    console.log(loggedIn ? "Signed in as " + pubkey : "Signed out");
+  });
+
+  // Shows the "Sign in" button; after login, use window.nostr like any NIP-07 extension.
+  await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
+</script>
+```
+
+The `clientId` must be registered for your domain first, see [Getting Started](#getting-started-2-minutes). A complete page that also publishes a note is in [`examples/minimal.html`](examples/minimal.html).
 
 > **Using an AI coding agent?** Point it at [`llms.txt`](https://saintego.github.io/nostr-shard-signer/llms.txt) (short) or [`llms-full.txt`](https://saintego.github.io/nostr-shard-signer/llms-full.txt) (complete reference). Types: [`nostr-bridge.d.ts`](nostr-bridge.d.ts). Working page: [`examples/minimal.html`](examples/minimal.html).
+
+## How it works
 
 **Two login paths, one API:**
 
@@ -97,29 +116,39 @@ The bridge **only** uses the standard NIP-07 API:
 
 If your app already uses any Nostr extension (Alby, nos2x, etc.), replacing it with this bridge is a **drop-in substitute** — your code stays the same.
 
-### Optional: React to login/logout (advanced)
-
-If you need to update your UI when users log in or out, listen for the `AUTH_STATE` bridge event:
+### Optional: React to login/logout, use your own buttons
 
 ```js
-window.addEventListener("message", (e) => {
-  if (e.data?.type === "AUTH_STATE" && e.origin === "") {
-    if (e.data.loggedIn) {
-      console.log("User logged in:", e.data.pubkey);
-      // Show main app
-    } else {
-      console.log("User logged out");
-      // Show login screen
-    }
-  }
+// Called with the current state once known, then on every change. Returns unsubscribe.
+const unsubscribe = NostrBridge.onAuthChange(({ loggedIn, pubkey }) => {
+  if (loggedIn) console.log("User logged in:", pubkey);
+  else console.log("User logged out");
 });
+
+// Plain-HTML alternative: the same data as a window event.
+window.addEventListener("nostr-bridge:auth", (e) => console.log(e.detail.loggedIn));
+
+// Your own buttons (the floating widget keeps working alongside them).
+loginButton.onclick = () => NostrBridge.login(); // opens the sign-in modal
+logoutButton.onclick = () => NostrBridge.logout();
 ```
+
+`NostrBridge.init()` is idempotent (a second call returns the first call's promise, so React StrictMode needs no guard), and `NostrBridge.ready` resolves once it has completed. The older `message` event with `e.data.type === "AUTH_STATE"` and `e.origin === ""` is still dispatched.
+
+The script tag can also carry the config, so no init call is needed:
+
+```html
+<script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"
+        data-client-id="YOUR_WEB3AUTH_CLIENT_ID" data-layout="floating"></script>
+```
+
+TypeScript: [`nostr-bridge.d.ts`](nostr-bridge.d.ts) types `NostrBridge` and exports its interfaces (`import type { NostrBridgeConfig, NostrBridgeAuthState } from "./nostr-bridge"`). It leaves `window.nostr` alone so it coexists with other NIP-07 typings; include [`nostr-bridge-window.d.ts`](nostr-bridge-window.d.ts) as well if nothing else declares `window.nostr`.
 
 > **Most apps don't need this.** If `window.nostr.getPublicKey()` succeeds, the user is logged in. If it throws, they're not — simple as that.
 
 ### Setup errors
 
-If the signer can't start (domain not registered for the clientId, Web3Auth allowlist missing, …) the bridge logs `nostr-bridge: signer error CODE: …` with a fix hint in the page console, and dispatches `{ type: "SIGNER_ERROR", code, message, hint }` the same way as `AUTH_STATE`. The codes are listed in [`llms-full.txt`](llms-full.txt).
+If the signer can't start (domain not registered for the clientId, Web3Auth allowlist missing, …) the bridge logs `nostr-bridge: signer error CODE: …` with a fix hint in the page console, and dispatches `{ type: "SIGNER_ERROR", code, message, hint }` as a `message` event with `e.origin === ""`. If the page has an extension or window.nostr.js, the widget's Sign in button still works through it. The codes are listed in [`llms-full.txt`](llms-full.txt).
 
 ---
 
@@ -226,7 +255,8 @@ Setting `forceIframe: true` disables WNJ loading and always uses the Web3Auth if
 ```
 nostr-shard-signer/
 ├── nostr-bridge.js          # Parent wrapper — injects iframe, proxies window.nostr
-├── nostr-bridge.d.ts        # TypeScript declarations for NostrBridge and window.nostr
+├── nostr-bridge.d.ts        # TypeScript declarations for NostrBridge
+├── nostr-bridge-window.d.ts # Opt-in: types window.nostr as the bridge's signer
 ├── llms.txt, llms-full.txt  # Docs for AI coding agents (published to GitHub Pages)
 ├── examples/minimal.html    # Minimal integration example
 ├── bunker/                  # Vite + React + TypeScript bunker app
@@ -453,6 +483,13 @@ The nonce is stored in `CHALLENGES_KV` with a 5-minute TTL and deleted after use
 | `{ type: "AUTH_STATE", loggedIn: bool, pubkey: string\|null }` | On iframe load (passive session check) |
 | `{ type: "AUTH_SUCCESS", pubkey: string }`                     | After user completes OAuth flow        |
 | `{ type: "RESIZE", state: "button"\|"avatar"\|"modal" }`       | On every view transition               |
+
+### UI control (custom schema, parent → iframe)
+
+| Message                  | Sent by                 | Effect                                       |
+| ------------------------ | ----------------------- | -------------------------------------------- |
+| `{ type: "OPEN_LOGIN" }` | `NostrBridge.login()`   | Opens the sign-in modal (as the button does) |
+| `{ type: "LOGOUT" }`     | `NostrBridge.logout()`  | Logs out of Web3Auth, replies `AUTH_STATE`   |
 
 ### Crypto requests (NIP-46 RPC, parent → iframe)
 

@@ -21,6 +21,9 @@ import { KeyExportView } from './components/KeyExportView';
 
 const ROOT_PUBKEY_HEX = '__ROOT_PUBKEY_HEX__';
 const DEFAULT_AVATAR = 'https://robohash.org/nostr?set=set4&size=48x48';
+// Height of the iframe while the error card shows: enough for the message
+// without covering a phone screen like the full modal height would.
+const ERROR_CARD_HEIGHT = 260;
 
 interface AppProps {
     parentOrigin: string;
@@ -37,6 +40,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // ── View routing ──────────────────────────────────────────────────────────
     const [view, setView] = useState<ViewName>('loading');
     const [error, setError] = useState<{ msg: string; detail: string } | null>(null);
+    // The error card is modal-sized; collapsed, it shrinks to a button-sized pill
+    // so it no longer covers the host page (most of the screen on a phone).
+    const [errorCollapsed, setErrorCollapsed] = useState(false);
+    // Set when Web3Auth setup failed but a Nostr signer (window.nostr.js or an
+    // extension) is on the page: the Sign in button then opens that signer.
+    const [setupError, setSetupError] = useState<string | null>(null);
 
     // ── Crypto material (private key in ref, display-safe in state) ───────────
     const privateKeyRef = useRef<Uint8Array | null>(null);
@@ -85,9 +94,26 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // log it with a fix hint in the host page's console (where developers look).
     const showError = useCallback((msg: string, detail = '', code = 'SIGNER_ERROR') => {
         setError({ msg, detail });
+        setErrorCollapsed(false);
         setView('error');
         postToParent({ type: 'SIGNER_ERROR', code, message: detail ? `${msg}: ${detail}` : msg });
     }, [postToParent]);
+
+    // Setup failures (unregistered domain, Web3Auth init) only rule out Web3Auth
+    // sign-in. With a Nostr signer on the page, keep the Sign in button and route
+    // it there instead of blocking the widget with the error card.
+    const failSetup = useCallback((msg: string, detail: string, code: string) => {
+        if (!nostrSigner) {
+            showError(msg, detail, code);
+            return;
+        }
+        const message = detail ? `${msg}: ${detail}` : msg;
+        setSetupError(message);
+        postToParent({ type: 'SIGNER_ERROR', code, message });
+        // A WNJ_SESSION may already have switched the view to the avatar.
+        setView(v => (v === 'loading' ? 'login' : v));
+        postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
+    }, [nostrSigner, showError, postToParent]);
 
     // After login succeeds, populate key state and fetch the Nostr profile.
     // w3aProfile carries the OAuth provider's name + picture (e.g. from Google),
@@ -109,6 +135,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     // ── postMessage handler (use ref to always capture fresh state) ───────────
     const handleMessageRef = useRef<(event: MessageEvent) => void>(() => { });
+    // NostrBridge.login()/logout() handlers; set during render below, since the
+    // callbacks are defined after the message handler.
+    const bridgeActionsRef = useRef<{ connect: () => void; logout: () => void }>({
+        connect: () => { },
+        logout: () => { },
+    });
+    // NostrBridge.login() arrived while still loading: open once the button shows.
+    const pendingLoginRef = useRef(false);
 
     useEffect(() => {
         handleMessageRef.current = async (event: MessageEvent) => {
@@ -129,6 +163,17 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 fetchProfile(pk, publishRelays)
                     .then(profile => { if (profile) setUserProfile(profile); })
                     .catch(() => { /* ignore */ });
+                return;
+            }
+
+            // ── NostrBridge.login() / logout() ───────────────────────────────────
+            if (event.data.type === 'OPEN_LOGIN') {
+                if (view === 'login') bridgeActionsRef.current.connect();
+                else if (view === 'loading') pendingLoginRef.current = true;
+                return;
+            }
+            if (event.data.type === 'LOGOUT') {
+                bridgeActionsRef.current.logout();
                 return;
             }
 
@@ -186,7 +231,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays]);
+    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays, view]);
 
     useEffect(() => {
         const listener = (event: MessageEvent) => handleMessageRef.current(event);
@@ -197,12 +242,18 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // ── Send RESIZE messages whenever the view changes ────────────────────────
     useEffect(() => {
         if (view === 'loading') return;
+        if (view === 'error') {
+            postToParent(errorCollapsed
+                ? { type: 'RESIZE', state: 'button' }
+                : { type: 'RESIZE', state: 'modal', height: ERROR_CARD_HEIGHT });
+            return;
+        }
         const resizeState =
             view === 'login' ? 'button' :
                 view === 'avatar' ? 'avatar' :
                     'modal';
         postToParent({ type: 'RESIZE', state: resizeState });
-    }, [view, postToParent]);
+    }, [view, errorCollapsed, postToParent]);
 
     // ── Bootstrap: run once on mount ──────────────────────────────────────────
     useEffect(() => {
@@ -245,7 +296,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const authorized = localTestBypass || await isAuthorized(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
             if (cancelled) return;
             if (!authorized) {
-                showError('Access denied', `"${parentOrigin}" is not authorized for this clientId.`, 'DOMAIN_NOT_REGISTERED');
+                failSetup('Access denied', `"${parentOrigin}" is not authorized for this clientId.`, 'DOMAIN_NOT_REGISTERED');
                 return;
             }
 
@@ -257,7 +308,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 console.log('[signer] initWeb3Auth: done');
             } catch (e) {
                 console.error('[signer] initWeb3Auth: error', e);
-                if (!cancelled) showError('Web3Auth init failed', (e as Error).message, 'WEB3AUTH_INIT_FAILED');
+                if (!cancelled) failSetup('Web3Auth init failed', (e as Error).message, 'WEB3AUTH_INIT_FAILED');
                 return;
             }
             if (cancelled) return;
@@ -397,7 +448,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     const handleConnect = useCallback(async () => {
         const w3a = web3authRef.current;
-        if (!w3a) return;
+        if (!w3a) {
+            // Web3Auth setup failed: the Nostr signer is the only way in.
+            if (nostrSigner) postToParent({ type: 'OPEN_NOSTR_SIGNER' });
+            return;
+        }
         // Expand iframe to modal size so Web3Auth's overlay fits
         postToParent({ type: 'RESIZE', state: 'modal' });
         setView('connecting');
@@ -422,7 +477,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Login failed', msg, 'LOGIN_FAILED');
             }
         }
-    }, [postToParent, onLoginSuccess, showError]);
+    }, [postToParent, onLoginSuccess, showError, nostrSigner]);
 
     // "Nostr signer or bunker" picked next to Web3Auth's sheet: the bridge opens
     // window.nostr.js on the parent page, and closing Web3Auth rejects connect(),
@@ -475,6 +530,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
     }, [postToParent, wnjPubkey]);
 
+    bridgeActionsRef.current = { connect: handleConnect, logout: handleLogout };
+
+    useEffect(() => {
+        if (view !== 'login' || !pendingLoginRef.current) return;
+        pendingLoginRef.current = false;
+        handleConnect();
+    }, [view, handleConnect]);
+
     const handleRelaysChange = useCallback((relays: string[]) => {
         setPublishRelays(relays);
         localStorage.setItem('nostr_signer_relays', JSON.stringify(relays));
@@ -488,8 +551,22 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // ── Render ─────────────────────────────────────────────────────────────────
 
     if (view === 'loading') return <LoadingOverlay />;
-    if (view === 'error' && error) return <ErrorBanner msg={error.msg} detail={error.detail} />;
-    if (view === 'login') return <LoginView onConnect={handleConnect} />;
+    if (view === 'error' && error) {
+        return (
+            <ErrorBanner
+                msg={error.msg}
+                detail={error.detail}
+                collapsed={errorCollapsed}
+                onDismiss={() => {
+                    // After a failed login, Web3Auth still works: back to the button.
+                    if (web3authRef.current) setView('login');
+                    else setErrorCollapsed(true);
+                }}
+                onExpand={() => setErrorCollapsed(false)}
+            />
+        );
+    }
+    if (view === 'login') return <LoginView onConnect={handleConnect} notice={setupError} />;
     // Web3Auth's modal is open and draws its own UI over the iframe; with
     // window.nostr.js on the parent page, offer it right above that sheet.
     if (view === 'connecting') {

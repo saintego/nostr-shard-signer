@@ -358,8 +358,24 @@ body {
   gap: 10px;
   padding: 24px;
   text-align: center;
+  overflow-y: auto;
 }
 #error-banner.active { display: flex; }
+#error-banner .err-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+#error-banner .err-close:hover { color: #111827; }
+.login-btn.error-pill { background: #dc2626; justify-content: center; }
+.login-btn.error-pill:hover { background: #b91c1c; }
 #error-banner .err-icon { font-size: 32px; }
 #error-banner p { font-size: 14px; color: #dc2626; font-weight: 700; }
 #error-banner small { font-size: 12px; color: #6b7280; line-height: 1.5; }
