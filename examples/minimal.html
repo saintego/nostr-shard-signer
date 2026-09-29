@@ -20,6 +20,9 @@
   </head>
   <body>
     <p id="status">Loading…</p>
+    <!-- Optional: your own buttons. The floating widget's "Sign in" works too. -->
+    <button id="login" hidden>Sign in</button>
+    <button id="logout" hidden>Sign out</button>
     <textarea id="note" rows="3" cols="40">Hello Nostr!</textarea>
     <button id="publish" disabled>Publish note</button>
 
@@ -29,24 +32,30 @@
       const RELAYS = ["wss://relay.damus.io", "wss://nos.lol"];
       const statusEl = document.getElementById("status");
       const publishBtn = document.getElementById("publish");
+      const loginBtn = document.getElementById("login");
+      const logoutBtn = document.getElementById("logout");
 
-      function render({ loggedIn, pubkey }) {
-        statusEl.textContent = loggedIn
-          ? "Signed in as " + pubkey
-          : "Click “Sign in” in the bottom-right corner.";
+      // Called with the current state once it is known (including a session
+      // restored on load), then on every sign-in / sign-out.
+      NostrBridge.onAuthChange(({ loggedIn, pubkey }) => {
+        statusEl.textContent = loggedIn ? "Signed in as " + pubkey : "Not signed in.";
         publishBtn.disabled = !loggedIn;
-      }
-
-      // Attach before init(): a restored session is announced during init().
-      // origin === "" marks events dispatched by the bridge itself.
-      window.addEventListener("message", (e) => {
-        if (e.origin !== "") return;
-        if (e.data?.type === "AUTH_STATE") render(e.data);
-        if (e.data?.type === "SIGNER_ERROR") statusEl.textContent = e.data.message + " " + e.data.hint;
+        loginBtn.hidden = loggedIn;
+        logoutBtn.hidden = !loggedIn;
       });
 
+      // Setup problems (e.g. this origin is not registered for the clientId).
+      // origin === "" marks events dispatched by the bridge itself.
+      window.addEventListener("message", (e) => {
+        if (e.origin === "" && e.data?.type === "SIGNER_ERROR")
+          statusEl.textContent = e.data.message + " " + e.data.hint;
+      });
+
+      loginBtn.addEventListener("click", () => NostrBridge.login());
+      logoutBtn.addEventListener("click", () => NostrBridge.logout());
+
+      // Safe to call more than once; later calls return the same promise.
       await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
-      render(NostrBridge.getAuthState());
 
       publishBtn.addEventListener("click", async () => {
         const signed = await window.nostr.signEvent({

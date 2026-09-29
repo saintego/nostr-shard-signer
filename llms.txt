@@ -9,11 +9,11 @@ Use it when a Nostr web app should work for users who have no browser extension.
 ```html
 <script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
 <script type="module">
-  window.addEventListener("message", (e) => {
-    if (e.origin !== "" || e.data?.type !== "AUTH_STATE") return;
-    // e.data.loggedIn: boolean, e.data.pubkey: hex string | null
+  NostrBridge.onAuthChange(({ loggedIn, pubkey }) => {
+    // loggedIn: boolean, pubkey: hex string | null. Also called right away once the state is known.
   });
   await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
+  // Optional: your own buttons can call NostrBridge.login() / NostrBridge.logout().
   // After the user has signed in:
   const pubkey = await window.nostr.getPublicKey(); // hex
   const signed = await window.nostr.signEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [], content: "hi" });
@@ -23,12 +23,13 @@ Use it when a Nostr web app should work for users who have no browser extension.
 ## Rules
 
 - Load `nostr-bridge.js` with a plain `<script>` tag from the URL above. It is not on npm and is not an ES module; do not `import` it or bundle it.
-- Call `NostrBridge.init()` once per page and await it before using `window.nostr`.
+- Await `NostrBridge.init()` (or `NostrBridge.ready`) before using `window.nostr`. Calling `init()` again is harmless: it returns the first call's promise, so React StrictMode needs no guard.
+- Instead of a separate init call, the script tag can carry the config: `<script src="…/nostr-bridge.js" data-client-id="…"></script>` (also `data-layout`, `data-button-size`, `data-mount-selector`, `data-bunker-origin`, `data-registrar-url`, `data-force-iframe`).
 - Only `clientId` is required. Leave out `bunkerOrigin` and `registrarUrl` unless you self-host the signer.
 - The `clientId` must be registered with the page's exact origin in the portal (https://saintego.github.io/nostr-shard-signer/portal/). localhost cannot be registered, so test on a deployed https origin.
 - The Web3Auth project must list `https://saintego.github.io` in its Allowlist URLs.
-- The user signs in by clicking the widget's "Sign in" button (bottom-right by default). `window.nostr` calls reject with "nostr-bridge: user is not logged in" until then. Listen for `AUTH_STATE` instead of polling.
-- Bridge events are `message` events on `window` with `event.origin === ""`. Check the origin.
+- The user signs in with the widget's "Sign in" button (bottom-right by default), or an app button calling `NostrBridge.login()`. `window.nostr` calls reject with "nostr-bridge: user is not logged in" until then; don't rely on them to open a login prompt. Use `NostrBridge.onAuthChange` (or the `nostr-bridge:auth` window event) instead of polling.
+- Legacy: auth and error events are also `message` events on `window` with `event.origin === ""`. If you listen to those, check the origin.
 - The bridge signs and encrypts only. Publishing to relays is the app's job (e.g. nostr-tools `SimplePool`).
 - Pubkeys are hex, not npub. Convert with nostr-tools `nip19` if needed.
 - Never ask for or handle the user's nsec.
@@ -37,7 +38,7 @@ Use it when a Nostr web app should work for users who have no browser extension.
 ## Docs
 
 - [Full reference for agents](https://saintego.github.io/nostr-shard-signer/llms-full.txt): all options, events, error codes and troubleshooting in one file
-- [TypeScript declarations](https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts): types for `NostrBridge` and `window.nostr`
+- [TypeScript declarations](https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts): types for `NostrBridge` (and [nostr-bridge-window.d.ts](https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge-window.d.ts) for `window.nostr`, if no other library types it)
 - [Minimal example](https://saintego.github.io/nostr-shard-signer/examples/minimal.html): sign in, show pubkey, publish a note
 - [README](https://github.com/saintego/nostr-shard-signer#readme): architecture, security model, self-hosting
 

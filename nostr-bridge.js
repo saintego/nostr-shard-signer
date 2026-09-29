@@ -33,14 +33,23 @@
  * Docs for AI coding agents: https://saintego.github.io/nostr-shard-signer/llms.txt
  * TypeScript types:          https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts
  *
- * OPTIONAL: React to login/logout (listen for AUTH_STATE events):
+ * Or let the script tag carry the config (init() then runs automatically):
  *
- *   window.addEventListener("message", (e) => {
- *     if (e.data?.type === "AUTH_STATE" && e.origin === "") {
- *       if (e.data.loggedIn) console.log("Logged in:", e.data.pubkey);
- *       else console.log("Logged out");
- *     }
- *   });
+ *   <script src=".../nostr-bridge.js" data-client-id="YOUR_WEB3AUTH_CLIENT_ID"
+ *           data-layout="floating"></script>
+ *
+ * init() is idempotent: later calls return the first call's promise.
+ * NostrBridge.ready resolves once it has completed.
+ *
+ * OPTIONAL: React to login/logout, use your own buttons:
+ *
+ *   const unsubscribe = NostrBridge.onAuthChange(({ loggedIn, pubkey }) => { ... });
+ *   window.addEventListener("nostr-bridge:auth", (e) => e.detail); // same data
+ *   NostrBridge.login();  // opens the sign-in modal
+ *   NostrBridge.logout();
+ *
+ *   The legacy form still fires: a "message" event with
+ *   e.data.type === "AUTH_STATE" and e.origin === "".
  *
  * OPTIONAL: React to setup errors (also logged to the console with a fix hint):
  *
@@ -65,6 +74,9 @@
 
 (function (global) {
   "use strict";
+
+  // Only available while the script's top level runs; read by autoInit().
+  const currentScript = document.currentScript;
 
   // ── Constants ─────────────────────────────────────────────────────────────────
   const EXTENSION_TIMEOUT_MS = 5000; // How long to wait for a native extension
@@ -123,6 +135,17 @@
   let signerError = null; // set when signer.html reports a setup error before AUTH_STATE
   let nativeNostrRef = null; // NIP-07 extension found on the page at init, if any
   let nativeWatchInstalled = false; // visibilitychange disconnect probe added
+  let initPromise = null; // first init() call's promise; later calls return it
+  let resolveReady; // resolves NostrBridge.ready once init() completes
+  const readyPromise = new Promise(function (resolve) {
+    resolveReady = resolve;
+  });
+  let resolveIframeLoaded; // resolves once the signer iframe fires "load"
+  const iframeLoaded = new Promise(function (resolve) {
+    resolveIframeLoaded = resolve;
+  });
+  const authListeners = new Set(); // NostrBridge.onAuthChange callbacks
+  let lastAuth = null; // last state given to listeners; null until known
 
   // ── Session cache ─────────────────────────────────────────────────────────────
   // Persists the last successful login across page reloads so the UI immediately
@@ -280,6 +303,7 @@
     // Guard RPC dispatch until the iframe document has finished loading
     iframeEl.addEventListener("load", function () {
       iframeReady = true;
+      resolveIframeLoaded();
     });
 
     containerEl.appendChild(iframeEl);
@@ -309,6 +333,69 @@
     if (!cw) throw new Error("nostr-bridge: iframe not available");
     const target = resolvedOrigin || config.bunkerOrigin;
     cw.postMessage(msg, target);
+  }
+
+  // ── Auth-state notifications ─────────────────────────────────────────────────
+  // Every auth change goes out three ways: the AUTH_STATE MessageEvent
+  // (origin === "", kept for existing consumers), a "nostr-bridge:auth"
+  // CustomEvent, and NostrBridge.onAuthChange callbacks. The last two only fire
+  // when the state actually changes.
+  function emitAuthState(loggedIn, pubkey) {
+    loggedIn = !!loggedIn;
+    pubkey = loggedIn ? pubkey || null : null;
+    global.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "AUTH_STATE", loggedIn: loggedIn, pubkey: pubkey },
+      }),
+    );
+    if (lastAuth && lastAuth.loggedIn === loggedIn && lastAuth.pubkey === pubkey)
+      return;
+    lastAuth = { loggedIn: loggedIn, pubkey: pubkey };
+    global.dispatchEvent(
+      new CustomEvent("nostr-bridge:auth", {
+        detail: { loggedIn: loggedIn, pubkey: pubkey },
+      }),
+    );
+    authListeners.forEach(function (cb) {
+      callAuthListener(cb, lastAuth);
+    });
+  }
+
+  function callAuthListener(cb, state) {
+    try {
+      cb({ loggedIn: state.loggedIn, pubkey: state.pubkey });
+    } catch (err) {
+      console.error("nostr-bridge: onAuthChange callback threw", err);
+    }
+  }
+
+  function onAuthChange(cb) {
+    if (typeof cb !== "function")
+      throw new Error("nostr-bridge: onAuthChange expects a function");
+    authListeners.add(cb);
+    // Hand over the current state right away, so a restored session that was
+    // announced before subscribing is not missed.
+    if (lastAuth) callAuthListener(cb, lastAuth);
+    return function unsubscribe() {
+      authListeners.delete(cb);
+    };
+  }
+
+  // Signs out of a window.nostr.js / extension session: only the bridge's
+  // routing changes, the extension or bunker itself stays connected.
+  function logoutWnj() {
+    if (activeMode === MODE_WNJ) {
+      activeMode = MODE_IFRAME;
+      authState = "loggedOut";
+      currentPubkey = null;
+      clearSession();
+      applySize("button");
+      emitAuthState(false, null);
+    }
+    // Tell the iframe to reset to login view.
+    const cw = iframeWindow();
+    if (cw)
+      cw.postMessage({ type: "WNJ_DISCONNECT" }, config._bunkerMessageOrigin);
   }
 
   // ── Incoming message handler ─────────────────────────────────────────────────
@@ -384,15 +471,7 @@
       if (!data.loggedIn) clearSession(); // user logged out — clear cached session
       applySize(data.loggedIn ? "avatar" : "button"); // also controls WNJ button visibility
       // Notify the portal page so it can update its UI automatically.
-      global.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "AUTH_STATE",
-            loggedIn: data.loggedIn,
-            pubkey: data.pubkey || null,
-          },
-        }),
-      );
+      emitAuthState(data.loggedIn, data.pubkey || null);
       flushQueue();
       return;
     }
@@ -410,11 +489,7 @@
       applySize("avatar"); // also hides WNJ button
       flushQueue();
       // Notify the portal page so it can update its UI automatically.
-      global.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "AUTH_STATE", loggedIn: true, pubkey: data.pubkey },
-        }),
-      );
+      emitAuthState(true, data.pubkey);
       return;
     }
     if (data.type === "WNJ_LOGOUT") {
@@ -422,22 +497,7 @@
       // Bypass the pointer-presence check in _wnjDoDisconnect — the pointer
       // may still be present because the extension is still connected, but
       // the user explicitly chose to disconnect the profile.
-      if (activeMode === MODE_WNJ) {
-        activeMode = MODE_IFRAME;
-        authState = "loggedOut";
-        currentPubkey = null;
-        clearSession();
-        applySize("button");
-        global.dispatchEvent(
-          new MessageEvent("message", {
-            data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
-          }),
-        );
-      }
-      // Tell the iframe to reset to login view.
-      const cw = iframeWindow();
-      if (cw)
-        cw.postMessage({ type: "WNJ_DISCONNECT" }, config._bunkerMessageOrigin);
+      logoutWnj();
       return;
     }
     if (data.type === "OPEN_NOSTR_SIGNER") {
@@ -465,6 +525,7 @@
         if (authState === "unknown" && !wnjNostr) {
           authState = "loggedOut";
           flushQueue();
+          emitAuthState(false, null);
         }
       }
       global.dispatchEvent(
@@ -608,11 +669,7 @@
       );
     }
     if (wnjNostr === nativeNostrRef) watchNativeExtension();
-    global.dispatchEvent(
-      new MessageEvent("message", {
-        data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
-      }),
-    );
+    emitAuthState(true, pubkey);
   }
 
   function buildNostrProxy() {
@@ -737,11 +794,7 @@
         { type: "WNJ_DISCONNECT" },
         config._bunkerMessageOrigin,
       );
-    global.dispatchEvent(
-      new MessageEvent("message", {
-        data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
-      }),
-    );
+    emitAuthState(false, null);
   }
 
   // Detect native extension disconnect (e.g. user locks/logs out of Alby).
@@ -824,11 +877,31 @@
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
-  async function init(userConfig) {
-    if (initialized) {
-      console.warn("nostr-bridge: already initialized");
-      return;
+  // Idempotent: React StrictMode, remounts and the data-client-id auto-init all
+  // end up calling init() more than once; every call gets the first one's promise.
+  function init(userConfig) {
+    if (initPromise) {
+      if (userConfig && config.clientId && userConfig.clientId !== config.clientId)
+        console.warn(
+          "nostr-bridge: already initialized with clientId " + config.clientId +
+            "; ignoring the new config.",
+        );
+      return initPromise;
     }
+    initPromise = initOnce(userConfig).then(
+      function () {
+        resolveReady();
+      },
+      function (err) {
+        // Bad config fails before anything is set up: let a corrected call retry.
+        if (!initialized) initPromise = null;
+        throw err;
+      },
+    );
+    return initPromise;
+  }
+
+  async function initOnce(userConfig) {
     if (!userConfig || !userConfig.clientId) {
       throw new Error(
         "nostr-bridge: clientId is required. Use your Web3Auth client ID and register it " +
@@ -1019,11 +1092,7 @@
               { type: "WNJ_DISCONNECT" },
               config._bunkerMessageOrigin,
             );
-          global.dispatchEvent(
-            new MessageEvent("message", {
-              data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
-            }),
-          );
+          emitAuthState(false, null);
         };
         wnjDisconnectFn = _wnjDoDisconnect; // expose to outer scope for WNJ_LOGOUT handler
 
@@ -1091,11 +1160,7 @@
                   config._bunkerMessageOrigin,
                 );
               }
-              global.dispatchEvent(
-                new MessageEvent("message", {
-                  data: { type: "AUTH_STATE", loggedIn: true, pubkey: pubkey },
-                }),
-              );
+              emitAuthState(true, pubkey);
             }
           }
         };
@@ -1178,24 +1243,12 @@
           currentPubkey = null;
           clearSession();
           applySize("button");
-          global.dispatchEvent(
-            new MessageEvent("message", {
-              data: { type: "AUTH_STATE", loggedIn: false, pubkey: null },
-            }),
-          );
+          emitAuthState(false, null);
         }, IFRAME_AUTH_STATE_TIMEOUT_MS);
       }
 
       // Notify the portal so it shows the connected state on reload.
-      global.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "AUTH_STATE",
-            loggedIn: true,
-            pubkey: savedSession.pubkey,
-          },
-        }),
-      );
+      emitAuthState(true, savedSession.pubkey);
       flushQueue();
     }
 
@@ -1205,6 +1258,7 @@
       if (authState === "unknown") {
         authState = "loggedOut";
         flushQueue();
+        emitAuthState(false, null);
       }
     }, IFRAME_AUTH_STATE_TIMEOUT_MS);
 
@@ -1216,9 +1270,84 @@
     }
   }
 
+  // Opens the signer's sign-in modal, the same one the widget's "Sign in"
+  // button opens (it also offers window.nostr.js / the extension when present).
+  // Resolves once the modal was requested; onAuthChange reports the outcome.
+  async function login() {
+    if (!initPromise)
+      throw new Error("nostr-bridge: call NostrBridge.init() before login()");
+    await readyPromise;
+    if (authState === "loggedIn") return;
+    await iframeLoaded;
+    postToIframe({ type: "OPEN_LOGIN" });
+  }
+
+  // Signs the user out (Web3Auth session, or the window.nostr.js / extension
+  // routing). Resolves once the bridge reports the logged-out state.
+  async function logout() {
+    if (!initPromise) return;
+    await readyPromise;
+    if (authState !== "loggedIn") return;
+    if (activeMode === MODE_WNJ) {
+      logoutWnj();
+      return;
+    }
+    // A pending session restore would swallow the iframe's AUTH_STATE:false.
+    sessionRestoreProtect = false;
+    await iframeLoaded;
+    await new Promise(function (resolve) {
+      var done = false;
+      var unsubscribe = function () {};
+      var finish = function () {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve();
+      };
+      var timer = setTimeout(function () {
+        // The signer did not answer: drop the bridge's session anyway.
+        if (authState === "loggedIn") {
+          authState = "loggedOut";
+          currentPubkey = null;
+          clearSession();
+          applySize("button");
+          emitAuthState(false, null);
+        }
+        finish();
+      }, IFRAME_AUTH_STATE_TIMEOUT_MS);
+      unsubscribe = onAuthChange(function (s) {
+        if (!s.loggedIn) finish();
+      });
+      postToIframe({ type: "LOGOUT" });
+    });
+  }
+
+  // <script src=".../nostr-bridge.js" data-client-id="…"> initializes itself;
+  // an explicit init() afterwards gets the same promise.
+  function autoInit() {
+    var ds = currentScript && currentScript.dataset;
+    if (!ds || !ds.clientId) return;
+    var cfg = { clientId: ds.clientId };
+    ["bunkerOrigin", "registrarUrl", "layout", "buttonSize", "mountSelector"].forEach(
+      function (key) {
+        if (ds[key]) cfg[key] = ds[key];
+      },
+    );
+    if (ds.forceIframe !== undefined) cfg.forceIframe = ds.forceIframe !== "false";
+    init(cfg).catch(function (err) {
+      console.error(err);
+    });
+  }
+
   // ── Expose ───────────────────────────────────────────────────────────────────
   global.NostrBridge = {
     init,
+    // Resolves once init() has completed (window.nostr installed, widget injected).
+    ready: readyPromise,
+    onAuthChange,
+    login,
+    logout,
     // Returns the current auth state synchronously.  Portals can call this
     // after awaiting init() as a fallback when the session-restore dispatch
     // fires before their message listener is attached.
@@ -1229,4 +1358,6 @@
     // init() resolves so portals can pre-render the connected state immediately.
     getSavedSession: loadSession,
   };
+
+  autoInit();
 })(window);

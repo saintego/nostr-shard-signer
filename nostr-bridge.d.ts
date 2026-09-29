@@ -8,10 +8,25 @@
  *
  *   /// <reference path="./nostr-bridge.d.ts" />
  *
+ * The interfaces are global, and can also be imported by name:
+ *
+ *   import type { NostrBridgeConfig, NostrBridgeAuthState } from "./nostr-bridge";
+ *
+ * This file does not type `window.nostr`, so it coexists with other NIP-07
+ * declarations. To type `window.nostr` as the bridge's signer, also include
+ * nostr-bridge-window.d.ts.
+ *
  * Docs for AI coding agents: https://saintego.github.io/nostr-shard-signer/llms.txt
  */
 
-export {};
+export type NostrUnsignedEvent = globalThis.NostrUnsignedEvent;
+export type NostrSignedEvent = globalThis.NostrSignedEvent;
+export type NostrBridgeSigner = globalThis.NostrBridgeSigner;
+export type NostrBridgeConfig = globalThis.NostrBridgeConfig;
+export type NostrBridgeAuthState = globalThis.NostrBridgeAuthState;
+export type NostrBridgeSavedSession = globalThis.NostrBridgeSavedSession;
+export type NostrBridgeApi = globalThis.NostrBridgeApi;
+export type NostrBridgeEvent = globalThis.NostrBridgeEvent;
 
 declare global {
   /** Unsigned Nostr event (NIP-01) as passed to `window.nostr.signEvent`. */
@@ -37,8 +52,9 @@ declare global {
    * Calls made before the signer iframe has reported its auth state are queued.
    * If the user is not logged in, calls reject with an Error whose message starts
    * with "nostr-bridge: user is not logged in". Don't rely on these calls to
-   * prompt a login: the user signs in by clicking the bridge widget's "Sign in"
-   * button. Watch for the AUTH_STATE message event to know when that happens.
+   * prompt a login: the user signs in with the bridge widget's "Sign in" button,
+   * or your own button calling `NostrBridge.login()`. Use
+   * `NostrBridge.onAuthChange` to know when that happens.
    */
   interface NostrBridgeSigner {
     /** Returns the user's public key as 64-char lowercase hex (not npub). */
@@ -109,11 +125,31 @@ declare global {
 
   interface NostrBridgeApi {
     /**
-     * Installs `window.nostr` and injects the signer widget. Call once per page;
-     * later calls log a warning and do nothing. Throws if clientId is missing or
-     * bunkerOrigin is not a valid URL. Await it before reading `window.nostr`.
+     * Installs `window.nostr` and injects the signer widget. Safe to call more
+     * than once (React StrictMode, remounts, after data-client-id auto-init):
+     * later calls return the first call's promise and ignore their config.
+     * Rejects if clientId is missing or bunkerOrigin is not a valid URL; a
+     * corrected call may then retry. Await it before reading `window.nostr`.
      */
     init(config: NostrBridgeConfig): Promise<void>;
+    /** Resolves once init() has completed, however it was called. */
+    readonly ready: Promise<void>;
+    /**
+     * Calls `callback` on every login/logout. If the auth state is already known,
+     * it is also called right away with the current state, so a session restored
+     * before subscribing is not missed. Returns an unsubscribe function.
+     * Same data as the "nostr-bridge:auth" window event.
+     */
+    onAuthChange(callback: (state: NostrBridgeAuthState) => void): () => void;
+    /**
+     * Opens the signer's sign-in modal, like the widget's "Sign in" button, so
+     * apps can use their own login button. Resolves once the modal was requested
+     * (immediately if already logged in); `onAuthChange` reports the outcome.
+     * Rejects if init() was never called.
+     */
+    login(): Promise<void>;
+    /** Signs the user out. Resolves once the logged-out state is reported. */
+    logout(): Promise<void>;
     /** Current auth state, synchronously. */
     getAuthState(): NostrBridgeAuthState;
     /** Session cached in localStorage from a previous visit, callable before init(). */
@@ -121,6 +157,8 @@ declare global {
   }
 
   /**
+   * Legacy form of the auth/error notifications; prefer `NostrBridge.onAuthChange`
+   * or the "nostr-bridge:auth" event for auth changes.
    * Events the bridge dispatches on `window` as MessageEvents with
    * `event.origin === ""` (no real sender). Check the origin so other
    * postMessage traffic can't fake them:
@@ -144,9 +182,9 @@ declare global {
         hint: string;
       };
 
-  interface Window {
-    NostrBridge: NostrBridgeApi;
-    nostr: NostrBridgeSigner;
+  interface WindowEventMap {
+    /** Fired on `window` when the user logs in or out. */
+    "nostr-bridge:auth": CustomEvent<NostrBridgeAuthState>;
   }
 
   var NostrBridge: NostrBridgeApi;
