@@ -80,10 +80,13 @@ declare global {
 
   interface NostrBridgeConfig {
     /**
-     * Your Web3Auth client ID. Required. It must be registered together with the
-     * page's origin in the portal: https://saintego.github.io/nostr-shard-signer/portal/
+     * Your Web3Auth client ID. Optional: without it, users sign in only with a
+     * NIP-07 extension or a NIP-46 bunker. With it, Google/Apple/X sign-in works
+     * on origins registered for it in the portal or listed in the project's
+     * Allowlist URLs in the Web3Auth dashboard (which must also list
+     * https://saintego.github.io).
      */
-    clientId: string;
+    clientId?: string;
     /**
      * Base URL where signer.html is hosted. Defaults to the hosted signer,
      * "https://saintego.github.io/nostr-shard-signer". Only set it when you
@@ -97,7 +100,7 @@ declare global {
     registrarUrl?: string;
     /**
      * Skip the installed NIP-07 extension (Alby, nos2x…) and window.nostr.js,
-     * and always use the Web3Auth iframe. Default false.
+     * and always use the Web3Auth iframe. Default false. Ignored without clientId.
      */
     forceIframe?: boolean;
     /**
@@ -128,10 +131,9 @@ declare global {
      * Installs `window.nostr` and injects the signer widget. Safe to call more
      * than once (React StrictMode, remounts, after data-client-id auto-init):
      * later calls return the first call's promise and ignore their config.
-     * Rejects if clientId is missing or bunkerOrigin is not a valid URL; a
-     * corrected call may then retry. Await it before reading `window.nostr`.
+     * Rejects if bunkerOrigin is not a valid URL; a corrected call may then retry. Await it before reading `window.nostr`.
      */
-    init(config: NostrBridgeConfig): Promise<void>;
+    init(config?: NostrBridgeConfig): Promise<void>;
     /** Resolves once init() has completed, however it was called. */
     readonly ready: Promise<void>;
     /**
@@ -173,8 +175,9 @@ declare global {
     | {
         type: "SIGNER_ERROR";
         /**
-         * DOMAIN_NOT_REGISTERED | WEB3AUTH_INIT_FAILED | MISSING_ROOT_PUBKEY |
-         * NOT_EMBEDDED | MISSING_CLIENT_ID | INIT_ERROR | LOGIN_FAILED
+         * CLIENT_ID_NOT_FOUND | DOMAIN_NOT_REGISTERED |
+         * WEB3AUTH_INIT_FAILED | MISSING_ROOT_PUBKEY | NO_SIGN_IN_METHOD |
+         * NOT_EMBEDDED | INIT_ERROR | LOGIN_FAILED
          */
         code: string;
         message: string;

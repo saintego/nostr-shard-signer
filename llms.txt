@@ -1,6 +1,6 @@
 # nostr-shard-signer
 
-> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init({ clientId })` gives the page a standard `window.nostr` (getPublicKey, signEvent, nip04, nip44). Users sign in with Google/Apple/X through Web3Auth (the key is held only in a cross-origin iframe), or with their own NIP-07 extension or NIP-46 bunker. Alpha software with no security audit; not for high-value keys.
+> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr` (getPublicKey, signEvent, nip04, nip44). Users sign in with their own NIP-07 extension or NIP-46 bunker, and, when a Web3Auth `clientId` is given, with Google/Apple/X (the key is held only in a cross-origin iframe). Alpha software with no security audit; not for high-value keys.
 
 Use it when a Nostr web app should work for users who have no browser extension. App code only uses the standard NIP-07 API, so code written for Alby or nos2x works unchanged.
 
@@ -12,7 +12,7 @@ Use it when a Nostr web app should work for users who have no browser extension.
   NostrBridge.onAuthChange(({ loggedIn, pubkey }) => {
     // loggedIn: boolean, pubkey: hex string | null. Also called right away once the state is known.
   });
-  await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
+  await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" }); // or init() for Nostr-only sign-in
   // Optional: your own buttons can call NostrBridge.login() / NostrBridge.logout().
   // After the user has signed in:
   const pubkey = await window.nostr.getPublicKey(); // hex
@@ -24,16 +24,15 @@ Use it when a Nostr web app should work for users who have no browser extension.
 
 - Load `nostr-bridge.js` with a plain `<script>` tag from the URL above. It is not on npm and is not an ES module; do not `import` it or bundle it.
 - Await `NostrBridge.init()` (or `NostrBridge.ready`) before using `window.nostr`. Calling `init()` again is harmless: it returns the first call's promise, so React StrictMode needs no guard.
-- Instead of a separate init call, the script tag can carry the config: `<script src="…/nostr-bridge.js" data-client-id="…"></script>` (also `data-layout`, `data-button-size`, `data-mount-selector`, `data-bunker-origin`, `data-registrar-url`, `data-force-iframe`).
-- Only `clientId` is required. Leave out `bunkerOrigin` and `registrarUrl` unless you self-host the signer.
-- The `clientId` must be registered with the page's exact origin in the portal (https://saintego.github.io/nostr-shard-signer/portal/). localhost cannot be registered, so test on a deployed https origin.
-- The Web3Auth project must list `https://saintego.github.io` in its Allowlist URLs.
+- Instead of a separate init call, the script tag can carry the config: `<script src="…/nostr-bridge.js" data-client-id="…"></script>` (also `data-layout`, `data-button-size`, `data-mount-selector`, `data-bunker-origin`, `data-registrar-url`, `data-force-iframe`). Any of these attributes starts init.
+- All options are optional. Without `clientId`, the Sign in button opens the user's NIP-07 extension or NIP-46 bunker (window.nostr.js) and the console shows a warning. Leave out `bunkerOrigin` and `registrarUrl` unless you self-host the signer.
+- With `clientId`, the Web3Auth project's Allowlist URLs (Web3Auth dashboard → Project Settings → Domains) must list `https://saintego.github.io`, and the page's exact origin must be registered in the portal (https://saintego.github.io/nostr-shard-signer/portal/), which only accepts origins that are also in that allowlist. An origin in only one of the two still works, with a console warning (`NOT_IN_REGISTRY` / `NOT_ALLOWLISTED`). localhost can't be registered in the portal but works when it is in the allowlist.
 - The user signs in with the widget's "Sign in" button (bottom-right by default), or an app button calling `NostrBridge.login()`. `window.nostr` calls reject with "nostr-bridge: user is not logged in" until then; don't rely on them to open a login prompt. Use `NostrBridge.onAuthChange` (or the `nostr-bridge:auth` window event) instead of polling.
 - Legacy: auth and error events are also `message` events on `window` with `event.origin === ""`. If you listen to those, check the origin.
 - The bridge signs and encrypts only. Publishing to relays is the app's job (e.g. nostr-tools `SimplePool`).
 - Pubkeys are hex, not npub. Convert with nostr-tools `nip19` if needed.
 - Never ask for or handle the user's nsec.
-- Setup problems appear as `SIGNER_ERROR` events and as console errors with a fix hint.
+- Setup problems appear as `SIGNER_ERROR` events and as console errors with a fix hint; non-fatal ones as console warnings.
 
 ## Docs
 

@@ -11,6 +11,8 @@
  *   REGISTRY_KV           — KV namespace for clientId → domain claims
  *   CHALLENGES_KV         — KV namespace for one-time ownership challenges
  *   RELAY_URLS            — comma-separated relay WebSocket URLs (env var)
+ *   SIGNER_ORIGIN         — optional; origin of the signer iframe that must be on each
+ *                           clientId's Web3Auth allowlist (default https://saintego.github.io)
  *
  * Endpoints:
  *   GET  /pubkey    — return root pubkey hex + configured relay URLs (public, no auth)
@@ -26,6 +28,10 @@
  *   re-sends the stored signed event to every relay that lacks it.
  *
  * Security model:
+ *   - /register and /update only accept domains that are, together with the
+ *     signer origin, on the clientId's Web3Auth allowlist (which only the
+ *     Web3Auth project owner can edit). If Web3Auth's config endpoint can't be
+ *     reached, the request goes through without that check and says so in `note`.
  *   - /register is open: anyone can claim an unclaimed clientId.
  *     If a clientId is already claimed by a *different* pubkey, the request is rejected.
  *   - /update requires a cryptographic ownership proof (signed nonce, NIP-98 style).
@@ -48,6 +54,12 @@ const MIN_HEALTHY_COPIES = 3;
 const NONCE_TTL_SEC = 300; // 5 minutes
 const MAX_DOMAINS = 50; // per clientId
 const MAX_CLIENT_ID_LEN = 512;
+const DEFAULT_SIGNER_ORIGIN = "https://saintego.github.io";
+// Public Web3Auth project config, including the dashboard's Allowlist URLs. The
+// Web3Auth SDK reads it during init(); it is not a documented API.
+const WEB3AUTH_CONFIG_URL =
+  "https://api.web3auth.io/signer-service/api/v2/configuration";
+const WEB3AUTH_NETWORK = "sapphire_mainnet"; // the network the signer uses
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
@@ -120,6 +132,74 @@ function normalizeDomain(input) {
 /** Validate that a hex string is a well-formed 32-byte public key. */
 function isValidHexPubkey(str) {
   return typeof str === "string" && /^[0-9a-f]{64}$/.test(str);
+}
+
+// ── Web3Auth allowlist ────────────────────────────────────────────────────────
+
+/**
+ * Fetch a clientId's Web3Auth allowlist as lowercase origins.
+ * Returns { status: "ok", origins } | { status: "not_found" } | { status: "unavailable", reason }.
+ */
+async function fetchWeb3AuthAllowlist(clientId) {
+  const url = new URL(WEB3AUTH_CONFIG_URL);
+  url.searchParams.set("project_id", clientId);
+  url.searchParams.set("network", WEB3AUTH_NETWORK);
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (res.status === 404) return { status: "not_found" };
+    if (!res.ok) return { status: "unavailable", reason: "HTTP " + res.status };
+    const urls = (await res.json())?.whitelist?.urls;
+    if (!Array.isArray(urls)) {
+      return { status: "unavailable", reason: "no allowlist in response" };
+    }
+    const origins = [];
+    for (const u of urls) {
+      try {
+        origins.push(new URL(u).origin.toLowerCase());
+      } catch (_) {}
+    }
+    return { status: "ok", origins };
+  } catch (err) {
+    return { status: "unavailable", reason: err.message };
+  }
+}
+
+/**
+ * Check that the signer origin and every domain are on the clientId's Web3Auth
+ * allowlist. Returns { error: Response } on failure, { note } when the
+ * allowlist could not be read, or {} when the check passed.
+ */
+async function checkWeb3AuthAllowlist(env, clientId, domains) {
+  const allowlist = await fetchWeb3AuthAllowlist(clientId);
+  if (allowlist.status === "unavailable") {
+    return {
+      note:
+        "The Web3Auth allowlist could not be checked (" + allowlist.reason +
+        "), so this was accepted without that check.",
+    };
+  }
+  if (allowlist.status === "not_found") {
+    return {
+      error: jsonErr(
+        "Web3Auth has no Sapphire Mainnet project with this clientId. Copy the Client ID from the Web3Auth dashboard.",
+        404,
+      ),
+    };
+  }
+  const signerOrigin = (env.SIGNER_ORIGIN || DEFAULT_SIGNER_ORIGIN).toLowerCase();
+  const missing = [signerOrigin, ...domains].filter(
+    (d) => !allowlist.origins.includes(d),
+  );
+  if (missing.length) {
+    return {
+      error: jsonErr(
+        "Add " + missing.join(", ") +
+          " to this clientId's Allowlist URLs in the Web3Auth dashboard (Project Settings → Domains), then retry.",
+        403,
+      ),
+    };
+  }
+  return {};
 }
 
 // ── Response helpers ──────────────────────────────────────────────────────────
@@ -582,6 +662,13 @@ async function handleRegister(request, env) {
     return jsonErr("npub is invalid");
   }
 
+  const { error: allowlistError, note } = await checkWeb3AuthAllowlist(
+    env,
+    clientId,
+    [normalizedDomain],
+  );
+  if (allowlistError) return allowlistError;
+
   // ── Claim check ─────────────────────────────────────────────────────────────
   const existing = await getClaim(env, clientId);
 
@@ -594,6 +681,7 @@ async function handleRegister(request, env) {
       return jsonOk({
         ok: true,
         message: "Domain already registered for this clientId",
+        ...(note ? { note } : {}),
       });
     }
     if (existing.domains.length >= MAX_DOMAINS) {
@@ -615,7 +703,7 @@ async function handleRegister(request, env) {
     try {
       const broadcast = await broadcastEvent(env, event);
       await saveEvent(env, clientId, event);
-      return jsonOk({ ok: true, event: event.id, ...broadcast });
+      return jsonOk({ ok: true, event: event.id, ...broadcast, ...(note ? { note } : {}) });
     } catch (err) {
       // Roll back the domain addition on broadcast failure
       existing.domains.pop();
@@ -637,7 +725,10 @@ async function handleRegister(request, env) {
   try {
     const broadcast = await broadcastEvent(env, event);
     await saveEvent(env, clientId, event);
-    return jsonOk({ ok: true, event: event.id, ...broadcast }, 201);
+    return jsonOk(
+      { ok: true, event: event.id, ...broadcast, ...(note ? { note } : {}) },
+      201,
+    );
   } catch (err) {
     await env.REGISTRY_KV.delete(KV_PREFIX_CLAIM + clientId);
     return jsonErr(
@@ -731,6 +822,13 @@ async function handleUpdate(request, env) {
   }
   const uniqueDomains = [...new Set(normalizedDomains)];
 
+  const { error: allowlistError, note } = await checkWeb3AuthAllowlist(
+    env,
+    clientId,
+    uniqueDomains,
+  );
+  if (allowlistError) return allowlistError;
+
   // Fetch and validate challenge
   const challengeRecord = await getChallenge(env, clientId);
   if (!challengeRecord) {
@@ -806,6 +904,7 @@ async function handleUpdate(request, env) {
     event: event.id,
     domains: uniqueDomains,
     ...broadcast,
+    ...(note ? { note } : {}),
   });
 }
 

@@ -21,11 +21,12 @@ Nostr login for any website: one `<script>` tag gives your users a `window.nostr
   });
 
   // Shows the "Sign in" button; after login, use window.nostr like any NIP-07 extension.
+  // Without clientId, users sign in with a Nostr extension or NIP-46 bunker only.
   await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
 </script>
 ```
 
-The `clientId` must be registered for your domain first, see [Getting Started](#getting-started-2-minutes). A complete page that also publishes a note is in [`examples/minimal.html`](examples/minimal.html).
+For Google/Apple/X sign-in, your domain must be registered for the `clientId` first, see [Getting Started](#getting-started-2-minutes). A complete page that also publishes a note is in [`examples/minimal.html`](examples/minimal.html).
 
 > **Using an AI coding agent?** Point it at [`llms.txt`](https://saintego.github.io/nostr-shard-signer/llms.txt) (short) or [`llms-full.txt`](https://saintego.github.io/nostr-shard-signer/llms-full.txt) (complete reference). Types: [`nostr-bridge.d.ts`](nostr-bridge.d.ts). Working page: [`examples/minimal.html`](examples/minimal.html).
 
@@ -48,7 +49,7 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Parent page JS reading your nsec        | Key lives only in a cross-origin iframe; Same-Origin Policy makes it unreachable                                  |
 | Browser extension / XSS on parent page  | Same isolation — the iframe context is physically separate                                                        |
-| Domain spoofing to steal Web3Auth quota | NIP-33 registry on Nostr validates every (clientId, domain) pair before the iframe renders                        |
+| Domain spoofing to steal Web3Auth quota | The page origin must be in the NIP-33 registry on Nostr or in the clientId's Web3Auth allowlist (only its owner can edit it); the registrar only registers allowlisted origins |
 | Rogue iframe injected by attacker       | `event.source === window.parent` check + `_parentOrigin` derived from `document.ancestorOrigins` (not URL params) |
 | null-origin postMessage attacks         | All `window.addEventListener("message")` handlers reject `event.origin === "null"` unconditionally                |
 
@@ -58,14 +59,15 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 
 ## Getting Started (2 minutes)
 
-### 1. Register your app (one-time setup)
+### 1. Set up Google/Apple/X sign-in (one-time, optional)
 
-1. Visit the [Developer Portal](https://saintego.github.io/nostr-shard-signer/portal/)
-2. Connect your Nostr key (Alby, Amber, or any NIP-07 extension)
-3. Go to **Register clientId** tab
-4. Enter your Web3Auth `clientId` (get one free from [Web3Auth](https://web3auth.io) and whitelist `https://saintego.github.io` in Project Settings->Domains->Allowlist URLs)
-5. Enter your app's domain (e.g., `https://myapp.com`)
-6. Submit — your domain is now authorized
+Skip this step for Nostr-only sign-in (extension or NIP-46 bunker) and call `NostrBridge.init()` without a `clientId`.
+
+1. Get a Web3Auth `clientId` (free, Sapphire Mainnet) from [Web3Auth](https://web3auth.io)
+2. In its dashboard, under Project Settings → Domains → Allowlist URLs, add `https://saintego.github.io` and your app's origin (e.g. `https://myapp.com`).
+3. In the [Developer Portal](https://saintego.github.io/nostr-shard-signer/portal/), connect your Nostr key, open the **Register clientId** tab, and register the `clientId` with your app's origin. The registrar only accepts origins that are in the Web3Auth allowlist.
+
+The signer accepts an origin found in either the registry or the Web3Auth allowlist, and warns in the console when one of them is missing it.
 
 ### 2. Add one script tag to your app
 
@@ -76,8 +78,8 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 ### 3. Call standard `window.nostr` — just like any NIP-07 extension
 
 ```js
-// Initialize the bridge (required once). bunkerOrigin and registrarUrl
-// default to the hosted signer; set them only when self-hosting.
+// Initialize the bridge (required once). clientId is optional; bunkerOrigin and
+// registrarUrl default to the hosted signer; set them only when self-hosting.
 await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
 
 // After the user signs in via the widget, use the standard NIP-07 API
@@ -520,7 +522,7 @@ Supported methods: `get_public_key`, `sign_event`, `nip04_encrypt`, `nip04_decry
 
 ### `POST /register`
 
-Claim a new clientId. First-come, first-served. The same npub can add more domains idempotently.
+Claim a new clientId. First-come, first-served. The same npub can add more domains idempotently. The domain and the signer origin (`SIGNER_ORIGIN`, default `https://saintego.github.io`) must be in the clientId's Web3Auth Allowlist URLs; `/update` checks every domain the same way. If Web3Auth's config endpoint can't be reached, the request is accepted without that check and the response carries a `note` saying so.
 
 ```jsonc
 // Request
@@ -528,6 +530,12 @@ Claim a new clientId. First-come, first-served. The same npub can add more domai
 
 // 201 Created
 { "ok": true, "event": "<nostr_event_id>", "published": 3, "total": 3 }
+
+// 403 — domain or signer origin missing from the Web3Auth allowlist
+{ "error": "Add https://app.example.com to this clientId's Allowlist URLs in the Web3Auth dashboard (Project Settings → Domains), then retry." }
+
+// 404 — no Web3Auth Sapphire Mainnet project with this clientId
+{ "error": "Web3Auth has no Sapphire Mainnet project with this clientId. ..." }
 
 // 409 Conflict — already claimed by different npub
 { "error": "clientId is already claimed by a different npub" }
