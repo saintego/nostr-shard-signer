@@ -19,8 +19,9 @@
  *   <script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
  *   <script>
  *     NostrBridge.init({
- *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // required; register it + your domain in the portal
- *       // Everything below is optional:
+ *       // Everything is optional. Without clientId, users sign in with a NIP-07
+ *       // extension or a NIP-46 bunker only.
+ *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // adds Google/Apple/X sign-in; allowlist your origin in Web3Auth
  *       bunkerOrigin:   "https://yourdomain.com/path",// self-hosted signer; defaults to the hosted one
  *       registrarUrl:   "https://registrar.example",  // defaults to the hosted registrar with the hosted signer
  *       forceIframe:    false,                        // skip native extensions if true
@@ -33,7 +34,8 @@
  * Docs for AI coding agents: https://saintego.github.io/nostr-shard-signer/llms.txt
  * TypeScript types:          https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts
  *
- * Or let the script tag carry the config (init() then runs automatically):
+ * Or let the script tag carry the config (init() runs automatically when the
+ * tag has any of the data-* options, e.g. data-layout alone for Nostr-only sign-in):
  *
  *   <script src=".../nostr-bridge.js" data-client-id="YOUR_WEB3AUTH_CLIENT_ID"
  *           data-layout="floating"></script>
@@ -97,21 +99,38 @@
 
   // Fix hints for SIGNER_ERROR codes sent by signer.html. They are logged in the
   // host page's console, which is where developers (and coding agents) look.
+  const WEB3AUTH_ALLOWLIST =
+    "the Web3Auth dashboard under Project Settings → Domains → Allowlist URLs";
   const SIGNER_ERROR_HINTS = {
+    CLIENT_ID_NOT_FOUND:
+      "Copy the Client ID of your Sapphire Mainnet project from the Web3Auth dashboard, " +
+      "or leave clientId out for Nostr-only sign-in.",
     DOMAIN_NOT_REGISTERED:
-      "Register this page's origin for your clientId in the portal (" +
-      PORTAL_URL +
-      "), using the Update Domains tab if the clientId is already registered. " +
-      "localhost cannot be registered. The registry lookup is cached per tab, so reload in a new tab afterwards.",
+      "Register this page's origin for your clientId in the portal (" + PORTAL_URL + "), using " +
+      "the Update Domains tab if the clientId is already registered, or add it to " +
+      WEB3AUTH_ALLOWLIST + ". Either one authorizes it. The registry lookup is cached per tab, " +
+      "so reload in a new tab afterwards.",
+    NO_SIGN_IN_METHOD:
+      "Without a clientId, users sign in with a NIP-07 extension or a NIP-46 bunker through " +
+      "window.nostr.js, and neither is available (window.nostr.js failed to load). Pass a " +
+      "clientId to offer Google/Apple/X sign-in.",
     WEB3AUTH_INIT_FAILED:
       "Check that clientId is your Web3Auth client ID and that the signer origin (" +
-      "https://saintego.github.io for the hosted signer) is in the Web3Auth dashboard under " +
-      "Project Settings → Domains → Allowlist URLs.",
+      "https://saintego.github.io for the hosted signer) is in " + WEB3AUTH_ALLOWLIST + ".",
     MISSING_ROOT_PUBKEY:
       "The signer could not load the registry key. With the hosted signer, omit bunkerOrigin and " +
       "registrarUrl so the defaults are used; a self-hosted signer needs a reachable registrarUrl.",
     NOT_EMBEDDED:
       "signer.html only works inside the iframe that nostr-bridge.js creates; do not open or embed it directly.",
+  };
+  // Hints for SIGNER_WARNING codes: setup problems that don't stop sign-in.
+  const SIGNER_WARNING_HINTS = {
+    NOT_IN_REGISTRY:
+      "Sign-in works because the origin is in the Web3Auth allowlist. Registering it in the " +
+      "portal (" + PORTAL_URL + ") keeps it working when the allowlist can't be read.",
+    NOT_ALLOWLISTED:
+      "Sign-in works because the origin is in the NIP-33 registry. Also add it to " +
+      WEB3AUTH_ALLOWLIST + ".",
   };
 
   // ── State ────────────────────────────────────────────────────────────────────
@@ -256,7 +275,7 @@
   function buildIframeSrc() {
     const base = config.bunkerOrigin.replace(/\/$/, "");
     const url = new URL(base + "/signer.html");
-    url.searchParams.set("clientId", config.clientId);
+    if (config.clientId) url.searchParams.set("clientId", config.clientId);
     url.searchParams.set("layout", config.layout || "floating");
     url.searchParams.set("buttonSize", config.buttonSize || "standard");
     url.searchParams.set("parentOrigin", global.location.origin);
@@ -532,6 +551,16 @@
         new MessageEvent("message", {
           data: { type: "SIGNER_ERROR", code: code, message: message, hint: hint },
         }),
+      );
+      return;
+    }
+    if (data.type === "SIGNER_WARNING") {
+      const code = typeof data.code === "string" ? data.code : "SIGNER_WARNING";
+      const message = typeof data.message === "string" ? data.message : "";
+      const hint = SIGNER_WARNING_HINTS[code] || "";
+      console.warn(
+        "nostr-bridge: signer warning " + code + ": " + message +
+          (hint ? "\n→ " + hint : ""),
       );
       return;
     }
@@ -881,9 +910,10 @@
   // end up calling init() more than once; every call gets the first one's promise.
   function init(userConfig) {
     if (initPromise) {
-      if (userConfig && config.clientId && userConfig.clientId !== config.clientId)
+      if (userConfig && (userConfig.clientId || "") !== (config.clientId || ""))
         console.warn(
-          "nostr-bridge: already initialized with clientId " + config.clientId +
+          "nostr-bridge: already initialized " +
+            (config.clientId ? "with clientId " + config.clientId : "without a clientId") +
             "; ignoring the new config.",
         );
       return initPromise;
@@ -902,13 +932,20 @@
   }
 
   async function initOnce(userConfig) {
-    if (!userConfig || !userConfig.clientId) {
-      throw new Error(
-        "nostr-bridge: clientId is required. Use your Web3Auth client ID and register it " +
-          "with this page's domain at " + PORTAL_URL,
-      );
-    }
     userConfig = Object.assign({}, userConfig);
+    if (!userConfig.clientId) {
+      console.warn(
+        "nostr-bridge: no clientId, so Google/Apple/X sign-in is off; users sign in with a " +
+          "Nostr extension or bunker. To offer social login, pass your Web3Auth client ID. " +
+          "Docs: " + DOCS_URL,
+      );
+      // forceIframe skips the extension and window.nostr.js, which are the
+      // only sign-in left without Web3Auth.
+      if (userConfig.forceIframe) {
+        console.warn("nostr-bridge: forceIframe needs a clientId; ignoring it.");
+        userConfig.forceIframe = false;
+      }
+    }
     // With the hosted signer, the hosted registrar is the matching default: the
     // signer needs it to verify domain registrations.
     const bunkerOriginGiven = userConfig.bunkerOrigin || DEFAULT_BUNKER_ORIGIN;
@@ -953,7 +990,12 @@
     // is still loading from the CDN.  Reading the session early and setting
     // sessionRestoreProtect immediately prevents the iframe's bootstrap false
     // from wiping the saved WNJ session before we can use it.
-    const savedSession = loadSession();
+    let savedSession = loadSession();
+    // A Web3Auth session can't be restored without a clientId.
+    if (savedSession && savedSession.mode !== MODE_WNJ && !config.clientId) {
+      clearSession();
+      savedSession = null;
+    }
     console.log("[bridge] savedSession:", savedSession);
     if (savedSession) {
       authState = "loggedIn";
@@ -1323,17 +1365,17 @@
     });
   }
 
-  // <script src=".../nostr-bridge.js" data-client-id="…"> initializes itself;
-  // an explicit init() afterwards gets the same promise.
+  // <script src=".../nostr-bridge.js" data-client-id="…"> (or any other data-*
+  // option) initializes itself; an explicit init() afterwards gets the same promise.
   function autoInit() {
     var ds = currentScript && currentScript.dataset;
-    if (!ds || !ds.clientId) return;
-    var cfg = { clientId: ds.clientId };
-    ["bunkerOrigin", "registrarUrl", "layout", "buttonSize", "mountSelector"].forEach(
-      function (key) {
-        if (ds[key]) cfg[key] = ds[key];
-      },
-    );
+    var keys = ["clientId", "bunkerOrigin", "registrarUrl", "layout", "buttonSize", "mountSelector"];
+    if (!ds || !keys.concat("forceIframe").some(function (key) { return ds[key] !== undefined; }))
+      return;
+    var cfg = {};
+    keys.forEach(function (key) {
+      if (ds[key]) cfg[key] = ds[key];
+    });
     if (ds.forceIframe !== undefined) cfg.forceIframe = ds.forceIframe !== "false";
     init(cfg).catch(function (err) {
       console.error(err);

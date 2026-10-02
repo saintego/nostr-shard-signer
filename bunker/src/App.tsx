@@ -4,6 +4,8 @@ import type { Web3Auth } from '@web3auth/modal';
 import type { ViewName, UserProfile, KeyInfo, PendingConfirmation } from './types';
 import { validateEmbedding, isLocalhostOrigin } from './lib/origin';
 import { fetchRegistrarConfig, checkAuthorization } from './lib/registry';
+import type { Authorization } from './lib/registry';
+import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
@@ -100,6 +102,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setErrorCollapsed(false);
         setView('error');
         postToParent({ type: 'SIGNER_ERROR', code, message: detail ? `${msg}: ${detail}` : msg });
+    }, [postToParent]);
+
+    // Non-fatal setup problems, logged in the host page's console by nostr-bridge.js.
+    const warnParent = useCallback((code: string, message: string) => {
+        console.warn('[signer]', code, message);
+        postToParent({ type: 'SIGNER_WARNING', code, message });
     }, [postToParent]);
 
     // Setup failures (unregistered domain, Web3Auth init) only rule out Web3Auth
@@ -269,44 +277,82 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            // 2. clientId required
+            // 2. No clientId: no Web3Auth, the Sign in button opens the Nostr signer.
             if (!clientId) {
-                showError('Missing configuration', 'No clientId provided.', 'MISSING_CLIENT_ID');
+                if (!nostrSigner) {
+                    showError('No sign-in method', 'No clientId was given and no Nostr signer is available on the page.', 'NO_SIGN_IN_METHOD');
+                    return;
+                }
+                setView('login');
+                postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
                 return;
             }
 
             // Web3Auth init shows no UI and exposes nothing until a session is
-            // resolved below, so run it while the registry is being checked.
+            // resolved below, so run it while the domain is being checked.
             const w3aInit = initWeb3Auth(clientId).then(
                 w3a => ({ w3a, err: null }),
                 (err: unknown) => ({ w3a: null, err }),
             );
             console.log('[signer] initWeb3Auth: start');
 
-            // 3. Fetch optional registrar config (extends registry relays / root pubkey)
-            const regConfig = await fetchRegistrarConfig(registrarUrl);
+            // 3. The Web3Auth allowlist decides; the registrar config (registry
+            // relays / root pubkey) is needed for the NIP-33 registry.
+            const [allowlist, regConfig] = await Promise.all([
+                fetchAllowlist(clientId),
+                fetchRegistrarConfig(registrarUrl),
+            ]);
             if (cancelled) return;
             if (regConfig.relays?.length) setRegistryRelays(regConfig.relays);
             if (regConfig.pubkey) setRootPubkeyHex(regConfig.pubkey);
 
             const activeRegistryRelays = regConfig.relays?.length ? regConfig.relays : DEFAULT_REGISTRY_RELAYS;
             const activeRootPubkey = regConfig.pubkey ?? ROOT_PUBKEY_HEX;
-
-            // 4. NIP-33 authorization check (fail closed if root pubkey is missing/placeholder)
-            if (activeRootPubkey === ROOT_PUBKEY_HEX || /^__/.test(activeRootPubkey)) {
-                showError('Signer misconfiguration', 'Missing root registry public key. Configure registrarUrl or replace __ROOT_PUBKEY_HEX__.', 'MISSING_ROOT_PUBKEY');
-                return;
-            }
+            const rootPubkeyMissing = activeRootPubkey === ROOT_PUBKEY_HEX || /^__/.test(activeRootPubkey);
+            const checkRegistry = () => checkAuthorization(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
 
             // Local testing only: the registrar refuses localhost domains, so a build
-            // made with VITE_LOCAL_TEST=true (scripts/local.sh) skips the registry
-            // check for localhost parents. Normal builds never set the flag.
+            // made with VITE_LOCAL_TEST=true (scripts/local.sh) skips the domain
+            // checks for localhost parents. Normal builds never set the flag.
             const localTestBypass = import.meta.env.VITE_LOCAL_TEST === 'true' && isLocalhostOrigin(parentOrigin);
-            if (localTestBypass) console.warn('[signer] VITE_LOCAL_TEST: skipping registry check for', parentOrigin);
+            if (localTestBypass) console.warn('[signer] VITE_LOCAL_TEST: skipping domain checks for', parentOrigin);
 
-            const auth = localTestBypass
-                ? { provisional: Promise.resolve(true), final: Promise.resolve(true) }
-                : checkAuthorization(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
+            // 4. Domain authorization: the NIP-33 registry or the Web3Auth
+            // allowlist must list the origin; a warning names the one that doesn't.
+            if (allowlist.status === 'not_found') {
+                failSetup('Unknown clientId', 'Web3Auth has no project with this clientId.', 'CLIENT_ID_NOT_FOUND');
+                return;
+            }
+            const allowlisted = allowlist.status === 'ok' && isAllowlisted(allowlist.origins, parentOrigin);
+            if (allowlist.status === 'unavailable') {
+                console.warn('[signer] Web3Auth allowlist unavailable (%s); using the NIP-33 registry only', allowlist.reason);
+            }
+
+            let auth: Authorization;
+            if (localTestBypass) {
+                auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
+            } else if (allowlisted) {
+                auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
+                if (rootPubkeyMissing) {
+                    warnParent('NOT_IN_REGISTRY', 'The NIP-33 registry could not be checked: no root registry public key.');
+                } else {
+                    checkRegistry().final.then(ok => {
+                        if (!ok && !cancelled) warnParent('NOT_IN_REGISTRY', `"${parentOrigin}" is not registered for this clientId in the NIP-33 registry.`);
+                    });
+                }
+            } else {
+                // Fail closed if the root pubkey is missing/placeholder.
+                if (rootPubkeyMissing) {
+                    showError('Signer misconfiguration', 'Missing root registry public key. Configure registrarUrl or replace __ROOT_PUBKEY_HEX__.', 'MISSING_ROOT_PUBKEY');
+                    return;
+                }
+                auth = checkRegistry();
+                if (allowlist.status === 'ok') {
+                    auth.final.then(ok => {
+                        if (ok && !cancelled) warnParent('NOT_ALLOWLISTED', `"${parentOrigin}" is not in this clientId's Web3Auth allowlist.`);
+                    });
+                }
+            }
             authFinalRef.current = auth.final;
             const denyDomain = () => failSetup('Access denied', `"${parentOrigin}" is not authorized for this clientId.`, 'DOMAIN_NOT_REGISTERED');
 

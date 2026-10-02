@@ -376,6 +376,7 @@
         <div class="card">
           <h2>Register a new clientId</h2>
           <p>Binds your Web3Auth <code>clientId</code> to an allowed domain. First-come first-served — the claim is published as a NIP-33 event signed by the registry root key.</p>
+          <p>The domain and <code>https://saintego.github.io</code> must both be in the project's Allowlist URLs in the Web3Auth dashboard (Project Settings → Domains).</p>
 
           <label for="reg-client-id">Web3Auth Client ID</label>
           <input type="text" id="reg-client-id" placeholder="BHt7mDXi..." autocomplete="off" spellcheck="false" />
@@ -593,7 +594,8 @@
         } else {
           showResult(resultRegister, "success",
             `✓ Registered! Event ID: <code>${data.event}</code><br>
-             Published to ${data.published}/${data.total} relays.`
+             Published to ${data.published}/${data.total} relays.` +
+            (data.note ? `<br>Note: ${escapeHtml(data.note)}` : "")
           );
         }
       } catch (e) {
@@ -686,7 +688,8 @@
         } else {
           showResult(resultUpdate, "success",
             `✓ Domains updated! Event ID: <code>${data2.event}</code><br>
-             Domains: ${data2.domains.join(", ")}`
+             Domains: ${data2.domains.join(", ")}` +
+            (data2.note ? `<br>Note: ${escapeHtml(data2.note)}` : "")
           );
         }
       } catch (e) {

@@ -1,17 +1,23 @@
 # nostr-shard-signer: full reference for coding agents
 
-> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init({ clientId })` gives the page a standard `window.nostr`. Users sign in with Google/Apple/X through Web3Auth (the key exists only inside a cross-origin iframe), or with their own NIP-07 extension or NIP-46 bunker. Alpha software with no security audit; not for high-value keys.
+> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr`. Users sign in with their own NIP-07 extension or NIP-46 bunker, and, when a Web3Auth `clientId` is given, with Google/Apple/X (the key exists only inside a cross-origin iframe). Alpha software with no security audit; not for high-value keys.
 
 Source: https://github.com/saintego/nostr-shard-signer
 Types: https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts (plus the opt-in nostr-bridge-window.d.ts for `window.nostr`)
 
 ## 1. Prerequisites (the developer does these once, by hand)
 
-1. Create a Web3Auth project at https://web3auth.io and copy its client ID.
-2. In the Web3Auth dashboard, add `https://saintego.github.io` under Project Settings → Domains → Allowlist URLs. The signer iframe runs on that origin, not on the app's.
-3. Open the portal at https://saintego.github.io/nostr-shard-signer/portal/, connect a Nostr key, and register the client ID together with the app's origin (e.g. `https://myapp.com`). To add origins later (staging, custom domains), use the portal's Update Domains tab.
+Nostr-only sign-in (extension or NIP-46 bunker) needs nothing: call `NostrBridge.init()` without a `clientId`. The console then warns that Google/Apple/X sign-in is off.
 
-Registered origins must be https with a real domain name. localhost, IP addresses and http are refused, so the signer can't be tested from localhost. Use a deployed preview or an https tunnel with its own registered domain.
+For Google/Apple/X sign-in:
+
+1. Create a Web3Auth project (Sapphire Mainnet) at https://web3auth.io and copy its client ID.
+2. In the Web3Auth dashboard, under Project Settings → Domains → Allowlist URLs, add `https://saintego.github.io` (the signer iframe runs there) and the app's exact origin (e.g. `https://myapp.com`).
+3. Open the portal at https://saintego.github.io/nostr-shard-signer/portal/, connect a Nostr key, and register the client ID together with the app's origin. The portal only accepts origins that are in the Web3Auth allowlist. To add origins later, use the portal's Update Domains tab.
+
+The signer offers social login on an origin that is in the NIP-33 registry (step 3) or in the Web3Auth allowlist (step 2). If only one of them lists it, it still works and the console shows a `NOT_IN_REGISTRY` or `NOT_ALLOWLISTED` warning. The registry keeps working when Web3Auth's allowlist can't be read.
+
+The portal refuses localhost, IP addresses and http origins. For local testing, add the localhost origin to the Web3Auth allowlist instead.
 
 ## 2. Complete example
 
@@ -93,7 +99,7 @@ The script tag can carry the config; the bridge then calls `init()` itself:
         data-client-id="YOUR_WEB3AUTH_CLIENT_ID" data-layout="floating"></script>
 ```
 
-Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, `data-registrar-url`, `data-layout`, `data-button-size`, `data-mount-selector`, `data-force-iframe` (`"true"`/`"false"`). An explicit `init()` afterwards returns the same promise; `NostrBridge.ready` resolves when it is done.
+Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, `data-registrar-url`, `data-layout`, `data-button-size`, `data-mount-selector`, `data-force-iframe` (`"true"`/`"false"`). Any of them starts init, so `data-layout="floating"` alone gives Nostr-only sign-in. An explicit `init()` afterwards returns the same promise; `NostrBridge.ready` resolves when it is done.
 
 ## 3. API
 
@@ -101,15 +107,15 @@ Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, 
 
 | Option          | Type                                | Default                                              | Notes |
 | --------------- | ----------------------------------- | ---------------------------------------------------- | ----- |
-| `clientId`      | string                              | required                                             | Web3Auth client ID, registered in the portal |
+| `clientId`      | string                              | none                                                 | Web3Auth client ID; adds Google/Apple/X sign-in. Without it, only extension / bunker sign-in |
 | `bunkerOrigin`  | string (absolute URL)               | `https://saintego.github.io/nostr-shard-signer`      | Only for a self-hosted signer |
 | `registrarUrl`  | string                              | hosted registrar, when `bunkerOrigin` is the default | Only for a self-hosted signer |
-| `forceIframe`   | boolean                             | `false`                                              | `true`: ignore an installed extension and don't offer bunkers; always use Web3Auth |
+| `forceIframe`   | boolean                             | `false`                                              | `true`: ignore an installed extension and don't offer bunkers; always use Web3Auth. Ignored without `clientId` |
 | `layout`        | `"floating"` \| `"in-place"`        | `"floating"`                                         | Floating widget sits bottom-right |
 | `buttonSize`    | `"standard"` \| `"large_social_grid"` | `"standard"`                                       | |
 | `mountSelector` | string (CSS selector)               | none                                                 | Where the widget renders with `layout: "in-place"`; falls back to `<body>` |
 
-Rejects if `clientId` is missing or `bunkerOrigin` is not a valid URL (a corrected call may then retry). Later calls return the first call's promise and ignore their config. On load it:
+Rejects if `bunkerOrigin` is not a valid URL (a corrected call may then retry). Later calls return the first call's promise and ignore their config. On load it:
 1. Asks an installed NIP-07 extension for the pubkey (waits up to 5 s). If it answers, signing goes through it. If it doesn't (locked, or waiting for the user to approve), the sign-in chooser offers "Browser extension", and a late approval still signs the user in.
 2. Without an extension, loads window.nostr.js so users can connect a NIP-46 bunker (nsec.app, Amber, nsecbunker). It can't load next to an extension, so extension users are not offered bunkers.
 3. Replaces `window.nostr` with its own object, and injects the signer iframe (the Sign in button / avatar widget).
@@ -170,20 +176,26 @@ For auth changes, prefer `NostrBridge.onAuthChange` or the `nostr-bridge:auth` e
 
 ## 5. Errors and fixes
 
-Signer errors are also logged with `console.error` in the host page as `nostr-bridge: signer error CODE: message`, followed by a hint.
+Signer errors are also logged with `console.error` in the host page as `nostr-bridge: signer error CODE: message`, followed by a hint. Non-fatal problems are logged with `console.warn` as `nostr-bridge: signer warning CODE: message`.
+
+In the errors below that turn off Google/Apple/X sign-in, an extension or bunker still works through the Sign in button.
 
 | Code / message | Cause | Fix |
 | -------------- | ----- | --- |
-| `DOMAIN_NOT_REGISTERED` | The page origin is not registered for this clientId. Google/Apple/X sign-in is off; an extension or bunker still works through the Sign in button | Register the exact origin (scheme + host + port) in the portal. The lookup is cached per browser tab, so test in a new tab |
+| `CLIENT_ID_NOT_FOUND` | Web3Auth has no Sapphire Mainnet project with this clientId | Copy the right client ID, or leave `clientId` out for Nostr-only sign-in |
+| `DOMAIN_NOT_REGISTERED` | The origin is neither in the NIP-33 registry nor in the Web3Auth allowlist | Register the exact origin (scheme + host + port) in the portal, or add it to the Web3Auth Allowlist URLs. The registry lookup is cached per browser tab, so test in a new tab |
+| `NO_SIGN_IN_METHOD` | No `clientId`, and window.nostr.js failed to load | Check that cdn.jsdelivr.net is reachable, or pass a `clientId` |
+| `NOT_IN_REGISTRY` (warning) | The origin is allowlisted in Web3Auth but not registered in the portal | Register it in the portal so sign-in keeps working when the allowlist can't be read |
+| `NOT_ALLOWLISTED` (warning) | The origin is registered in the portal but not in the Web3Auth allowlist | Add it to the Web3Auth Allowlist URLs |
 | `WEB3AUTH_INIT_FAILED` | Wrong clientId, or the signer origin is not allowlisted | Check the clientId; add `https://saintego.github.io` to the Web3Auth Allowlist URLs |
 | `MISSING_ROOT_PUBKEY` | The signer can't reach the registrar | Omit `bunkerOrigin`/`registrarUrl` to use the defaults; if self-hosting, fix `registrarUrl` |
 | `NOT_EMBEDDED` | `signer.html` was opened directly | Only load it through `nostr-bridge.js` |
 | `LOGIN_FAILED` | The OAuth login failed (not cancelled) | Usually transient; the user can retry |
-| "nostr-bridge: clientId is required…" | `init()` without `clientId` | Pass it |
+| "nostr-bridge: no clientId…" (warning) | `init()` without `clientId` | Expected for Nostr-only sign-in; pass a `clientId` to add Google/Apple/X |
 | "nostr-bridge: bunkerOrigin must be an absolute URL…" | Bad `bunkerOrigin` | Omit it, or pass a full https URL |
 | "nostr-bridge: user is not logged in…" | Call made before sign-in | Wait for `onAuthChange` with `loggedIn: true`, or call `NostrBridge.login()` from a button |
 | "nostr-bridge: RPC timeout…" | No answer within 30 s | The user ignored the confirmation; retry |
-| "nostr-bridge: already initialized with clientId …" (warning) | `init()` called again with a different clientId | The first config stays in effect; reload the page to switch |
+| "nostr-bridge: already initialized …" (warning) | `init()` called again with a different clientId | The first config stays in effect; reload the page to switch |
 
 ## 6. Don'ts
 
@@ -197,7 +209,7 @@ Signer errors are also logged with `console.error` in the host page as `nostr-br
 ## 7. Security model (short)
 
 - With Web3Auth login, the private key is reconstructed only inside the cross-origin signer iframe. Parent-page JS, including XSS, cannot read it.
-- Each (clientId, origin) pair is checked against a NIP-33 registry on Nostr relays before the signer works on a page.
+- Each (clientId, origin) pair must be in the NIP-33 registry on Nostr relays or in the clientId's Web3Auth allowlist (which only the project owner can edit) before Web3Auth sign-in works on a page. The registrar only registers origins that are in that allowlist.
 - The signer is loaded from a CDN, so a compromise of the signer host could expose keys. Alpha, unaudited: not for high-value keys.
 
 ## 8. Self-hosting
