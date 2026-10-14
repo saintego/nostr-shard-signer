@@ -334,20 +334,32 @@ A release is only needed when the types or the loader change. Changes to `nostr-
 
 2. **Create a GitHub release** from `main`: Releases → Draft a new release → new tag `npm-v<version>` (e.g. `npm-v0.1.1`), target `main`, title `nostr-shard-signer <version>`, notes on what changed for package users → Publish release.
 
-3. The **Publish npm package** workflow (`.github/workflows/npm-publish.yml`) checks that the tag matches `npm/package.json` and isn't published yet, runs `npm test`, and publishes with provenance. Check the run in the Actions tab, then the version on [npmjs.com](https://www.npmjs.com/package/nostr-shard-signer).
+3. The **Stage npm package** workflow (`.github/workflows/npm-publish.yml`) checks that the tag matches `npm/package.json` and isn't published yet, runs `npm test`, and **stages** the version with provenance: it is uploaded to npm but not public yet. Check the run in the Actions tab; its summary repeats the next step.
 
-Prereleases: a version like `0.2.0-beta.1` (`npm version prerelease --preid beta --workspace=npm`) is published under the `next` dist-tag, so `npm install nostr-shard-signer` keeps installing the last stable version; testers use `nostr-shard-signer@next`.
+4. **Approve it** with your 2FA code. This needs npm 11.19 or newer (`npm install -g npm@11`), logged in with `npm login`:
+
+   ```bash
+   npm stage list nostr-shard-signer        # shows the staged version and its <stage-id>
+   npm stage download <stage-id>            # optional: inspect the exact tarball
+   npm stage approve <stage-id>             # publishes it; asks for 2FA
+   ```
+
+   A wrong build can be dropped with `npm stage reject <stage-id>` instead. Then check the version on [npmjs.com](https://www.npmjs.com/package/nostr-shard-signer).
+
+Why staged: CI never holds the right to publish. Even if this repository or the workflow were compromised, nothing reaches npm without a maintainer's 2FA, which matters for a package whose code runs in other people's sites.
+
+Prereleases: a version like `0.2.0-beta.1` (`npm version prerelease --preid beta --workspace=npm`) is staged under the `next` dist-tag, so `npm install nostr-shard-signer` keeps installing the last stable version; testers use `nostr-shard-signer@next`.
 
 A published version can't be changed, and its number can't be reused even after unpublishing (only allowed within 72 hours). Fix mistakes with a new patch version, and mark a bad one with `npm deprecate nostr-shard-signer@<version> "<reason>"`.
 
 ### One-time setup (done once per repository)
 
-- **npm:** npmjs.com → nostr-shard-signer → Settings → Trusted publishing → GitHub Actions: user `saintego`, repository `nostr-shard-signer`, workflow `npm-publish.yml`, environment `npm`. Then, under Publishing access, choose "Require two-factor authentication and disallow tokens", so only this workflow (or you with 2FA) can publish.
-- **GitHub:** Settings → Environments → New environment `npm`. Optionally add yourself as a required reviewer to approve each publish.
+- **npm:** npmjs.com → nostr-shard-signer → Settings → Trusted publishing → GitHub Actions: user `saintego`, repository `nostr-shard-signer`, workflow `npm-publish.yml`, environment `npm`, permission **stage publish only** (leave publish off; a direct `npm publish` from the workflow then fails with "403 OIDC permission denied for this action"). Under Publishing access, choose "Require two-factor authentication and disallow tokens".
+- **GitHub:** Settings → Environments → New environment `npm` (the trusted publisher only accepts runs in it). No required reviewers needed: the 2FA approval on npm is the gate.
 
 ### Manual fallback
 
-From an up-to-date `main`, logged in with `npm login`:
+From an up-to-date `main`, logged in with `npm login` (publishing asks for your 2FA code):
 
 ```bash
 npm test

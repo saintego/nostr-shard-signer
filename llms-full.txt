@@ -217,7 +217,7 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 
 ## 6. Don'ts
 
-- Don't install or import `nostr-bridge.js` from npm. It is only published as a script at the URL above.
+- Don't import or bundle `nostr-bridge.js` itself. Load it with the script tag above, or with `loadNostrBridge()` from the `nostr-shard-signer` npm package, which loads that same script.
 - Don't assign `window.nostr` yourself after `init()`. The bridge keeps its own object there.
 - Don't ask the user for their nsec or build a key-import UI. Users who have a key use an extension or a bunker through the widget.
 - Don't expect npub values. Pubkeys are hex. Use nostr-tools `nip19.npubEncode` for display.
