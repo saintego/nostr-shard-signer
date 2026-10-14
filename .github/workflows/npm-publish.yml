@@ -1,7 +1,11 @@
-name: Publish npm package
+name: Stage npm package
 
-# Publishes the npm/ workspace (nostr-shard-signer) when a GitHub release with
-# a tag like npm-v0.1.1 is published. The tag must match npm/package.json.
+# Stages the npm/ workspace (nostr-shard-signer) when a GitHub release with a
+# tag like npm-v0.1.1 is published. The tag must match npm/package.json.
+#
+# Staged, not published: the version is uploaded but stays private until a
+# maintainer approves it with 2FA (npm stage approve), so nothing reaches npm
+# without a person, even if this repository or workflow were compromised.
 #
 # Uses npm trusted publishing (OIDC): no npm token is stored in GitHub. npm
 # links each version to this workflow run (provenance).
@@ -9,7 +13,7 @@ name: Publish npm package
 # One-time setup on npmjs.com → nostr-shard-signer → Settings → Trusted publishing:
 #   Publisher: GitHub Actions, Organization or user: saintego,
 #   Repository: nostr-shard-signer, Workflow filename: npm-publish.yml,
-#   Environment: npm
+#   Environment: npm, Permissions: stage publish only (not publish)
 #
 # Release steps: README.md → "Publishing the npm package".
 
@@ -27,11 +31,10 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish nostr-shard-signer
+    name: Stage nostr-shard-signer
     if: startsWith(github.event.release.tag_name, 'npm-v')
     runs-on: ubuntu-latest
-    # Add required reviewers to this environment (Settings → Environments) to
-    # approve each publish by hand.
+    # Must match the trusted publisher's environment on npmjs.com.
     environment: npm
 
     steps:
@@ -39,7 +42,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Trusted publishing needs npm 11.5.1+, which ships with Node 24.
+          # npm stage needs a recent npm 11 (11.19 ships with Node 24.21).
           node-version: 24
           registry-url: https://registry.npmjs.org
           cache: npm
@@ -67,12 +70,26 @@ jobs:
       - name: Test
         run: npm test
 
-      # A version with a prerelease suffix (0.2.0-beta.1) goes to the "next"
-      # tag, so `npm install nostr-shard-signer` keeps getting the last stable.
-      - name: Publish
+      # npm stage doesn't support --workspace, so it runs in npm/ (prepack
+      # still copies the types and LICENSE in). A version with a prerelease
+      # suffix (0.2.0-beta.1) goes to the "next" tag, so
+      # `npm install nostr-shard-signer` keeps getting the last stable.
+      - name: Stage
+        working-directory: npm
         run: |
-          version=$(node -p "require('./npm/package.json').version")
+          version=$(node -p "require('./package.json').version")
           case "$version" in
-            *-*) npm publish --workspace=npm --tag next ;;
-            *) npm publish --workspace=npm ;;
+            *-*) tag=next ;;
+            *) tag=latest ;;
           esac
+          npm stage publish --provenance --tag "$tag"
+          {
+            echo "## nostr-shard-signer@$version is staged, not published yet"
+            echo
+            echo "Approve it with 2FA (npm 11.19 or newer):"
+            echo
+            echo '```bash'
+            echo "npm stage list nostr-shard-signer"
+            echo "npm stage approve <stage-id>"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
