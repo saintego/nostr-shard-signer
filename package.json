@@ -6,15 +6,20 @@
   "type": "module",
   "workspaces": [
     "registrar",
-    "bunker"
+    "bunker",
+    "npm"
   ],
   "scripts": {
     "build": "npm run build --workspace=bunker",
     "dev:bunker": "npm run dev --workspace=bunker",
     "dev:registrar": "npm run dev --workspace=registrar",
-    "local": "./scripts/local.sh"
+    "local": "./scripts/local.sh",
+    "test": "npm run build && npm run test:types && playwright test",
+    "test:e2e": "playwright test",
+    "test:types": "npm run sync-files --workspace=npm && tsc -p tests/types"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "serve": "^14.2.6"
   },
   "overrides": {

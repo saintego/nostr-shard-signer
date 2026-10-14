@@ -3,8 +3,9 @@
  * https://saintego.github.io/nostr-shard-signer/nostr-bridge.js
  *
  * nostr-bridge.js is a classic script (not an ES module): load it with a
- * <script> tag and it defines the globals below. To get these types, copy this
- * file into your project, or reference it:
+ * <script> tag, or with loadNostrBridge() from the nostr-shard-signer npm
+ * package, which also ships these types. Without npm, copy this file into
+ * your project, or reference it:
  *
  *   /// <reference path="./nostr-bridge.d.ts" />
  *
@@ -128,6 +129,11 @@ declare global {
 
   interface NostrBridgeApi {
     /**
+     * Version of this API, bumped on breaking changes. The npm package's
+     * loader checks it against the version its types describe.
+     */
+    readonly apiVersion: number;
+    /**
      * Installs `window.nostr` and injects the signer widget. Safe to call more
      * than once (React StrictMode, remounts, after data-client-id auto-init):
      * later calls return the first call's promise and ignore their config.
@@ -177,7 +183,7 @@ declare global {
         /**
          * CLIENT_ID_NOT_FOUND | DOMAIN_NOT_REGISTERED |
          * WEB3AUTH_INIT_FAILED | MISSING_ROOT_PUBKEY | NO_SIGN_IN_METHOD |
-         * NOT_EMBEDDED | INIT_ERROR | LOGIN_FAILED
+         * NOT_EMBEDDED | PROTOCOL_UNSUPPORTED | INIT_ERROR | LOGIN_FAILED
          */
         code: string;
         message: string;

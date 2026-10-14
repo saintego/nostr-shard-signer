@@ -1,0 +1,43 @@
+{
+  "name": "nostr-shard-signer",
+  "version": "0.1.0",
+  "description": "Types and loader for nostr-bridge.js: NIP-07 window.nostr with Google/Apple/X, extension and NIP-46 bunker sign-in",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./window": {
+      "types": "./window.d.ts"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "window.d.ts",
+    "nostr-bridge.d.ts",
+    "nostr-bridge-window.d.ts",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "sync-files": "cp ../nostr-bridge.d.ts ../nostr-bridge-window.d.ts ../LICENSE .",
+    "prepack": "npm run sync-files"
+  },
+  "keywords": [
+    "nostr",
+    "nip-07",
+    "nip-46",
+    "signer",
+    "web3auth"
+  ],
+  "homepage": "https://saintego.github.io/nostr-shard-signer/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saintego/nostr-shard-signer.git",
+    "directory": "npm"
+  },
+  "bugs": "https://github.com/saintego/nostr-shard-signer/issues"
+}

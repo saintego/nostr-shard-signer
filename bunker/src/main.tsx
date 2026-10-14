@@ -14,6 +14,9 @@ const urlParams = {
     // Set by the bridge when a Nostr signer is available on the parent page:
     // "1" = window.nostr.js (bunkers), "extension" = a NIP-07 browser extension.
     nostrSigner: ({ '1': 'bunker', extension: 'extension' } as const)[searchParams.get('nostrSigner') ?? ''] ?? null,
+    // postMessage protocol version of the bridge; bridges older than the
+    // handshake don't send it and speak protocol 1.
+    protocol: Number(searchParams.get('protocol') ?? '1'),
 };
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

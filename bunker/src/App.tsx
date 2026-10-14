@@ -26,6 +26,10 @@ const DEFAULT_AVATAR = 'https://robohash.org/nostr?set=set4&size=48x48';
 // Height of the iframe while the error card shows: enough for the message
 // without covering a phone screen like the full modal height would.
 const ERROR_CARD_HEIGHT = 260;
+// postMessage protocol versions this signer speaks with nostr-bridge.js (see
+// PROTOCOL_VERSION there). Keep old versions here while hosted bridges that
+// send them may still be cached or pinned.
+const SUPPORTED_PROTOCOLS = [1];
 
 interface AppProps {
     parentOrigin: string;
@@ -33,11 +37,12 @@ interface AppProps {
         clientId: string;
         registrarUrl: string;
         nostrSigner: 'bunker' | 'extension' | null;
+        protocol: number;
     };
 }
 
 export function App({ parentOrigin, urlParams }: AppProps) {
-    const { clientId, registrarUrl, nostrSigner } = urlParams;
+    const { clientId, registrarUrl, nostrSigner, protocol } = urlParams;
 
     // ── View routing ──────────────────────────────────────────────────────────
     const [view, setView] = useState<ViewName>('loading');
@@ -277,7 +282,15 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            // 2. No clientId: no Web3Auth, the Sign in button opens the Nostr signer.
+            // 2. Protocol handshake: refuse a bridge this signer can't talk to
+            // instead of misreading its messages.
+            if (!SUPPORTED_PROTOCOLS.includes(protocol)) {
+                showError('Version mismatch', `nostr-bridge.js speaks protocol ${protocol}; this signer supports ${SUPPORTED_PROTOCOLS.join(', ')}.`, 'PROTOCOL_UNSUPPORTED');
+                return;
+            }
+            postToParent({ type: 'SIGNER_HELLO', protocol });
+
+            // 3. No clientId: no Web3Auth, the Sign in button opens the Nostr signer.
             if (!clientId) {
                 if (!nostrSigner) {
                     showError('No sign-in method', 'No clientId was given and no Nostr signer is available on the page.', 'NO_SIGN_IN_METHOD');
@@ -296,7 +309,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             );
             console.log('[signer] initWeb3Auth: start');
 
-            // 3. The Web3Auth allowlist decides; the registrar config (registry
+            // 4. The Web3Auth allowlist decides; the registrar config (registry
             // relays / root pubkey) is needed for the NIP-33 registry.
             const [allowlist, regConfig] = await Promise.all([
                 fetchAllowlist(clientId),
@@ -317,7 +330,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const localTestBypass = import.meta.env.VITE_LOCAL_TEST === 'true' && isLocalhostOrigin(parentOrigin);
             if (localTestBypass) console.warn('[signer] VITE_LOCAL_TEST: skipping domain checks for', parentOrigin);
 
-            // 4. Domain authorization: the NIP-33 registry or the Web3Auth
+            // 5. Domain authorization: the NIP-33 registry or the Web3Auth
             // allowlist must list the origin; a warning names the one that doesn't.
             if (allowlist.status === 'not_found') {
                 failSetup('Unknown clientId', 'Web3Auth has no project with this clientId.', 'CLIENT_ID_NOT_FOUND');
@@ -377,7 +390,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 denyDomain();
             });
 
-            // 5. Initialize Web3Auth
+            // 6. Initialize Web3Auth
             const { w3a: initialized, err: initErr } = await w3aInit;
             if (cancelled || revoked) return;
             if (!initialized) {
@@ -389,7 +402,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const w3a: Web3Auth = initialized;
             web3authRef.current = w3a;
 
-            // 6. Resolve existing session.
+            // 7. Resolve existing session.
             // Web3Auth v10 starts connector auto-connect as a non-awaited background
             // task inside init() — w3a.connected is false when init() returns even
             // with a valid cached session.  A fixed-duration await fails on slow

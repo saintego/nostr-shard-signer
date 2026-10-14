@@ -144,7 +144,25 @@ The script tag can also carry the config, so no init call is needed:
         data-client-id="YOUR_WEB3AUTH_CLIENT_ID" data-layout="floating"></script>
 ```
 
-TypeScript: [`nostr-bridge.d.ts`](nostr-bridge.d.ts) types `NostrBridge` and exports its interfaces (`import type { NostrBridgeConfig, NostrBridgeAuthState } from "./nostr-bridge"`). It leaves `window.nostr` alone so it coexists with other NIP-07 typings; include [`nostr-bridge-window.d.ts`](nostr-bridge-window.d.ts) as well if nothing else declares `window.nostr`.
+#### npm (bundled apps)
+
+The [`nostr-shard-signer`](https://www.npmjs.com/package/nostr-shard-signer) package replaces the script tag in apps built with a bundler, and ships the TypeScript types:
+
+```bash
+npm install nostr-shard-signer
+```
+
+```ts
+import { loadNostrBridge } from "nostr-shard-signer";
+
+// Client-side only. Instead of NostrBridge.init(config); also idempotent.
+const NostrBridge = await loadNostrBridge({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
+NostrBridge.onAuthChange(({ loggedIn, pubkey }) => { /* ... */ });
+```
+
+The package doesn't bundle the bridge: `loadNostrBridge()` loads `nostr-bridge.js` from the signer it talks to (`<bunkerOrigin>/nostr-bridge.js`), so the bridge and `signer.html` always come from the same deployment. To type `window.nostr` as well, add `/// <reference types="nostr-shard-signer/window" />`.
+
+Without npm, [`nostr-bridge.d.ts`](nostr-bridge.d.ts) types `NostrBridge` and exports its interfaces (`import type { NostrBridgeConfig, NostrBridgeAuthState } from "./nostr-bridge"`). It leaves `window.nostr` alone so it coexists with other NIP-07 typings; include [`nostr-bridge-window.d.ts`](nostr-bridge-window.d.ts) as well if nothing else declares `window.nostr`.
 
 > **Most apps don't need this.** If `window.nostr.getPublicKey()` succeeds, the user is logged in. If it throws, they're not — simple as that.
 
@@ -260,6 +278,8 @@ nostr-shard-signer/
 ├── nostr-bridge.d.ts        # TypeScript declarations for NostrBridge
 ├── nostr-bridge-window.d.ts # Opt-in: types window.nostr as the bridge's signer
 ├── llms.txt, llms-full.txt  # Docs for AI coding agents (published to GitHub Pages)
+├── npm/                     # npm package "nostr-shard-signer": loadNostrBridge() + types
+├── tests/                   # Playwright smoke tests (bridge + signer + loader), type tests
 ├── examples/minimal.html    # Minimal integration example
 ├── bunker/                  # Vite + React + TypeScript bunker app
 │   ├── src/                 # App source (compiles → signer.html on GitHub Pages)
@@ -282,6 +302,28 @@ On every push to `main`, GitHub Actions publishes three assets to GitHub Pages a
 | `https://<user>.github.io/nostr-shard-signer/nostr-bridge.js` | CDN bundle                    |
 | `https://<user>.github.io/nostr-shard-signer/signer.html`     | iframe bunker                 |
 | `https://<user>.github.io/nostr-shard-signer/portal/`         | Developer registration portal |
+
+---
+
+## Testing
+
+```bash
+npx playwright install chromium   # once
+npm test                          # builds the signer, type-checks the npm package, runs Playwright
+npm run test:e2e                  # Playwright only, against the existing bunker/dist build
+```
+
+The Playwright smoke tests (`tests/`) serve the built signer and `nostr-bridge.js` on fake origins with no real network, and sign in through a fake NIP-07 extension, so they need no clientId. They cover the bridge ↔ signer round trip, login/logout, session restore, the protocol handshake and the npm loader. Web3Auth sign-in is not covered. CI runs them on every PR (`.github/workflows/test.yml`).
+
+## Publishing the npm package
+
+The `npm/` workspace is the `nostr-shard-signer` package: `loadNostrBridge()` plus the types. Its `prepack` copies `nostr-bridge.d.ts`, `nostr-bridge-window.d.ts` and `LICENSE` from the repo root, which stay the source of truth.
+
+```bash
+npm test
+npm version patch --workspace=npm    # or minor for breaking changes while 0.x
+npm publish --workspace=npm
+```
 
 ---
 
@@ -478,10 +520,17 @@ The nonce is stored in `CHALLENGES_KV` with a 5-minute TTL and deleted after use
 
 ## Communication Protocol
 
+### Versioning
+
+The bridge passes its protocol version in the iframe URL (`signer.html?protocol=1&…`; bridges from before the handshake send none and speak 1). The signer answers `{ type: "SIGNER_HELLO", protocol }`, or, for a version it doesn't support, shows an error and posts `SIGNER_ERROR` with code `PROTOCOL_UNSUPPORTED`. Bump `PROTOCOL_VERSION` in `nostr-bridge.js` on breaking message changes, and keep the old version in the signer's `SUPPORTED_PROTOCOLS` while bridges speaking it may still be pinned or cached (jsDelivr, copies, older npm loaders on self-hosted signers).
+
+Separately, `NostrBridge.apiVersion` versions the page-facing API that `nostr-bridge.d.ts` describes; the npm package's loader warns when it differs from the version its types describe.
+
 ### UI/State (custom schema, iframe → parent)
 
 | Message                                                        | When sent                              |
 | -------------------------------------------------------------- | -------------------------------------- |
+| `{ type: "SIGNER_HELLO", protocol: number }`                   | On load, once the protocol is accepted |
 | `{ type: "AUTH_STATE", loggedIn: bool, pubkey: string\|null }` | On iframe load (passive session check) |
 | `{ type: "AUTH_SUCCESS", pubkey: string }`                     | After user completes OAuth flow        |
 | `{ type: "RESIZE", state: "button"\|"avatar"\|"modal" }`       | On every view transition               |
@@ -639,4 +688,4 @@ If you are contributing or using this in production, please be aware of the foll
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
