@@ -1,0 +1,15 @@
+{
+  // Type-checks consumer.ts against the npm package as an app would import it
+  // (node_modules/nostr-shard-signer is the npm/ workspace).
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "types": []
+  },
+  "files": ["consumer.ts"]
+}

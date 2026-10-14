@@ -10,3 +10,12 @@ dist/
 .DS_Store
 **/.DS_Store
 .local-site/
+
+# Copied from the repo root by npm/sync-files
+npm/nostr-bridge.d.ts
+npm/nostr-bridge-window.d.ts
+npm/LICENSE
+
+# Playwright output
+test-results/
+playwright-report/

@@ -22,7 +22,7 @@ Use it when a Nostr web app should work for users who have no browser extension.
 
 ## Rules
 
-- Load `nostr-bridge.js` with a plain `<script>` tag from the URL above. It is not on npm and is not an ES module; do not `import` it or bundle it.
+- Load `nostr-bridge.js` with a plain `<script>` tag from the URL above. In a bundled app (React, Vue, Svelte…) you can instead `npm install nostr-shard-signer` and call `await loadNostrBridge(config)` (from `"nostr-shard-signer"`) in place of `NostrBridge.init(config)`: it loads the same script from the signer and resolves with `NostrBridge`; the package also ships the TypeScript types. `nostr-bridge.js` itself is not an ES module: never `import` or bundle it.
 - Await `NostrBridge.init()` (or `NostrBridge.ready`) before using `window.nostr`. Calling `init()` again is harmless: it returns the first call's promise, so React StrictMode needs no guard.
 - Instead of a separate init call, the script tag can carry the config: `<script src="…/nostr-bridge.js" data-client-id="…"></script>` (also `data-layout`, `data-button-size`, `data-mount-selector`, `data-bunker-origin`, `data-registrar-url`, `data-force-iframe`). Any of these attributes starts init.
 - All options are optional. Without `clientId`, the Sign in button opens the user's NIP-07 extension or NIP-46 bunker (window.nostr.js) and the console shows a warning. Leave out `bunkerOrigin` and `registrarUrl` unless you self-host the signer.
@@ -37,7 +37,8 @@ Use it when a Nostr web app should work for users who have no browser extension.
 ## Docs
 
 - [Full reference for agents](https://saintego.github.io/nostr-shard-signer/llms-full.txt): all options, events, error codes and troubleshooting in one file
-- [TypeScript declarations](https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts): types for `NostrBridge` (and [nostr-bridge-window.d.ts](https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge-window.d.ts) for `window.nostr`, if no other library types it)
+- [npm package](https://www.npmjs.com/package/nostr-shard-signer): `loadNostrBridge()` plus types for `NostrBridge` (and `/// <reference types="nostr-shard-signer/window" />` for `window.nostr`, if no other library types it)
+- [TypeScript declarations](https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts): the same types as standalone files, for pages without npm
 - [Minimal example](https://saintego.github.io/nostr-shard-signer/examples/minimal.html): sign in, show pubkey, publish a note
 - [README](https://github.com/saintego/nostr-shard-signer#readme): architecture, security model, self-hosting
 

@@ -33,6 +33,8 @@
  *
  * Docs for AI coding agents: https://saintego.github.io/nostr-shard-signer/llms.txt
  * TypeScript types:          https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts
+ * Bundled apps:              npm install nostr-shard-signer, then loadNostrBridge(config)
+ *                            in place of this script tag and NostrBridge.init(config).
  *
  * Or let the script tag carry the config (init() runs automatically when the
  * tag has any of the data-* options, e.g. data-layout alone for Nostr-only sign-in):
@@ -89,6 +91,14 @@
   const WNJ_STYLE_ID = "nostr-bridge-wnj-fix"; // style injected into WNJ's shadow root
   const MODE_IFRAME = "iframe"; // signing routed to the iframe bunker
   const MODE_WNJ = "wnj"; // signing routed to window.nostr.js signer
+  // Version of the postMessage protocol between this script and signer.html.
+  // Sent in the iframe URL; signer.html answers with SIGNER_HELLO, or with
+  // SIGNER_ERROR PROTOCOL_UNSUPPORTED if it can't speak it. Bump it on breaking
+  // changes to the messages either side sends.
+  const PROTOCOL_VERSION = 1;
+  // Version of the NostrBridge API that nostr-bridge.d.ts describes, checked by
+  // the npm package's loader. Bump it on breaking changes to that API.
+  const API_VERSION = 1;
 
   // Hosted deployment, used when init() is called without bunkerOrigin.
   const DEFAULT_BUNKER_ORIGIN = "https://saintego.github.io/nostr-shard-signer";
@@ -122,6 +132,10 @@
       "registrarUrl so the defaults are used; a self-hosted signer needs a reachable registrarUrl.",
     NOT_EMBEDDED:
       "signer.html only works inside the iframe that nostr-bridge.js creates; do not open or embed it directly.",
+    PROTOCOL_UNSUPPORTED:
+      "This nostr-bridge.js and the signer at bunkerOrigin are different versions. Load " +
+      "nostr-bridge.js from the signer's own origin (<bunkerOrigin>/nostr-bridge.js), or use " +
+      "the nostr-shard-signer npm package, which does that for you.",
   };
   // Hints for SIGNER_WARNING codes: setup problems that don't stop sign-in.
   const SIGNER_WARNING_HINTS = {
@@ -279,6 +293,7 @@
     url.searchParams.set("layout", config.layout || "floating");
     url.searchParams.set("buttonSize", config.buttonSize || "standard");
     url.searchParams.set("parentOrigin", global.location.origin);
+    url.searchParams.set("protocol", String(PROTOCOL_VERSION));
     if (config.registrarUrl) {
       url.searchParams.set("registrarUrl", config.registrarUrl);
     }
@@ -552,6 +567,15 @@
           data: { type: "SIGNER_ERROR", code: code, message: message, hint: hint },
         }),
       );
+      return;
+    }
+    if (data.type === "SIGNER_HELLO") {
+      // Signers older than the handshake never send it; they speak protocol 1.
+      if (data.protocol !== PROTOCOL_VERSION)
+        console.warn(
+          "nostr-bridge: signer speaks protocol " + data.protocol + ", this script " +
+            PROTOCOL_VERSION + ".\n→ " + SIGNER_ERROR_HINTS.PROTOCOL_UNSUPPORTED,
+        );
       return;
     }
     if (data.type === "SIGNER_WARNING") {
@@ -1384,6 +1408,7 @@
 
   // ── Expose ───────────────────────────────────────────────────────────────────
   global.NostrBridge = {
+    apiVersion: API_VERSION,
     init,
     // Resolves once init() has completed (window.nostr installed, widget injected).
     ready: readyPromise,

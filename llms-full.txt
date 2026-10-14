@@ -3,7 +3,8 @@
 > Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr`. Users sign in with their own NIP-07 extension or NIP-46 bunker, and, when a Web3Auth `clientId` is given, with Google/Apple/X (the key exists only inside a cross-origin iframe). Alpha software with no security audit; not for high-value keys.
 
 Source: https://github.com/saintego/nostr-shard-signer
-Types: https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts (plus the opt-in nostr-bridge-window.d.ts for `window.nostr`)
+npm: `nostr-shard-signer` (loader + types, see "In a framework" below)
+Types without npm: https://raw.githubusercontent.com/saintego/nostr-shard-signer/main/nostr-bridge.d.ts (plus the opt-in nostr-bridge-window.d.ts for `window.nostr`)
 
 ## 1. Prerequisites (the developer does these once, by hand)
 
@@ -75,10 +76,10 @@ The portal refuses localhost, IP addresses and http origins. For local testing, 
 
 ### In a framework (React, Vue, Svelte…)
 
-- Put the `<script src=…nostr-bridge.js>` tag in the HTML shell (`index.html`, `app.html`, or the root layout's head). Do not import it from JS.
+- Either install the npm package and load the bridge from code (below), or put the `<script src=…nostr-bridge.js>` tag in the HTML shell (`index.html`, `app.html`, or the root layout's head) and call `NostrBridge.init()`. Never import or bundle `nostr-bridge.js` itself.
 - Call `NostrBridge.init()` client-side only (e.g. a top-level effect or `onMount`). It is idempotent: repeated calls (StrictMode, remounts) return the first call's promise, so no module-level guard is needed. With SSR, never call it on the server.
 - Keep auth state in app state, updated from `NostrBridge.onAuthChange` (return its unsubscribe function from the effect's cleanup).
-- TypeScript: copy `nostr-bridge.d.ts` into the project to type `NostrBridge`; its interfaces can be imported (`import type { NostrBridgeConfig, NostrBridgeAuthState } from "./nostr-bridge"`). It deliberately doesn't type `window.nostr`, so it coexists with other NIP-07 typings; add `nostr-bridge-window.d.ts` too if nothing else declares `window.nostr`.
+- TypeScript without npm: copy `nostr-bridge.d.ts` into the project to type `NostrBridge`; its interfaces can be imported (`import type { NostrBridgeConfig, NostrBridgeAuthState } from "./nostr-bridge"`). It deliberately doesn't type `window.nostr`, so it coexists with other NIP-07 typings; add `nostr-bridge-window.d.ts` too if nothing else declares `window.nostr`.
 
 React:
 
@@ -88,6 +89,22 @@ useEffect(() => {
   return NostrBridge.onAuthChange(setAuth); // { loggedIn, pubkey }
 }, []);
 // <button onClick={() => NostrBridge.login()}>Sign in</button>
+```
+
+With the npm package (`npm install nostr-shard-signer`), no script tag is needed. `loadNostrBridge(config)` loads `nostr-bridge.js` from the signer (`<bunkerOrigin>/nostr-bridge.js`, so bridge and signer always match), calls `init(config)`, and resolves with `NostrBridge`. Like `init()` it is idempotent, and it rejects on the server, so call it client-side only:
+
+```tsx
+// Optional, at the top of the file: types window.nostr.
+/// <reference types="nostr-shard-signer/window" />
+import { loadNostrBridge } from "nostr-shard-signer";
+
+useEffect(() => {
+  let off = () => {};
+  loadNostrBridge({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" }).then((bridge) => {
+    off = bridge.onAuthChange(setAuth);
+  });
+  return () => off();
+}, []);
 ```
 
 ### Without an init call
@@ -190,6 +207,7 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 | `WEB3AUTH_INIT_FAILED` | Wrong clientId, or the signer origin is not allowlisted | Check the clientId; add `https://saintego.github.io` to the Web3Auth Allowlist URLs |
 | `MISSING_ROOT_PUBKEY` | The signer can't reach the registrar | Omit `bunkerOrigin`/`registrarUrl` to use the defaults; if self-hosting, fix `registrarUrl` |
 | `NOT_EMBEDDED` | `signer.html` was opened directly | Only load it through `nostr-bridge.js` |
+| `PROTOCOL_UNSUPPORTED` | `nostr-bridge.js` and the signer at `bunkerOrigin` are different versions (e.g. a copied or CDN-pinned bridge with a newer or self-hosted signer) | Load `nostr-bridge.js` from `<bunkerOrigin>/nostr-bridge.js`, or use the npm package's `loadNostrBridge()`, which does that |
 | `LOGIN_FAILED` | The OAuth login failed (not cancelled) | Usually transient; the user can retry |
 | "nostr-bridge: no clientId…" (warning) | `init()` without `clientId` | Expected for Nostr-only sign-in; pass a `clientId` to add Google/Apple/X |
 | "nostr-bridge: bunkerOrigin must be an absolute URL…" | Bad `bunkerOrigin` | Omit it, or pass a full https URL |
