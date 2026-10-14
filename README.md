@@ -317,11 +317,41 @@ The Playwright smoke tests (`tests/`) serve the built signer and `nostr-bridge.j
 
 ## Publishing the npm package
 
-The `npm/` workspace is the `nostr-shard-signer` package: `loadNostrBridge()` plus the types. Its `prepack` copies `nostr-bridge.d.ts`, `nostr-bridge-window.d.ts` and `LICENSE` from the repo root, which stay the source of truth.
+The `npm/` workspace is the [`nostr-shard-signer`](https://www.npmjs.com/package/nostr-shard-signer) package: `loadNostrBridge()` plus the types. Its `prepack` copies `nostr-bridge.d.ts`, `nostr-bridge-window.d.ts` and `LICENSE` from the repo root, which stay the source of truth. There is no build step.
+
+A release is only needed when the types or the loader change. Changes to `nostr-bridge.js` or the signer go live through the Pages deploy; npm users get them without a new package version.
+
+### Releasing a version
+
+1. **Bump the version** on a branch, together with the change or after it:
+
+   ```bash
+   npm version patch --workspace=npm   # 0.1.0 → 0.1.1: fixes, additions
+   npm version minor --workspace=npm   # 0.1.0 → 0.2.0: breaking changes (while 0.x)
+   ```
+
+   This edits `npm/package.json` and `package-lock.json` only (no git tag). Commit, open a PR, merge. Use npm 11 (`npm install -g npm@11`, or Node 24): npm 10 rewrites the lockfile, dropping its `libc` entries.
+
+2. **Create a GitHub release** from `main`: Releases → Draft a new release → new tag `npm-v<version>` (e.g. `npm-v0.1.1`), target `main`, title `nostr-shard-signer <version>`, notes on what changed for package users → Publish release.
+
+3. The **Publish npm package** workflow (`.github/workflows/npm-publish.yml`) checks that the tag matches `npm/package.json` and isn't published yet, runs `npm test`, and publishes with provenance. Check the run in the Actions tab, then the version on [npmjs.com](https://www.npmjs.com/package/nostr-shard-signer).
+
+Prereleases: a version like `0.2.0-beta.1` (`npm version prerelease --preid beta --workspace=npm`) is published under the `next` dist-tag, so `npm install nostr-shard-signer` keeps installing the last stable version; testers use `nostr-shard-signer@next`.
+
+A published version can't be changed, and its number can't be reused even after unpublishing (only allowed within 72 hours). Fix mistakes with a new patch version, and mark a bad one with `npm deprecate nostr-shard-signer@<version> "<reason>"`.
+
+### One-time setup (done once per repository)
+
+- **npm:** npmjs.com → nostr-shard-signer → Settings → Trusted publishing → GitHub Actions: user `saintego`, repository `nostr-shard-signer`, workflow `npm-publish.yml`, environment `npm`. Then, under Publishing access, choose "Require two-factor authentication and disallow tokens", so only this workflow (or you with 2FA) can publish.
+- **GitHub:** Settings → Environments → New environment `npm`. Optionally add yourself as a required reviewer to approve each publish.
+
+### Manual fallback
+
+From an up-to-date `main`, logged in with `npm login`:
 
 ```bash
 npm test
-npm version patch --workspace=npm    # or minor for breaking changes while 0.x
+npm publish --workspace=npm --dry-run   # what would be uploaded
 npm publish --workspace=npm
 ```
 
