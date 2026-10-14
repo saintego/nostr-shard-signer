@@ -1,6 +1,6 @@
 {
   "name": "nostr-shard-signer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Types and loader for nostr-bridge.js: NIP-07 window.nostr with Google/Apple/X, extension and NIP-46 bunker sign-in",
   "license": "MIT",
   "type": "module",
