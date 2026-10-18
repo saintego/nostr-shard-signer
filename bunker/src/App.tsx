@@ -38,11 +38,12 @@ interface AppProps {
         registrarUrl: string;
         nostrSigner: 'bunker' | 'extension' | null;
         protocol: number;
+        poweredBy: boolean;
     };
 }
 
 export function App({ parentOrigin, urlParams }: AppProps) {
-    const { clientId, registrarUrl, nostrSigner, protocol } = urlParams;
+    const { clientId, registrarUrl, nostrSigner, protocol, poweredBy } = urlParams;
 
     // ── View routing ──────────────────────────────────────────────────────────
     const [view, setView] = useState<ViewName>('loading');
@@ -670,11 +671,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         );
     }
     if (view === 'login') return <LoginView onConnect={handleConnect} notice={setupError} />;
-    // Web3Auth's modal is open and draws its own UI over the iframe; with
-    // window.nostr.js on the parent page, offer it right above that sheet.
+    // Web3Auth's modal is open and draws its own UI over the iframe; under that
+    // sheet, offer the parent page's Nostr signer (if any) and link the library
+    // (unless the host page turned the link off).
     if (view === 'connecting') {
-        return nostrSigner
-            ? <NostrSignerCard kind={nostrSigner} onClick={handleNostrSigner} onHeight={handleSignerCardHeight} />
+        return nostrSigner || poweredBy
+            ? <NostrSignerCard kind={nostrSigner} poweredBy={poweredBy} onClick={handleNostrSigner} onHeight={handleSignerCardHeight} />
             : null;
     }
 

@@ -4,28 +4,35 @@ import { useEffect, useRef, useState } from 'react';
 // so the two read as one sheet.
 const OVERLAP = 24;
 const SHIFTED_CLASS = 'w3a-shifted';
+const LIB_URL = 'https://github.com/saintego/nostr-shard-signer';
 
 type Fit = 'full' | 'compact' | 'none';
 
 interface Props {
-    /** "extension" when the page has a NIP-07 extension (window.nostr.js can't load next to it). */
-    kind: 'bunker' | 'extension';
+    /**
+     * "extension" when the page has a NIP-07 extension (window.nostr.js can't load next to it);
+     * null when there is no Nostr signer, and the panel only carries the library link.
+     */
+    kind: 'bunker' | 'extension' | null;
+    /** Show the library link; false when the host page turned it off. */
+    poweredBy: boolean;
     onClick: () => void;
     /** Asks the parent to size the iframe so Web3Auth's sheet and the panel both fit. */
     onHeight: (height: number) => void;
 }
 
 /**
- * "Nostr signer or bunker" option shown as the bottom part of Web3Auth's login sheet.
+ * "Nostr signer or bunker" option and library link, shown as the bottom part of
+ * Web3Auth's login sheet.
  *
  * Web3Auth draws a full-iframe overlay with its sheet anchored to the bottom.
  * We shift that overlay up by the panel's height (see `.w3a-shifted` in
  * styles.css), put the panel underneath, and request an iframe height of
- * sheet + panel. When the parent caps the height (short screens) the caption is
- * dropped, and if even that doesn't fit the panel is hidden and the sheet left
+ * sheet + panel. When the parent caps the height (short screens) the caption and
+ * link are dropped, and if even that doesn't fit the panel is hidden and the sheet left
  * untouched, so its close button is never pushed off the top.
  */
-export function NostrSignerCard({ kind, onClick, onHeight }: Props) {
+export function NostrSignerCard({ kind, poweredBy, onClick, onHeight }: Props) {
     const panelRef = useRef<HTMLDivElement>(null);
     const fullHeightRef = useRef(0); // panel height with caption, once measured
     const [fit, setFit] = useState<Fit>('full');
@@ -49,7 +56,8 @@ export function NostrSignerCard({ kind, onClick, onHeight }: Props) {
             }
 
             const room = window.innerHeight - sheetH + OVERLAP;
-            if (fit === 'full' && panel.offsetHeight > room) setFit('compact');
+            // Without a signer button, compact would leave an empty strip.
+            if (fit === 'full' && panel.offsetHeight > room) setFit(kind ? 'compact' : 'none');
             else if (fit === 'compact' && panel.offsetHeight > room) setFit('none');
             else if (fit !== 'full' && fullHeightRef.current <= room) setFit('full');
 
@@ -57,7 +65,7 @@ export function NostrSignerCard({ kind, onClick, onHeight }: Props) {
             document.documentElement.style.setProperty('--w3a-shift', `${shift}px`);
         }, 150);
         return () => clearInterval(timer);
-    }, [onHeight, fit]);
+    }, [onHeight, fit, kind]);
 
     useEffect(() => {
         document.body.classList.add(SHIFTED_CLASS);
@@ -73,19 +81,26 @@ export function NostrSignerCard({ kind, onClick, onHeight }: Props) {
             className={'nostr-signer-panel' + (fit === 'compact' ? ' compact' : '')}
             style={{ visibility: fit === 'none' ? 'hidden' : 'visible' }}
         >
-            <div className="nostr-signer-or">or</div>
-            <button className="nostr-signer-btn" onClick={onClick}>
-                <span>{kind === 'extension' ? 'Browser extension' : 'Nostr signer or bunker'}</span>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="7.5" cy="15.5" r="5.5" />
-                    <path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3" />
-                </svg>
-            </button>
-            <p className="nostr-signer-caption">
-                {kind === 'extension'
-                    ? 'Your own key via Alby, nos2x or another NIP-07 extension'
-                    : 'Your own key via Amber, nsec.app, nsecBunker or any NIP-46 bunker'}
-            </p>
+            {kind && <>
+                <div className="nostr-signer-or">or</div>
+                <button className="nostr-signer-btn" onClick={onClick}>
+                    <span>{kind === 'extension' ? 'Browser extension' : 'Nostr signer or bunker'}</span>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="7.5" cy="15.5" r="5.5" />
+                        <path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3" />
+                    </svg>
+                </button>
+                <p className="nostr-signer-caption">
+                    {kind === 'extension'
+                        ? 'Your own key via Alby, nos2x or another NIP-07 extension'
+                        : 'Your own key via Amber, nsec.app, nsecBunker or any NIP-46 bunker'}
+                </p>
+            </>}
+            {poweredBy && (
+                <a className="nostr-signer-lib" href={LIB_URL} target="_blank" rel="noopener noreferrer">
+                    Powered by nostr-shard-signer
+                </a>
+            )}
         </div>
     );
 }

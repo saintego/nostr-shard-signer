@@ -34,6 +34,7 @@ test.describe("with a NIP-07 extension", () => {
     expect(src.searchParams.get("protocol")).toBe("1");
     expect(src.searchParams.get("nostrSigner")).toBe("extension");
     expect(src.searchParams.get("parentOrigin")).toBe(APP);
+    expect(src.searchParams.get("poweredBy")).toBeNull();
 
     // The signer shows the extension user's profile once the bridge sends WNJ_SESSION.
     await expect(page.locator("#nostr-signer-container")).toHaveCSS("width", "48px");
@@ -74,6 +75,20 @@ test.describe("with a NIP-07 extension", () => {
     );
     expect(same).toBe(true);
     await expect(page.locator("#nostr-signer-iframe")).toHaveCount(1);
+  });
+});
+
+test.describe("script tag attributes", () => {
+  test.withExtension();
+
+  test("data-powered-by=\"false\" hides the library link", async ({ page, pages }) => {
+    pages.set("/", `<!doctype html><html><head>
+<script src="${BUNKER}/nostr-bridge.js" data-bunker-origin="${BUNKER}" data-powered-by="false"></script>
+</head><body></body></html>`);
+    await page.goto(APP + "/");
+    await page.evaluate(() => NostrBridge.ready);
+    const src = new URL(await page.locator("#nostr-signer-iframe").getAttribute("src"));
+    expect(src.searchParams.get("poweredBy")).toBe("0");
   });
 });
 

@@ -43,7 +43,7 @@ useEffect(() => {
 }, []);
 ```
 
-`loadNostrBridge(config)` takes the same options as `NostrBridge.init(config)`: `clientId`, `layout`, `buttonSize`, `mountSelector`, `forceIframe`, and `bunkerOrigin` / `registrarUrl` for a self-hosted signer.
+`loadNostrBridge(config)` takes the same options as `NostrBridge.init(config)`: `clientId`, `layout`, `buttonSize`, `mountSelector`, `forceIframe`, `poweredBy`, and `bunkerOrigin` / `registrarUrl` for a self-hosted signer.
 
 ## Types
 

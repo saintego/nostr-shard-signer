@@ -17,6 +17,8 @@ const urlParams = {
     // postMessage protocol version of the bridge; bridges older than the
     // handshake don't send it and speak protocol 1.
     protocol: Number(searchParams.get('protocol') ?? '1'),
+    // "0" when the host page turned off the library link (poweredBy: false).
+    poweredBy: searchParams.get('poweredBy') !== '0',
 };
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

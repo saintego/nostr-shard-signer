@@ -28,6 +28,7 @@
  *       layout:         "floating",                   // "floating" | "in-place"
  *       buttonSize:     "standard",                   // "standard" | "large_social_grid"
  *       mountSelector:  "#nostr-btn",                 // only used when layout === "in-place"
+ *       poweredBy:      true,                         // false hides the library link on the sign-in sheet
  *     });
  *   </script>
  *
@@ -297,6 +298,8 @@
     if (config.registrarUrl) {
       url.searchParams.set("registrarUrl", config.registrarUrl);
     }
+    // Only sent to turn the link off, so signers default to showing it.
+    if (config.poweredBy === false) url.searchParams.set("poweredBy", "0");
     // Tells the signer to offer a Nostr signer in its sign-in chooser; picking
     // it posts OPEN_NOSTR_SIGNER back so we open window.nostr.js or ask the
     // extension. "extension" changes the option's label.
@@ -1394,13 +1397,16 @@
   function autoInit() {
     var ds = currentScript && currentScript.dataset;
     var keys = ["clientId", "bunkerOrigin", "registrarUrl", "layout", "buttonSize", "mountSelector"];
-    if (!ds || !keys.concat("forceIframe").some(function (key) { return ds[key] !== undefined; }))
+    var flags = ["forceIframe", "poweredBy"];
+    if (!ds || !keys.concat(flags).some(function (key) { return ds[key] !== undefined; }))
       return;
     var cfg = {};
     keys.forEach(function (key) {
       if (ds[key]) cfg[key] = ds[key];
     });
-    if (ds.forceIframe !== undefined) cfg.forceIframe = ds.forceIframe !== "false";
+    flags.forEach(function (key) {
+      if (ds[key] !== undefined) cfg[key] = ds[key] !== "false";
+    });
     init(cfg).catch(function (err) {
       console.error(err);
     });

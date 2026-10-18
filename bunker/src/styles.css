@@ -417,7 +417,8 @@ body {
   padding: 4px 32px 16px;
   background: #fff;
 }
-.nostr-signer-panel.compact .nostr-signer-caption { display: none; }
+.nostr-signer-panel.compact .nostr-signer-caption,
+.nostr-signer-panel.compact .nostr-signer-lib { display: none; }
 /* A transform makes the section the containing block for Web3Auth's fixed
    overlay, so translating it lifts the whole bottom-anchored sheet above the
    panel. --w3a-shift is set by NostrSignerCard. !important because Web3Auth
@@ -452,6 +453,14 @@ body.w3a-shifted #w3a-parent-container {
   color: #6b7280;
   text-align: center;
 }
+.nostr-signer-lib {
+  font-size: 11px;
+  line-height: 1.35;
+  color: #9ca3af;
+  text-align: center;
+  text-decoration: none;
+}
+.nostr-signer-lib:hover { color: #7c3aed; text-decoration: underline; }
 /* Matches Web3Auth's own "OR" divider (Inter is loaded by Web3Auth). */
 .nostr-signer-or {
   display: flex;
