@@ -509,6 +509,7 @@ For a self-hosted signer, pass `bunkerOrigin` (and `registrarUrl` if the signer 
     layout: "floating", // or "in-place"
     buttonSize: "standard", // or "large_social_grid"
     forceIframe: false, // true = skip native extension check
+    poweredBy: true, // false = hide the "Powered by nostr-shard-signer" link on the sign-in sheet
   });
 </script>
 ```

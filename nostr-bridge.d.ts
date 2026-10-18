@@ -113,6 +113,8 @@ declare global {
     buttonSize?: "standard" | "large_social_grid";
     /** CSS selector of the element to render into when layout is "in-place". Falls back to <body>. */
     mountSelector?: string;
+    /** Show the "Powered by nostr-shard-signer" link on the sign-in sheet. Default true. */
+    poweredBy?: boolean;
   }
 
   interface NostrBridgeAuthState {

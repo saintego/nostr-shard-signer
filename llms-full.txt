@@ -116,7 +116,7 @@ The script tag can carry the config; the bridge then calls `init()` itself:
         data-client-id="YOUR_WEB3AUTH_CLIENT_ID" data-layout="floating"></script>
 ```
 
-Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, `data-registrar-url`, `data-layout`, `data-button-size`, `data-mount-selector`, `data-force-iframe` (`"true"`/`"false"`). Any of them starts init, so `data-layout="floating"` alone gives Nostr-only sign-in. An explicit `init()` afterwards returns the same promise; `NostrBridge.ready` resolves when it is done.
+Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, `data-registrar-url`, `data-layout`, `data-button-size`, `data-mount-selector`, `data-force-iframe` and `data-powered-by` (`"true"`/`"false"`). Any of them starts init, so `data-layout="floating"` alone gives Nostr-only sign-in. An explicit `init()` afterwards returns the same promise; `NostrBridge.ready` resolves when it is done.
 
 ## 3. API
 
@@ -131,6 +131,7 @@ Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, 
 | `layout`        | `"floating"` \| `"in-place"`        | `"floating"`                                         | Floating widget sits bottom-right |
 | `buttonSize`    | `"standard"` \| `"large_social_grid"` | `"standard"`                                       | |
 | `mountSelector` | string (CSS selector)               | none                                                 | Where the widget renders with `layout: "in-place"`; falls back to `<body>` |
+| `poweredBy`     | boolean                             | `true`                                               | `false`: hide the "Powered by nostr-shard-signer" link at the bottom of the sign-in sheet |
 
 Rejects if `bunkerOrigin` is not a valid URL (a corrected call may then retry). Later calls return the first call's promise and ignore their config. On load it:
 1. Asks an installed NIP-07 extension for the pubkey (waits up to 5 s). If it answers, signing goes through it. If it doesn't (locked, or waiting for the user to approve), the sign-in chooser offers "Browser extension", and a late approval still signs the user in.
