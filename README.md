@@ -1,6 +1,6 @@
 # nostr-shard-signer
 
-Nostr login for any website: one `<script>` tag gives your users a `window.nostr` signer through Google, Apple or X, or through their own NIP-46 bunker. No browser extension, no nsec copy-paste. **[Live demo →](https://saintego.github.io/nostr-shard-signer)**
+**Sign in with Google, Apple or X for Nostr apps.** One `<script>` tag gives your web app a standard NIP-07 `window.nostr`: new users sign in with an account they already have and get a real Nostr keypair, and existing Nostr users sign in with their browser extension or NIP-46 bunker. No extension to install, no nsec to copy and paste. **[Live demo →](https://saintego.github.io/nostr-shard-signer)**
 
 > [!WARNING]  
 > **ALPHA RELEASE — USE AT YOUR OWN RISK**  
@@ -30,6 +30,108 @@ For Google/Apple/X sign-in, your domain must be registered for the `clientId` fi
 
 > **Using an AI coding agent?** Point it at [`llms.txt`](https://saintego.github.io/nostr-shard-signer/llms.txt) (short) or [`llms-full.txt`](https://saintego.github.io/nostr-shard-signer/llms-full.txt) (complete reference). Types: [`nostr-bridge.d.ts`](nostr-bridge.d.ts). Working page: [`examples/minimal.html`](examples/minimal.html).
 
+## OAuth login on Nostr
+
+Nostr has no accounts or passwords: a user *is* a keypair, and every post is signed with the private key (nsec). That is why most Nostr apps start by asking people to install a signer extension or paste an nsec, and why most people leave at that step.
+
+nostr-shard-signer lets them sign in the way they do everywhere else, with Google, Apple or X, and still ends with a normal Nostr key:
+
+1. The user clicks **Sign in** and picks Google, Apple or X in the [Web3Auth](https://web3auth.io) sheet.
+2. Web3Auth checks the OAuth login and its MPC network returns the user's secp256k1 private key. The key is split into shares held by independent nodes; no single party, Web3Auth included, holds the whole key.
+3. The key is put back together only inside the signer iframe, which runs on a different origin than your app. It becomes the user's Nostr keypair (npub / nsec).
+4. Your app talks to it through `window.nostr`, exactly as it would to a browser extension. The page gets the pubkey and signed events, never the nsec.
+
+The next time the user signs in with the same account, they get the same key back. Nothing is stored on your server, and there's no seed phrase to lose.
+
+What users get:
+
+- A standard Nostr identity. Their npub works across Nostr; profiles, follows and notes made in your app show up in every other client.
+- A way out. The widget's profile menu has an **Export key** button that shows their nsec, so they can move it to an extension or bunker and keep using the same identity without your app.
+- A profile from day one. If they have no Nostr profile yet, the widget shows the name and picture from their Google, Apple or X account.
+
+Know before you ship:
+
+- **The key belongs to your Web3Auth project.** Web3Auth gives each project (`clientId`) its own keys, so the same Google account gets a different npub in an app with another `clientId`. Never change the `clientId` of a live app: every OAuth user would get a new, empty identity.
+- **Each provider is a separate identity.** Signing in with Apple doesn't give the npub the user got with Google.
+- Users who already have a Nostr key shouldn't use OAuth. They sign in with their extension or bunker from the same **Sign in** sheet and keep their identity.
+
+## Why nostr-shard-signer
+
+- **Onboarding without Nostr knowledge.** New users start with a Google, Apple or X login, not a key-management lesson.
+- **Drop-in NIP-07.** Code written for Alby or nos2x works unchanged; there is no new signing API to learn.
+- **Every user in one button.** OAuth for newcomers, NIP-07 extensions and NIP-46 bunkers for existing users, all behind the same `window.nostr`.
+- **The key stays out of your page.** It lives only in a cross-origin iframe, so your app's code, its dependencies and an XSS bug can't read it.
+- **No backend to run.** Use the hosted signer and registrar; you only need a free Web3Auth `clientId`. Nostr-only sign-in needs nothing at all.
+- **Your quota stays yours.** A domain may only use your `clientId` once it is in your Web3Auth allowlist or registered by you on Nostr.
+- **Sessions survive reloads**, and confirmations for sensitive actions (profile changes, DMs, zaps) are built in.
+- **Open source** (MIT) and self-hostable.
+
+## Compared with other approaches
+
+|                                             | nostr-shard-signer             | [nostr-login](https://github.com/nostrband/nostr-login) | [nsec.app](https://nsec.app) ([Noauth](https://github.com/nostrband/noauth)) | [window.nostr.js](https://github.com/fiatjaf/window.nostr.js) | [Pomegranate](https://pkg.go.dev/fiatjaf.com/pomegranate) | OAuth bunker (key on a server) | Web3Auth SDK in your app | Key generated in the page |
+| ------------------------------------------- | :----------------------------: | :-----------------------------: | :-------------------------: | :-------------------: | :-----------------------------: | :-------------------------: | :----------------------: | :-----------------------: |
+| What it is                                  | `window.nostr` provider        | `window.nostr` provider         | Web-based NIP-46 bunker     | `window.nostr` provider | Sharded NIP-46 bunker         | Server-side NIP-46 bunker   | Wallet SDK               | DIY                       |
+| Sign in with Google / Apple / X             | ✅                             | ❌                              | ❌                          | ❌                    | ✅ Google                       | ✅                          | ✅                       | ❌                        |
+| New users without a Nostr key               | ✅ OAuth                       | ✅ sign-up at a bunker, or a local key | ✅ create a key there | ✅ sign-up at a bunker | ✅                             | ✅                          | ✅                       | ✅                        |
+| Existing users: extension or bunker         | ✅ same button                 | ✅ (+ read-only)                | ✅ import key               | ✅                    | ✅ import key                   | usually ❌                  | ❌ you build it          | ❌ nsec paste             |
+| Where the key is while in use               | signer iframe, user's browser  | extension, bunker, or the page (local keys) | nsec.app, user's browser | the user's bunker | never whole: shards on operators | the bunker server         | your page                | your page                 |
+| Your page's JS (and XSS) can't read the key | ✅                             | ✅ (❌ with local keys)         | ✅                          | ✅                    | ✅                              | ✅ (the server can)         | ❌                       | ❌                        |
+| No server ever holds the whole key          | ✅                             | ✅ (depends on the bunker)      | ✅                          | ✅ (depends on the bunker) | ✅                         | ❌                          | ✅                       | ✅                        |
+| Account recovery                            | OAuth login                    | depends on the signer           | password-encrypted backup   | depends on the signer | Google login + operators        | OAuth login                 | OAuth login              | ❌                        |
+| Servers involved                            | hosted signer page + Web3Auth  | none                            | nsec.app                    | none                  | central service + operators     | the bunker server           | Web3Auth                 | none                      |
+| Standard `window.nostr`, no app changes     | ✅                             | ✅                              | needs a NIP-46 client       | ✅                    | needs a NIP-46 client           | needs a NIP-46 client       | ❌ you write the glue    | ❌                        |
+
+**What sets nostr-shard-signer apart:** it combines sign-in with Google, Apple or X, a drop-in `window.nostr` that also serves extension and bunker users from the same button, and a key that neither your page nor any server can read. nostr-login, nsec.app and window.nostr.js onboard new users into a Nostr signer instead of an account they already have. An OAuth bunker is simple, but its server holds every user's key. Pomegranate goes further on custody (the key is never whole, signatures are combined from shards), at the cost of a central service and a NIP-46 client in your app.
+
+**The trade-offs:** OAuth users depend on Web3Auth to get their key back, and the key is put together in the browser while they are signed in, so this suits everyday social apps rather than high-value keys. Users can export their nsec at any time to remove that dependency.
+
+## FAQ
+
+**How do I make my Nostr web page easy to log in to for people with no Nostr experience?**
+Use nostr-shard-signer. Users sign in with the Google, Apple or X button they know, and get a Nostr account, created and kept safe for them, without installing anything or seeing a key. People who already use Nostr sign in with their extension or bunker from the same button.
+
+**Is this a custodial login?**
+No. Neither your app, the hosted signer nor Web3Auth alone holds the user's key. Web3Auth's MPC network splits it into shares, and it is put back together only in the user's browser, inside the signer iframe.
+
+**Do users get a "real" Nostr account?**
+Yes. It is an ordinary secp256k1 keypair. Their npub, profile, follows and notes work in every Nostr client.
+
+**Will a user have the same npub in another app that uses this library?**
+Only if that app uses the same Web3Auth `clientId`. Web3Auth scopes keys to the project, so different apps give the same Google account different npubs. To use one identity everywhere, a user exports their nsec into an extension or bunker and signs in with that.
+
+**Can several of my sites share one identity per user?**
+Yes. Register all of them for the same `clientId`: a user who signs in with the same account gets the same npub on each.
+
+**Does the same email give the same key with Google and with Apple?**
+No. Each login provider is a separate Web3Auth connection with its own key, even for the same email address. Web3Auth's group connections can link providers to one key, but the signer doesn't configure them, and they use other keys than the single connections, so turning them on later would also change existing users' npubs.
+
+**Can I change my `clientId` later?**
+Not for a live app. Your OAuth users' keys are tied to it; a new `clientId` gives them new, empty identities. Pick the project once, on Sapphire Mainnet.
+
+**Can a user move their account away from Google?**
+Yes. The widget's profile menu has an **Export key** button that shows their nsec. They import it into an extension (Alby, nos2x…) or a bunker (Amber, nsecBunker…) and keep the same identity, with or without your app.
+
+**What if Web3Auth goes away or my project is closed?**
+OAuth users could no longer get their key back through Google, Apple or X. Users who exported their nsec are unaffected. That is one reason this library suits everyday social apps rather than high-value keys.
+
+**Does it work for users who already use Nostr?**
+Yes. The same **Sign in** sheet offers their NIP-07 extension or a NIP-46 bunker, and their existing identity is used. No `clientId` is needed for that; call `NostrBridge.init()` without one for Nostr-only sign-in.
+
+**Do I have to change my Nostr code?**
+No. Anything written against `window.nostr` (`getPublicKey`, `signEvent`, `nip04`, `nip44`) keeps working. The bridge signs and encrypts; publishing to relays stays your app's job.
+
+**Does it need a backend or cost anything?**
+The hosted signer and registrar are free to use, and there is no server of your own to run. Google/Apple/X sign-in needs a Web3Auth project; check Web3Auth's pricing for its free-tier limits. You can also self-host everything (see [Deployment](#deployment)).
+
+**Can my page or an XSS bug read the user's key?**
+No. The key only exists in the signer iframe on another origin, which the browser keeps apart from your page. Your page only receives the pubkey and signed events. The risk is in the signer host itself (see the warning at the top).
+
+**Which signing requests need confirmation?**
+With OAuth login, notes (kind 1) and reactions (kind 7) are signed without asking. Other kinds, such as profile updates, DMs and zaps, and every decrypt show a confirmation in the widget. Extensions and bunkers apply their own rules.
+
+**Does it work with React, Vue, Svelte or Next.js?**
+Yes. Use the [`nostr-shard-signer`](https://www.npmjs.com/package/nostr-shard-signer) npm package's `loadNostrBridge()` client-side, or the script tag in your HTML shell. [`llms-full.txt`](llms-full.txt) has framework notes.
+
 ## How it works
 
 **Two login paths, one API:**
@@ -37,11 +139,11 @@ For Google/Apple/X sign-in, your domain must be registered for the `clientId` fi
 | Mode                                      | Who it's for                                  | How it works                                                                                                                                                                                                                |
 | ----------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Web3Auth OAuth**                        | Users new to Nostr or who prefer social login | Google, Apple, or X → MPC key is derived and held inside a sandboxed cross-origin iframe. The nsec never leaves that context.                                                                                               |
-| **NIP-46 Bunker** (via `window.nostr.js`) | Users who already hold their own Nostr key    | [`window.nostr.js`](https://github.com/fiatjaf/window.nostr.js/) connects silently to a NIP-46 bunker (nsec.app, Amber, etc.) over an encrypted relay channel. The parent app sees only signed events — never the key. |
+| **NIP-07 extension or NIP-46 bunker**     | Users who already hold their own Nostr key    | An installed extension (Alby, nos2x…) is used directly. Without one, [`window.nostr.js`](https://github.com/fiatjaf/window.nostr.js/) connects to a NIP-46 bunker (Amber, nsecBunker…) over an encrypted relay channel. The parent app sees only signed events — never the key. |
 
 The bridge detects a stored session on load and switches modes transparently. Both expose an identical `window.nostr` API, so client code is the same regardless of which path the user chose.
 
-> **Need zero client-side key reconstruction?** For maximum custody control, users can point the NIP-46 mode at a self-hosted bunker (e.g. [nsecbunker](https://nsecbunker.com)) or use [nsec.app](https://nsec.app) as the remote signer — nostr-shard-signer just passes calls through.
+> **Need zero client-side key reconstruction?** Users can keep their key in a NIP-46 bunker they control, such as Amber on their phone or a self-hosted [nsecBunker](https://nsecbunker.com); nostr-shard-signer then just passes calls through.
 
 ## Security Model
 
@@ -52,8 +154,6 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 | Domain spoofing to steal Web3Auth quota | The page origin must be in the NIP-33 registry on Nostr or in the clientId's Web3Auth allowlist (only its owner can edit it); the registrar only registers allowlisted origins |
 | Rogue iframe injected by attacker       | `event.source === window.parent` check + `_parentOrigin` derived from `document.ancestorOrigins` (not URL params) |
 | null-origin postMessage attacks         | All `window.addEventListener("message")` handlers reject `event.origin === "null"` unconditionally                |
-
-> **For users who require zero client-side key reconstruction**, use [nsec.app](https://nsec.app) or a self-hosted NIP-46 bunker instead.
 
 ---
 
@@ -103,7 +203,7 @@ const decrypted = await window.nostr.nip04?.decrypt("sender-pubkey", encrypted);
 **That's it.** Your app now has:
 
 - ✅ Web3Auth OAuth for new users (Google, Apple, X)
-- ✅ NIP-46 bunker support for existing Nostr users (Alby, Amber, nsec.app)
+- ✅ NIP-07 extensions (Alby, nos2x…) and NIP-46 bunkers (Amber, nsecBunker…) for existing Nostr users
 - ✅ Automatic session persistence across page reloads
 - ✅ Zero friction — users pick their preferred login path
 
@@ -251,9 +351,8 @@ For users who already control their Nostr key, the bridge optionally loads [`win
 
 | Signer                                        | Platform    | Notes                              |
 | --------------------------------------------- | ----------- | ---------------------------------- |
-| [nsec.app](https://nsec.app)                  | Web         | Hosted bunker, easy onboarding     |
 | [Amber](https://github.com/greenart7c3/Amber) | Android     | Phone acts as bunker via NIP-46    |
-| [nsecbunker](https://nsecbunker.com)          | Self-hosted | Full custody, relay of your choice |
+| [nsecBunker](https://nsecbunker.com)          | Self-hosted | Full custody, relay of your choice |
 
 Any other NIP-46 remote signer works too: paste its `bunker://` URL, or scan the `nostrconnect://` QR code with the signer app.
 
@@ -267,6 +366,8 @@ NostrBridge.init({
 ```
 
 Setting `forceIframe: true` disables WNJ loading and always uses the Web3Auth iframe, regardless of any stored bunker session.
+
+---
 
 ---
 
@@ -722,13 +823,11 @@ If you are contributing or using this in production, please be aware of the foll
 
 - [ ] **Extension Override Lockout:** If a user has a NIP-07 extension installed (like Alby), the bridge detects it and completely skips the Web3Auth iframe. Currently, if an Alby user _wants_ to log in with Google, there is no UI toggle to let them do so.
   - **Workaround:** Parent apps must manually implement two login buttons and call `NostrBridge.init({ forceIframe: true })` to bypass the extension check.
-- [ ] **Logout State Syncing:** When a user logs out from inside the iframe or WNJ, the internal `window.nostr` proxy is destroyed, but the parent app's UI is not automatically notified. The app will visually appear "logged in" until it tries to sign an event and fails.
-  - **TODO:** The bridge needs to fire a native `window.dispatchEvent(new CustomEvent('nostr:logout'))` that the parent app can listen to.
-- [ ] **Web3Auth Modal UI Jitter:** When the Web3Auth OAuth modal "unfolds" inside the iframe, it requires a lot of screen space. Because the iframe container is initially sized strictly to the login button, the Web3Auth UI can get cut off or squish the background.
-  - **TODO:** The iframe must dispatch the `RESIZE` (modal state) message to expand to `100vw/100vh` _before_ the Web3Auth UI attempts to render.
 
 ---
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+<sub>Nostr login with Google, Apple and X · Nostr OAuth / social login · NIP-07 without a browser extension · `window.nostr` for any website · NIP-46 bunker login · MPC Nostr keys · Nostr onboarding for new users · #nostr #oauth #nip07 #nip46 #web3auth</sub>

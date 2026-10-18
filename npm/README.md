@@ -1,6 +1,6 @@
 # nostr-shard-signer
 
-Gives any web page a standard NIP-07 `window.nostr` (`getPublicKey`, `signEvent`, `nip04`, `nip44`). Users sign in with their NIP-07 extension or a NIP-46 bunker, and, with a Web3Auth `clientId`, with Google/Apple/X. The key is held only in a cross-origin iframe.
+**Sign in with Google, Apple or X for Nostr apps.** Gives any web page a standard NIP-07 `window.nostr` (`getPublicKey`, `signEvent`, `nip04`, `nip44`). New users sign in with an account they already have and get a real Nostr keypair; existing Nostr users sign in with their NIP-07 extension or a NIP-46 bunker. The key is held only in a cross-origin iframe, never in your page.
 
 This package is the loader and TypeScript types for [nostr-bridge.js](https://github.com/saintego/nostr-shard-signer). It doesn't bundle the bridge: `loadNostrBridge()` loads `nostr-bridge.js` from the signer it talks to, so the bridge and the signer always come from the same deployment.
 
@@ -45,6 +45,16 @@ useEffect(() => {
 
 `loadNostrBridge(config)` takes the same options as `NostrBridge.init(config)`: `clientId`, `layout`, `buttonSize`, `mountSelector`, `forceIframe`, `poweredBy`, and `bunkerOrigin` / `registrarUrl` for a self-hosted signer.
 
+## OAuth login on Nostr
+
+With a Web3Auth `clientId`, the **Sign in** sheet offers Google, Apple and X. Web3Auth checks the login and its MPC network returns the user's key, split into shares so no single party holds it. The key is put back together only in the signer iframe and becomes the user's Nostr keypair. Signing in again with the same account gives the same key; nothing is stored on your server.
+
+- The npub is a normal Nostr identity that works in every client. The widget's profile menu has an **Export key** button, so users can take their nsec to an extension or bunker at any time.
+- Keys belong to your Web3Auth project: the same Google account gets a different npub in an app with another `clientId`. **Never change the `clientId` of a live app**, or OAuth users get new, empty identities.
+- Google, Apple and X are separate identities with separate keys.
+
+Why use it: onboarding without a browser extension or nsec paste, drop-in NIP-07 (code written for Alby or nos2x works unchanged), extension and bunker users in the same button, the key out of reach of your page's JS and XSS, and no backend to run. The [README](https://github.com/saintego/nostr-shard-signer#readme) compares it with other approaches and has a FAQ.
+
 ## Types
 
 The package types `NostrBridge` and exports its interfaces (`NostrBridgeConfig`, `NostrBridgeAuthState`, `NostrSignedEvent`, …). It leaves `window.nostr` alone so it coexists with other NIP-07 typings. If nothing else in your project declares `window.nostr`, add at the top of a file:
@@ -57,7 +67,7 @@ The package types `NostrBridge` and exports its interfaces (`NostrBridgeConfig`,
 
 ### Nostr-only sign-in: nothing to set up
 
-Call `loadNostrBridge()` without a `clientId`. Users sign in with a NIP-07 browser extension (Alby, nos2x…) or a NIP-46 bunker (nsec.app, Amber…). The console warns that Google/Apple/X sign-in is off; that's expected.
+Call `loadNostrBridge()` without a `clientId`. Users sign in with a NIP-07 browser extension (Alby, nos2x…) or a NIP-46 bunker (Amber, nsecBunker…). The console warns that Google/Apple/X sign-in is off; that's expected.
 
 ### Google/Apple/X sign-in: a Web3Auth project (once)
 

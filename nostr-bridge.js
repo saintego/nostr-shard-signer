@@ -1,8 +1,8 @@
 /**
  * nostr-bridge.js
  *
- * Injects window.nostr into any web page — supporting Web3Auth OAuth, NIP-46 bunkers (Alby,
- * Amber, nsec.app), and native extensions. The private key is held only in a sandboxed
+ * Injects window.nostr into any web page — supporting Web3Auth OAuth, NIP-46 bunkers (Amber,
+ * nsecBunker…), and native extensions (Alby, nos2x…). The private key is held only in a sandboxed
  * cross-origin iframe and never accessible to parent page JS.
  *
  * PUBLIC API — Use standard NIP-07 calls:
