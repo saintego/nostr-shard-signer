@@ -2,7 +2,7 @@
 
 > Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr` (getPublicKey, signEvent, nip04, nip44). Users sign in with their own NIP-07 extension or NIP-46 bunker, and, when a Web3Auth `clientId` is given, with Google/Apple/X (the key is held only in a cross-origin iframe). Alpha software with no security audit; not for high-value keys.
 
-Use it when a Nostr web app should work for users who have no browser extension. App code only uses the standard NIP-07 API, so code written for Alby or nos2x works unchanged.
+Use it when a Nostr web app should be easy to log in to for people with no Nostr experience (no browser extension, no key): they sign in with Google, Apple or X and get a Nostr account. App code only uses the standard NIP-07 API, so code written for Alby or nos2x works unchanged.
 
 ## Canonical integration
 
@@ -32,6 +32,7 @@ Use it when a Nostr web app should work for users who have no browser extension.
 - The bridge signs and encrypts only. Publishing to relays is the app's job (e.g. nostr-tools `SimplePool`).
 - Pubkeys are hex, not npub. Convert with nostr-tools `nip19` if needed.
 - Never ask for or handle the user's nsec.
+- Google/Apple/X keys are scoped to the Web3Auth `clientId`: the same account gets a different npub under another `clientId`, and Google, Apple and X give different keys. Never suggest changing the `clientId` of a live app; OAuth users would get new, empty identities. Users can export their nsec from the widget's profile menu.
 - Setup problems appear as `SIGNER_ERROR` events and as console errors with a fix hint; non-fatal ones as console warnings.
 
 ## Docs

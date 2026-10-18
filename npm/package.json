@@ -28,10 +28,17 @@
   },
   "keywords": [
     "nostr",
+    "nostr-auth",
+    "nostr-oauth",
     "nip-07",
     "nip-46",
+    "window.nostr",
     "signer",
-    "web3auth"
+    "oauth",
+    "social-login",
+    "google-login",
+    "web3auth",
+    "mpc"
   ],
   "homepage": "https://saintego.github.io/nostr-shard-signer/",
   "repository": {

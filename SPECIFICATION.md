@@ -7,7 +7,7 @@ Your Nostr private key (nsec) is held exclusively inside a sandboxed cross-origi
 - **Not logged in:** Key material is fully disassembled by Web3Auth's MPC infrastructure and distributed across threshold key shares — no complete key exists anywhere until you authenticate again.
 - **Logged in:** The reconstructed key lives only in the iframe's isolated JavaScript context. The browser's Same-Origin Policy makes this context physically unreachable from the parent page's code, regardless of what scripts the parent page runs.
 
-> For users who require zero client-side key reconstruction, use [nsec.app](https://nsec.app) or a self-hosted NIP-46 bunker.
+> For users who require zero client-side key reconstruction, use a NIP-46 bunker they control, such as Amber or a self-hosted nsecBunker.
 
 ---
 
@@ -19,7 +19,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **The Sandbox**  | The private key is extracted and held only inside a secure universal iframe hosted on GitHub Pages (`<user>.github.io/nostr-shard-signer/signer.html`).                                                                                                                                                                                                                                         |
 | **The Registry** | The iframe prevents domain-spoofing by querying a hardcoded Root Pubkey's NIP-33 events to verify if the parent's domain is authorized to use the provided Web3Auth `clientId`.                                                                                                                                                                                                                 |
-| **The Bridge**   | The parent app uses a comprehensive JS bundle that natively integrates [`window.nostr.js`](https://github.com/fiatjaf/window.nostr.js/) or `nostr-login`. Standard extensions (Alby), mobile signers (Amber), and remote bunkers (NIP-46) are all supported alongside the hidden iframe bunker. The bundle acts as a traffic router, forwarding signature requests to whichever signer is active. |
+| **The Bridge**   | The parent app uses a comprehensive JS bundle that natively integrates [`window.nostr.js`](https://github.com/fiatjaf/window.nostr.js/). Standard extensions (Alby), mobile signers (Amber), and remote bunkers (NIP-46) are all supported alongside the hidden iframe bunker. The bundle acts as a traffic router, forwarding signature requests to whichever signer is active. |
 | **The UI**       | The iframe manages its own visual state, communicating with the parent script to resize its container based on user interaction.                                                                                                                                                                                                                                                                |
 
 ---
@@ -43,7 +43,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
    });
    ```
 
-2. By default, checks if `window.nostr` exists. If yes, delegates to `nostr-login` or the native extension.
+2. By default, checks if `window.nostr` exists. If yes, delegates to the native extension.
    - Implements a **fallback timeout** (e.g. 5 seconds) — if the local extension is locked/unresponsive, the proxy falls back to injecting the iframe bunker or rejects with a clear error.
    - If `forceIframe: true`, skips the extension check entirely.
 

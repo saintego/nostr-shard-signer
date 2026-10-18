@@ -93,7 +93,7 @@ export function NostrSignerCard({ kind, poweredBy, onClick, onHeight }: Props) {
                 <p className="nostr-signer-caption">
                     {kind === 'extension'
                         ? 'Your own key via Alby, nos2x or another NIP-07 extension'
-                        : 'Your own key via Amber, nsec.app, nsecBunker or any NIP-46 bunker'}
+                        : 'Your own key via Amber, nsecBunker or any NIP-46 bunker'}
                 </p>
             </>}
             {poweredBy && (
