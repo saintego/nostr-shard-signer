@@ -228,6 +228,7 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 ## 7. Security model (short)
 
 - With Web3Auth login, the private key is reconstructed only inside the cross-origin signer iframe. Parent-page JS, including XSS, cannot read it.
+- The owner of the Web3Auth project (`clientId`) can obtain users' keys: they control which sites may use the project, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. Users trust the app owner with the identity they create in that app. Don't describe OAuth login as "the app owner can never get the key".
 - Each (clientId, origin) pair must be in the NIP-33 registry on Nostr relays or in the clientId's Web3Auth allowlist (which only the project owner can edit) before Web3Auth sign-in works on a page. The registrar only registers origins that are in that allowlist.
 - The signer is loaded from a CDN, so a compromise of the signer host could expose keys. Alpha, unaudited: not for high-value keys.
 
