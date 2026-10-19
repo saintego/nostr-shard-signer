@@ -159,6 +159,10 @@ export function KeyExportView({ nsecStr, npubStr, onEncrypt, onBackedUp, onBack 
             <div className="export-warning">
                 ⚠️&ensp;Your secret key grants <strong>full control</strong> of your Nostr identity.
                 Never share it with anyone. Store it somewhere safe.
+                <br />
+                A backup doesn't take the key away from this app: <strong>whoever runs it can still obtain
+                it</strong>, and Nostr keys can't be changed. For an identity nobody else can obtain, create
+                a new key in a signer of your own.
             </div>
 
             <div className="key-section">
@@ -201,12 +205,6 @@ export function KeyExportView({ nsecStr, npubStr, onEncrypt, onBackedUp, onBack 
                     )}
                 </div>
             </div>
-
-            <p className="settings-hint">
-                A backup doesn't remove access through this app: whoever runs it can still obtain this key,
-                and Nostr keys can't be changed. For an identity nobody else can obtain, create a new key
-                in a signer of your own.
-            </p>
         </div>
     );
 }

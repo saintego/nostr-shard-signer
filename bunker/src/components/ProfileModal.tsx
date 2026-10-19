@@ -245,6 +245,10 @@ export function ProfileModal({
                     {/* ── Keys tab ── */}
                     {activeTab === 'keys' && (
                         <div className="tab-content">
+                            <div className="export-warning">
+                                ⚠️&ensp;Your secret key grants <strong>full control</strong> of your Nostr identity.
+                                Copying it doesn't take it away from this app: whoever runs it can still obtain it.
+                            </div>
                             <div className="key-section">
                                 <label>Public key (npub)</label>
                                 <div className="key-row">
