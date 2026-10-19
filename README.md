@@ -46,6 +46,7 @@ The next time the user signs in with the same account, they get the same key bac
 What users get:
 
 - A standard Nostr identity. Their npub works across Nostr; profiles, follows and notes made in your app show up in every other client.
+- A backup prompt. After a few posts, the widget asks them to back up their key: a password-encrypted backup (NIP-49 `ncryptsec`) to copy or download, or the plain nsec. A backup made on one site counts on every site.
 - A way out. The widget's profile menu has an **Export key** button that shows their nsec, so they can move it to an extension or bunker and keep using the same identity without your app.
 - A profile from day one. If they have no Nostr profile yet, the widget shows the name and picture from their Google, Apple or X account.
 

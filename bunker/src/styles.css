@@ -82,6 +82,17 @@ body {
   outline: none;
 }
 #view-avatar:focus-visible { box-shadow: 0 0 0 2px #7c3aed; border-radius: 50%; }
+#view-avatar { position: relative; }
+.avatar-dot {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid #fff;
+}
 #avatar-img {
   width: 48px;
   height: 48px;
@@ -293,6 +304,33 @@ body {
 
 /* ── Key Export view ── */
 #view-export { gap: 14px; }
+.backup-intro { font-size: 13px; color: #374151; line-height: 1.5; width: 100%; }
+.key-section input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+}
+.key-section input[type="password"]:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px #ede9fe; }
+.backup-error { font-size: 12px; color: #dc2626; }
+.backup-banner {
+  width: 100%;
+  padding: 10px 12px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #92400e;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.backup-banner-actions { display: flex; gap: 8px; }
+.backup-banner-actions .action-btn { flex: 1; }
 .export-warning {
   width: 100%;
   padding: 10px 12px;

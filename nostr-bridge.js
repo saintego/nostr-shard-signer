@@ -330,9 +330,10 @@
     // allow-same-origin: required so event.origin is not "null" inside the iframe.
     // allow-popups-to-escape-sandbox: required for Web3Auth's OAuth popup flow.
     // This means popups opened by the iframe inherit the iframe's origin context.
+    // allow-downloads: the key backup file (Back up your key).
     iframeEl.setAttribute(
       "sandbox",
-      "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms",
+      "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-downloads",
     );
     iframeEl.setAttribute("allow", "clipboard-write");
     iframeEl.setAttribute("referrerpolicy", "origin");
