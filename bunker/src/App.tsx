@@ -10,6 +10,8 @@ import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { requiresConfirmation, processRpc, DEFAULT_AUTO_APPROVE_KINDS } from './lib/crypto';
+import { countSignedEvent, shouldAskForBackup, snoozeBackupPrompt, encryptKeyBackup, recordBackup, syncBackupMarker } from './lib/backup';
+import type { BackupMethod } from './lib/backup';
 import { npubEncode } from 'nostr-tools/nip19';
 
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -78,6 +80,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         } catch (_) { return new Set(DEFAULT_AUTO_APPROVE_KINDS); }
     });
 
+    // OAuth users who haven't backed up their key yet are asked to (#37).
+    const [backupAsk, setBackupAsk] = useState(false);
+
     // ── Pending signing confirmation ──────────────────────────────────────────
     const [pendingConf, setPendingConf] = useState<PendingConfirmation | null>(null);
     // ── WNJ profile mode: set when bridge sends WNJ_SESSION ───────────────────────
@@ -139,6 +144,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         privateKeyRef.current = km.privateKeyBytes;
         setKeyInfo({ publicKeyHex: km.publicKeyHex, nsecStr: km.nsecStr, npubStr: km.npubStr });
         postToParent({ type: 'AUTH_SUCCESS', pubkey: km.publicKeyHex });
+        setBackupAsk(shouldAskForBackup(km.publicKeyHex));
+        // A backup made on another site or device counts here too.
+        syncBackupMarker(km.privateKeyBytes, km.publicKeyHex, publishRelays)
+            .then(found => { if (found) setBackupAsk(false); });
 
         const profile = await fetchProfile(km.publicKeyHex, publishRelays);
         // Prefer Nostr kind-0 fields; fall back to the OAuth profile (e.g. Google name/avatar).
@@ -149,6 +158,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
         setView('avatar');
     }, [postToParent, publishRelays]);  // use publishRelays, not registryRelays
+
+    const noteSignedEvent = (pubkeyHex: string) => {
+        countSignedEvent(pubkeyHex);
+        setBackupAsk(shouldAskForBackup(pubkeyHex));
+    };
 
     // ── postMessage handler (use ref to always capture fresh state) ───────────
     const handleMessageRef = useRef<(event: MessageEvent) => void>(() => { });
@@ -196,6 +210,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
             if (event.data.type === 'WNJ_DISCONNECT') {
                 setWnjPubkey(null);
+                setBackupAsk(false);
                 setKeyInfo(null);
                 setUserProfile({});
                 setView('login');
@@ -222,6 +237,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 try {
                     const result = await processRpc(method, params, pk, ki.publicKeyHex);
                     postToParent({ id, result, error: null });
+                    if (method === 'sign_event') noteSignedEvent(ki.publicKeyHex);
                 } catch (e) {
                     postToParent({ id, result: null, error: (e as Error).message });
                 }
@@ -243,6 +259,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 });
                 const rpcResult = await processRpc(method, params, pk, ki.publicKeyHex);
                 postToParent({ id, result: rpcResult, error: null });
+                if (method === 'sign_event') noteSignedEvent(ki.publicKeyHex);
             } catch (e) {
                 postToParent({ id, result: null, error: (e as Error).message });
             }
@@ -629,6 +646,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         privateKeyRef.current?.fill(0);
         privateKeyRef.current = null;
         setKeyInfo(null);
+        setBackupAsk(false);
         setUserProfile({});
         setView('login');
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
@@ -651,6 +669,24 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setAutoApproveKinds(kinds);
         localStorage.setItem('nostr_signer_auto_kinds', JSON.stringify([...kinds]));
     }, []);
+
+    const handleEncryptBackup = useCallback((password: string) => {
+        const pk = privateKeyRef.current;
+        if (!pk) throw new Error('Not authenticated');
+        return encryptKeyBackup(pk, password);
+    }, []);
+
+    const handleBackedUp = useCallback((method: BackupMethod) => {
+        const pk = privateKeyRef.current;
+        if (!pk || !keyInfo) return;
+        setBackupAsk(false);
+        recordBackup(pk, keyInfo.publicKeyHex, method, publishRelays);
+    }, [keyInfo, publishRelays]);
+
+    const handleBackupLater = useCallback(() => {
+        if (keyInfo) snoozeBackupPrompt(keyInfo.publicKeyHex);
+        setBackupAsk(false);
+    }, [keyInfo]);
 
     // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -695,6 +731,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             <KeyExportView
                 nsecStr={keyInfo.nsecStr}
                 npubStr={keyInfo.npubStr}
+                onEncrypt={handleEncryptBackup}
+                onBackedUp={handleBackedUp}
                 onBack={() => setView('profile')}
             />
         );
@@ -708,6 +746,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 publishRelays={publishRelays}
                 autoApproveKinds={autoApproveKinds}
                 isWnjMode={!!wnjPubkey}
+                backupAsk={backupAsk}
+                onBackupLater={handleBackupLater}
                 onSaveProfile={handleSaveProfile}
                 onExportKey={() => setView('export')}
                 onLogout={handleLogout}
@@ -720,5 +760,5 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     // Default: avatar view
     const avatarUrl = userProfile.picture || DEFAULT_AVATAR;
-    return <AvatarView avatarUrl={avatarUrl} onClick={() => setView('profile')} />;
+    return <AvatarView avatarUrl={avatarUrl} attention={backupAsk} onClick={() => setView('profile')} />;
 }

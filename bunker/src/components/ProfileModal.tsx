@@ -9,6 +9,9 @@ interface Props {
     publishRelays: string[];
     autoApproveKinds: Set<number>;
     isWnjMode?: boolean;
+    /** The user hasn't backed up their key yet: show the backup banner. */
+    backupAsk?: boolean;
+    onBackupLater?: () => void;
     onSaveProfile: (profile: UserProfile) => Promise<void>;
     onExportKey: () => void;
     onLogout: () => void;
@@ -30,6 +33,8 @@ export function ProfileModal({
     publishRelays,
     autoApproveKinds,
     isWnjMode = false,
+    backupAsk = false,
+    onBackupLater,
     onSaveProfile,
     onExportKey,
     onLogout,
@@ -111,6 +116,20 @@ export function ProfileModal({
                     ✕
                 </button>
             </div>
+
+            {backupAsk && !isWnjMode && (
+                <div className="backup-banner">
+                    <p>Back up your Nostr key, so you never lose this account.</p>
+                    <div className="backup-banner-actions">
+                        <button className="action-btn btn-primary" onClick={onExportKey}>
+                            Back up now
+                        </button>
+                        <button className="action-btn btn-secondary" onClick={onBackupLater}>
+                            Later
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* ── WNJ profile mode: read-only view, no signing capabilities ── */}
             {isWnjMode ? (

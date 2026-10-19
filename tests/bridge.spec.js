@@ -35,6 +35,8 @@ test.describe("with a NIP-07 extension", () => {
     expect(src.searchParams.get("nostrSigner")).toBe("extension");
     expect(src.searchParams.get("parentOrigin")).toBe(APP);
     expect(src.searchParams.get("poweredBy")).toBeNull();
+    // The key backup file is downloaded from inside the iframe.
+    expect(await iframe.getAttribute("sandbox")).toContain("allow-downloads");
 
     // The signer shows the extension user's profile once the bridge sends WNJ_SESSION.
     await expect(page.locator("#nostr-signer-container")).toHaveCSS("width", "48px");
