@@ -53,6 +53,7 @@ Know before you ship:
 
 - **The key belongs to your Web3Auth project.** Web3Auth gives each project (`clientId`) its own keys, so the same Google account gets a different npub in an app with another `clientId`. Never change the `clientId` of a live app: every OAuth user would get a new, empty identity.
 - **Each provider is a separate identity.** Signing in with Apple doesn't give the npub the user got with Google.
+- **The project owner is trusted with users' keys.** Whoever owns the Web3Auth project (`clientId`) decides which sites may use it, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. The signer keeps the key away from your page's *code*, not from the *owner* of the `clientId`. Users trust an app's owner with the identity they create in that app, as with any Web3Auth embedded wallet.
 - Users who already have a Nostr key shouldn't use OAuth. They sign in with their extension or bunker from the same **Sign in** sheet and keep their identity.
 
 ## Why nostr-shard-signer
@@ -60,7 +61,7 @@ Know before you ship:
 - **Onboarding without Nostr knowledge.** New users start with a Google, Apple or X login, not a key-management lesson.
 - **Drop-in NIP-07.** Code written for Alby or nos2x works unchanged; there is no new signing API to learn.
 - **Every user in one button.** OAuth for newcomers, NIP-07 extensions and NIP-46 bunkers for existing users, all behind the same `window.nostr`.
-- **The key stays out of your page.** It lives only in a cross-origin iframe, so your app's code, its dependencies and an XSS bug can't read it.
+- **The key stays out of your page's code.** It lives only in a cross-origin iframe, so your app's code, its dependencies and an XSS bug can't read it. (The owner of the Web3Auth project still can obtain it; see [Security Model](#security-model).)
 - **No backend to run.** Use the hosted signer and registrar; you only need a free Web3Auth `clientId`. Nostr-only sign-in needs nothing at all.
 - **Your quota stays yours.** A domain may only use your `clientId` once it is in your Web3Auth allowlist or registered by you on Nostr.
 - **Sessions survive reloads**, and confirmations for sensitive actions (profile changes, DMs, zaps) are built in.
@@ -76,6 +77,7 @@ Know before you ship:
 | Existing users: extension or bunker         | ✅ same button                 | ✅ (+ read-only)                | ✅ import key               | ✅                    | ✅ import key                   | usually ❌                  | ❌ you build it          | ❌ nsec paste             |
 | Where the key is while in use               | signer iframe, user's browser  | extension, bunker, or the page (local keys) | nsec.app, user's browser | the user's bunker | never whole: shards on operators | the bunker server         | your page                | your page                 |
 | Your page's JS (and XSS) can't read the key | ✅                             | ✅ (❌ with local keys)         | ✅                          | ✅                    | ✅                              | ✅ (the server can)         | ❌                       | ❌                        |
+| The app's owner can't obtain the key        | ❌ with OAuth (✅ extension / bunker) | ✅ (❌ with local keys)   | ✅                          | ✅                    | ✅                              | ✅ (the bunker operator can) | ❌                      | ❌                        |
 | No server ever holds the whole key          | ✅                             | ✅ (depends on the bunker)      | ✅                          | ✅ (depends on the bunker) | ✅                         | ❌                          | ✅                       | ✅                        |
 | Account recovery                            | OAuth login                    | depends on the signer           | password-encrypted backup   | depends on the signer | Google login + operators        | OAuth login                 | OAuth login              | ❌                        |
 | Servers involved                            | hosted signer page + Web3Auth  | none                            | nsec.app                    | none                  | central service + operators     | the bunker server           | Web3Auth                 | none                      |
@@ -83,7 +85,7 @@ Know before you ship:
 
 **What sets nostr-shard-signer apart:** it combines sign-in with Google, Apple or X, a drop-in `window.nostr` that also serves extension and bunker users from the same button, and a key that neither your page nor any server can read. nostr-login, nsec.app and window.nostr.js onboard new users into a Nostr signer instead of an account they already have. An OAuth bunker is simple, but its server holds every user's key. Pomegranate goes further on custody (the key is never whole, signatures are combined from shards), at the cost of a central service and a NIP-46 client in your app.
 
-**The trade-offs:** OAuth users depend on Web3Auth to get their key back, and the key is put together in the browser while they are signed in, so this suits everyday social apps rather than high-value keys. Users can export their nsec at any time to remove that dependency.
+**The trade-offs:** OAuth users depend on Web3Auth to get their key back, the owner of the app's Web3Auth project can obtain their key, and the key is put together in the browser while they are signed in, so this suits everyday social apps rather than high-value keys. Users can export their nsec at any time to remove that dependency.
 
 ## FAQ
 
@@ -91,7 +93,7 @@ Know before you ship:
 Use nostr-shard-signer. Users sign in with the Google, Apple or X button they know, and get a Nostr account, created and kept safe for them, without installing anything or seeing a key. People who already use Nostr sign in with their extension or bunker from the same button.
 
 **Is this a custodial login?**
-No. Neither your app, the hosted signer nor Web3Auth alone holds the user's key. Web3Auth's MPC network splits it into shares, and it is put back together only in the user's browser, inside the signer iframe.
+Not in the usual sense: no server stores the user's key. Web3Auth's MPC network splits it into shares, and it is put back together only in the user's browser, inside the signer iframe. But the owner of the app's Web3Auth project (`clientId`) can obtain it: they decide which sites may use the project, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. Users therefore trust the app's owner with the identity they create in that app. Users who don't want that sign in with their own extension or bunker, or export their key and switch to one.
 
 **Do users get a "real" Nostr account?**
 Yes. It is an ordinary secp256k1 keypair. Their npub, profile, follows and notes work in every Nostr client.
@@ -124,7 +126,7 @@ No. Anything written against `window.nostr` (`getPublicKey`, `signEvent`, `nip04
 The hosted signer and registrar are free to use, and there is no server of your own to run. Google/Apple/X sign-in needs a Web3Auth project; check Web3Auth's pricing for its free-tier limits. You can also self-host everything (see [Deployment](#deployment)).
 
 **Can my page or an XSS bug read the user's key?**
-No. The key only exists in the signer iframe on another origin, which the browser keeps apart from your page. Your page only receives the pubkey and signed events. The risk is in the signer host itself (see the warning at the top).
+No. The key only exists in the signer iframe on another origin, which the browser keeps apart from your page. Your page only receives the pubkey and signed events. The risks are the signer host itself (see the warning at the top) and the owner of the Web3Auth project, who can obtain users' keys (see "Is this a custodial login?").
 
 **Which signing requests need confirmation?**
 With OAuth login, notes (kind 1) and reactions (kind 7) are signed without asking. Other kinds, such as profile updates, DMs and zaps, and every decrypt show a confirmation in the widget. Extensions and bunkers apply their own rules.
@@ -150,6 +152,7 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 | Threat                                  | Mitigation                                                                                                        |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Parent page JS reading your nsec        | Key lives only in a cross-origin iframe; Same-Origin Policy makes it unreachable                                  |
+| Owner of the clientId obtaining users' keys | **Not prevented.** The owner controls the Web3Auth project's allowlist, so they can run Web3Auth on a page of their own and get the key of any user who signs in there (true of every Web3Auth embedded wallet). Users trust the app owner with the identity they create in that app; users who don't sign in with their own extension or bunker |
 | Browser extension / XSS on parent page  | Same isolation — the iframe context is physically separate                                                        |
 | Domain spoofing to steal Web3Auth quota | The page origin must be in the NIP-33 registry on Nostr or in the clientId's Web3Auth allowlist (only its owner can edit it); the registrar only registers allowlisted origins |
 | Rogue iframe injected by attacker       | `event.source === window.parent` check + `_parentOrigin` derived from `document.ancestorOrigins` (not URL params) |
@@ -331,7 +334,7 @@ The iframe resizes its container by sending `{ type: "RESIZE", state: "button" |
 
 Users click the login button inside the iframe, pick a social provider (Google, Apple, X), and Web3Auth derives a Nostr keypair via MPC. The nsec is reconstructed only inside the cross-origin iframe context and is never serialised to `localStorage` or sent over the wire.
 
-Unlike storing an nsec on a server, MPC splits the key into threshold shares distributed across independent nodes — no single party, including Web3Auth itself, ever holds the complete key, so a server breach yields only an unusable fragment.
+Unlike storing an nsec on a server, MPC splits the key into threshold shares distributed across independent nodes — no single party, including Web3Auth itself, ever holds the complete key, so a server breach yields only an unusable fragment. The key is still put back together for whoever runs Web3Auth with the project's `clientId` on an allowlisted page, which the project owner controls (see [Security Model](#security-model)).
 
 This is the recommended mode for apps whose users may not have a Nostr identity yet.
 

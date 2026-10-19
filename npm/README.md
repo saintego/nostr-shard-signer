@@ -52,8 +52,9 @@ With a Web3Auth `clientId`, the **Sign in** sheet offers Google, Apple and X. We
 - The npub is a normal Nostr identity that works in every client. The widget's profile menu has an **Export key** button, so users can take their nsec to an extension or bunker at any time.
 - Keys belong to your Web3Auth project: the same Google account gets a different npub in an app with another `clientId`. **Never change the `clientId` of a live app**, or OAuth users get new, empty identities.
 - Google, Apple and X are separate identities with separate keys.
+- The signer keeps the key away from your page's code, not from the owner of the `clientId`: whoever owns the Web3Auth project decides which sites may use it, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. Users trust an app's owner with the identity they create in that app.
 
-Why use it: onboarding without a browser extension or nsec paste, drop-in NIP-07 (code written for Alby or nos2x works unchanged), extension and bunker users in the same button, the key out of reach of your page's JS and XSS, and no backend to run. The [README](https://github.com/saintego/nostr-shard-signer#readme) compares it with other approaches and has a FAQ.
+Why use it: onboarding without a browser extension or nsec paste, drop-in NIP-07 (code written for Alby or nos2x works unchanged), extension and bunker users in the same button, the key out of reach of your page's code and XSS, and no backend to run. The [README](https://github.com/saintego/nostr-shard-signer#readme) compares it with other approaches and has a FAQ.
 
 ## Types
 

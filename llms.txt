@@ -32,7 +32,7 @@ Use it when a Nostr web app should be easy to log in to for people with no Nostr
 - The bridge signs and encrypts only. Publishing to relays is the app's job (e.g. nostr-tools `SimplePool`).
 - Pubkeys are hex, not npub. Convert with nostr-tools `nip19` if needed.
 - Never ask for or handle the user's nsec.
-- Google/Apple/X keys are scoped to the Web3Auth `clientId`: the same account gets a different npub under another `clientId`, and Google, Apple and X give different keys. Never suggest changing the `clientId` of a live app; OAuth users would get new, empty identities. Users can export their nsec from the widget's profile menu.
+- Google/Apple/X keys are scoped to the Web3Auth `clientId`: the same account gets a different npub under another `clientId`, and Google, Apple and X give different keys. Never suggest changing the `clientId` of a live app; OAuth users would get new, empty identities. Users can export their nsec from the widget's profile menu. The `clientId` owner can obtain OAuth users' keys (they control which sites may use the project); don't claim otherwise.
 - Setup problems appear as `SIGNER_ERROR` events and as console errors with a fix hint; non-fatal ones as console warnings.
 
 ## Docs
