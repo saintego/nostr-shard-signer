@@ -1,21 +1,17 @@
 import type { PendingConfirmation } from '../types';
-
-const CONFIRM_TITLES: Record<string, string> = {
-    nip04_encrypt: 'Allow app to encrypt a direct message?',
-    nip04_decrypt: 'Allow app to decrypt a direct message?',
-    nip44_encrypt: 'Allow app to encrypt a sealed message?',
-    nip44_decrypt: 'Allow app to decrypt a sealed message?',
-    sign_event: 'Approve event signature?',
-};
+import { describeRequest } from '../lib/approval';
 
 interface Props {
     confirmation: PendingConfirmation;
+    /** The host page asking. */
+    origin: string;
     onApprove: () => void;
     onReject: () => void;
 }
 
-export function ConfirmView({ confirmation, onApprove, onReject }: Props) {
-    const { method, params } = confirmation;
+export function ConfirmView({ confirmation, origin, onApprove, onReject }: Props) {
+    const { method, params, waiting = 0 } = confirmation;
+    const { title, summary, warning } = describeRequest(method, params);
 
     let detail: string;
     try {
@@ -28,10 +24,19 @@ export function ConfirmView({ confirmation, onApprove, onReject }: Props) {
         detail = `Method: ${method}`;
     }
 
+    let site = origin;
+    try { site = new URL(origin).host; } catch (_) { }
+
     return (
         <div id="view-confirm" className="view active">
-            <h3>{CONFIRM_TITLES[method] ?? 'Approve request?'}</h3>
-            <pre id="confirm-detail">{detail}</pre>
+            <p className="confirm-site">{site} asks:</p>
+            <h3>{title}</h3>
+            {summary && <p className="confirm-summary">{summary}</p>}
+            {warning && <p className="confirm-warning">⚠️&ensp;{warning}</p>}
+            <details className="confirm-details">
+                <summary>Show details</summary>
+                <pre id="confirm-detail">{detail}</pre>
+            </details>
             <div className="confirm-actions">
                 <button className="action-btn btn-secondary" onClick={onReject}>
                     Reject
@@ -40,6 +45,9 @@ export function ConfirmView({ confirmation, onApprove, onReject }: Props) {
                     Approve
                 </button>
             </div>
+            {waiting > 0 && (
+                <p className="confirm-waiting">{waiting} more {waiting === 1 ? 'request' : 'requests'} waiting</p>
+            )}
         </div>
     );
 }

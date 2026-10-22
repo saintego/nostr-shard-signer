@@ -130,7 +130,7 @@ The hosted signer and registrar are free to use, and there is no server of your 
 No. The key only exists in the signer iframe on another origin, which the browser keeps apart from your page. Your page only receives the pubkey and signed events. The risks are the signer host itself (see the warning at the top) and the owner of the Web3Auth project, who can obtain users' keys (see "Is this a custodial login?").
 
 **Which signing requests need confirmation?**
-With OAuth login, notes (kind 1) and reactions (kind 7) are signed without asking. Other kinds, such as profile updates, DMs and zaps, and every decrypt show a confirmation in the widget. Extensions and bunkers apply their own rules.
+With OAuth login, ordinary public content is signed without asking: notes, reactions, comments, wiki articles, bookmarks, calendar events, app data (kind 30078) and media uploads to nostr.build. Users can turn each of these off per site in Settings. Profile, follow list and relay list changes, deletions, other kinds such as zaps, `nip04.encrypt` and every decrypt show a confirmation in the widget. Extensions and bunkers apply their own rules.
 
 **Does it work with React, Vue, Svelte or Next.js?**
 Yes. Use the [`nostr-shard-signer`](https://www.npmjs.com/package/nostr-shard-signer) npm package's `loadNostrBridge()` client-side, or the script tag in your HTML shell. [`llms-full.txt`](llms-full.txt) has framework notes.
@@ -707,11 +707,16 @@ Supported methods: `get_public_key`, `sign_event`, `nip04_encrypt`, `nip04_decry
 
 ### Auto-approve policy
 
-| Action                                                             | Behaviour          |
-| ------------------------------------------------------------------ | ------------------ |
-| Kind 1 (notes), Kind 7 (reactions)                                 | Auto-approved      |
-| Kind 0 (profile), Kind 9734 (zaps), Kind 4/44 (DMs), unknown kinds | Confirmation modal |
-| Any decrypt operation                                              | Confirmation modal |
+Approval settings are stored per host site. Confirmations are queued and shown one at a time.
+
+| Action                                                                                                   | Behaviour                                 |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Kinds 1, 7, 1111, 30818, 10003, 30003, 31922, 31923, 30078                                               | Auto-approved by default (user can untick) |
+| Kind 27235 (NIP-98) for `https://nostr.build` and its subdomains                                         | Auto-approved by default (user can untick) |
+| Kinds 6, 42                                                                                              | Confirmation modal (user can tick)        |
+| Kind 0 (profile), 3 (follows), 10002 (relays), 5 (deletion), 27235 for other hosts                       | Always a confirmation modal               |
+| Other kinds (zaps, DMs, unknown kinds), `nip04_encrypt`, any decrypt                                     | Confirmation modal                        |
+| `get_public_key`, `nip44_encrypt`                                                                        | No confirmation                           |
 
 ---
 

@@ -610,6 +610,16 @@
       return;
     }
 
+    // The signer queued a request for the user's confirmation: stop its timeout,
+    // since reading the prompt can take longer than RPC_TIMEOUT_MS. The request
+    // then waits for Approve or Reject (logout rejects it). Uses requestId, not
+    // id, so bridges that predate this message ignore it.
+    if (data.type === "CONFIRM_PENDING") {
+      const pending = pendingRequests[data.requestId];
+      if (pending) clearTimeout(pending.timer);
+      return;
+    }
+
     // ── NIP-46 RPC responses ─────────────────────────────────────────────────
     if (data.id !== undefined) {
       const pending = pendingRequests[data.id];
@@ -668,7 +678,7 @@
         reject(
           new Error(
             "nostr-bridge: RPC timeout for '" + method + "' after " +
-              RPC_TIMEOUT_MS / 1000 + "s (the user may not have answered the signer's confirmation prompt)",
+              RPC_TIMEOUT_MS / 1000 + "s without an answer from the signer",
           ),
         );
       }, RPC_TIMEOUT_MS);

@@ -61,10 +61,12 @@ declare global {
     /** Returns the user's public key as 64-char lowercase hex (not npub). */
     getPublicKey(): Promise<string>;
     /**
-     * Signs an event. With Web3Auth login, kinds 1 and 7 are auto-approved by
-     * default and other kinds show a confirmation prompt inside the signer
-     * (extensions and bunkers apply their own rules). Rejects after 30 s
-     * without an answer.
+     * Signs an event. With Web3Auth login, ordinary public content (kinds 1, 7,
+     * 1111, 30818, 10003, 30003, 31922, 31923, 30078, and 27235 for nostr.build)
+     * is auto-approved by default and other kinds show a confirmation prompt
+     * inside the signer (extensions and bunkers apply their own rules). Rejects
+     * after 30 s without an answer from the signer; a call waiting on the user's
+     * confirmation waits until they answer.
      */
     signEvent(event: NostrUnsignedEvent): Promise<NostrSignedEvent>;
     /** NIP-04 encryption (legacy DMs). Both methods show a confirmation prompt with Web3Auth login. */

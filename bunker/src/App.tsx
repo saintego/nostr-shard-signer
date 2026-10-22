@@ -9,7 +9,8 @@ import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
-import { requiresConfirmation, processRpc, DEFAULT_AUTO_APPROVE_KINDS } from './lib/crypto';
+import { processRpc } from './lib/crypto';
+import { requiresConfirmation, loadAutoApproveKinds, saveAutoApproveKinds } from './lib/approval';
 import { countSignedEvent, shouldAskForBackup, snoozeBackupPrompt, encryptKeyBackup, recordBackup, syncBackupMarker } from './lib/backup';
 import type { BackupMethod } from './lib/backup';
 import { npubEncode } from 'nostr-tools/nip19';
@@ -32,6 +33,9 @@ const ERROR_CARD_HEIGHT = 260;
 // PROTOCOL_VERSION there). Keep old versions here while hosted bridges that
 // send them may still be cached or pinned.
 const SUPPORTED_PROTOCOLS = [1];
+// Confirmations waiting for the user beyond this many are refused, so a buggy
+// or hostile page can't bury the user in prompts.
+const MAX_QUEUED_CONFIRMATIONS = 20;
 
 interface AppProps {
     parentOrigin: string;
@@ -73,24 +77,22 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             return s ? (JSON.parse(s) as string[]) : DEFAULT_PUBLISH_RELAYS;
         } catch (_) { return DEFAULT_PUBLISH_RELAYS; }
     });
-    const [autoApproveKinds, setAutoApproveKinds] = useState<Set<number>>(() => {
-        try {
-            const s = localStorage.getItem('nostr_signer_auto_kinds');
-            return s ? new Set(JSON.parse(s) as number[]) : new Set(DEFAULT_AUTO_APPROVE_KINDS);
-        } catch (_) { return new Set(DEFAULT_AUTO_APPROVE_KINDS); }
-    });
+    // Per host site: the user may trust one site more than another.
+    const [autoApproveKinds, setAutoApproveKinds] = useState<Set<number>>(() => loadAutoApproveKinds(parentOrigin));
 
     // OAuth users who haven't backed up their key yet are asked to (#37).
     const [backupAsk, setBackupAsk] = useState(false);
 
-    // ── Pending signing confirmation ──────────────────────────────────────────
+    // ── Pending signing confirmations ─────────────────────────────────────────
+    // Requests that need the user's OK wait in a queue and are shown one at a
+    // time; the head of the queue is the one on screen.
     const [pendingConf, setPendingConf] = useState<PendingConfirmation | null>(null);
+    const confQueueRef = useRef<(PendingConfirmation & {
+        resolve: () => void;
+        reject: (e: Error) => void;
+    })[]>([]);
     // ── WNJ profile mode: set when bridge sends WNJ_SESSION ───────────────────────
     const [wnjPubkey, setWnjPubkey] = useState<string | null>(null);
-    const confCallbackRef = useRef<{
-        resolve: (result: string) => void;
-        reject: (e: Error) => void;
-    } | null>(null);
 
     // ── Registry config (resolved from registrar) ─────────────────────────────
     const [registryRelays, setRegistryRelays] = useState<string[]>(DEFAULT_REGISTRY_RELAYS);
@@ -159,6 +161,24 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setView('avatar');
     }, [postToParent, publishRelays]);  // use publishRelays, not registryRelays
 
+    const showNextConfirmation = useCallback(() => {
+        const queue = confQueueRef.current;
+        if (queue.length === 0) {
+            setPendingConf(null);
+            setView(v => (v === 'confirm' ? 'avatar' : v));
+            return;
+        }
+        setPendingConf({ method: queue[0].method, params: queue[0].params, waiting: queue.length - 1 });
+        setView('confirm');
+    }, []);
+
+    // The session ended: answer every waiting request instead of leaving it hanging.
+    const rejectAllConfirmations = useCallback((reason: string) => {
+        const queue = confQueueRef.current.splice(0);
+        for (const item of queue) item.reject(new Error(reason));
+        setPendingConf(null);
+    }, []);
+
     const noteSignedEvent = (pubkeyHex: string) => {
         countSignedEvent(pubkeyHex);
         setBackupAsk(shouldAskForBackup(pubkeyHex));
@@ -209,6 +229,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             }
 
             if (event.data.type === 'WNJ_DISCONNECT') {
+                rejectAllConfirmations('Logged out');
                 setWnjPubkey(null);
                 setBackupAsk(false);
                 setKeyInfo(null);
@@ -244,18 +265,20 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            if (confCallbackRef.current) {
-                postToParent({ id, result: null, error: 'Another confirmation is already pending' });
+            if (confQueueRef.current.length >= MAX_QUEUED_CONFIRMATIONS) {
+                postToParent({ id, result: null, error: 'Too many confirmations are waiting for the user' });
                 return;
             }
 
-            // present confirmation dialog and wait for user action;
-            // always reply to the parent — even if the user rejects
+            // Queue the confirmation and wait for the user's answer; always reply
+            // to the parent, even if the user rejects. The bridge stops its RPC
+            // timeout on CONFIRM_PENDING: the user may take a while to decide.
+            postToParent({ type: 'CONFIRM_PENDING', requestId: id });
             try {
-                await new Promise<string>((resolve, reject) => {
-                    confCallbackRef.current = { resolve, reject };
-                    setPendingConf({ method, params });
-                    setView('confirm');
+                await new Promise<void>((resolve, reject) => {
+                    confQueueRef.current.push({ method, params, resolve, reject });
+                    if (confQueueRef.current.length === 1) showNextConfirmation();
+                    else setPendingConf(p => (p ? { ...p, waiting: confQueueRef.current.length - 1 } : p));
                 });
                 const rpcResult = await processRpc(method, params, pk, ki.publicKeyHex);
                 postToParent({ id, result: rpcResult, error: null });
@@ -265,7 +288,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays, view]);
+    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays, view, showNextConfirmation, rejectAllConfirmations]);
 
     useEffect(() => {
         const listener = (event: MessageEvent) => handleMessageRef.current(event);
@@ -613,20 +636,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     }, [postToParent]);
 
     const handleApprove = useCallback(() => {
-        const cb = confCallbackRef.current;
-        confCallbackRef.current = null;
-        setPendingConf(null);
-        setView('avatar');
-        cb?.resolve('approved');
-    }, []);
+        confQueueRef.current.shift()?.resolve();
+        showNextConfirmation();
+    }, [showNextConfirmation]);
 
     const handleReject = useCallback(() => {
-        const cb = confCallbackRef.current;
-        confCallbackRef.current = null;
-        setPendingConf(null);
-        setView('avatar');
-        cb?.reject(new Error('User rejected'));
-    }, []);
+        confQueueRef.current.shift()?.reject(new Error('User rejected'));
+        showNextConfirmation();
+    }, [showNextConfirmation]);
 
     const handleSaveProfile = useCallback(async (profile: UserProfile) => {
         const pk = privateKeyRef.current;
@@ -641,6 +658,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             postToParent({ type: 'WNJ_LOGOUT' });
             return;
         }
+        rejectAllConfirmations('Logged out');
         try { await web3authRef.current?.logout(); } catch (_) { }
         // Zero the key material before dropping the reference
         privateKeyRef.current?.fill(0);
@@ -650,7 +668,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setUserProfile({});
         setView('login');
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
-    }, [postToParent, wnjPubkey]);
+    }, [postToParent, wnjPubkey, rejectAllConfirmations]);
 
     bridgeActionsRef.current = { connect: handleConnect, logout: handleLogout };
 
@@ -667,8 +685,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     const handleAutoApproveChange = useCallback((kinds: Set<number>) => {
         setAutoApproveKinds(kinds);
-        localStorage.setItem('nostr_signer_auto_kinds', JSON.stringify([...kinds]));
-    }, []);
+        saveAutoApproveKinds(parentOrigin, kinds);
+    }, [parentOrigin]);
 
     const handleEncryptBackup = useCallback((password: string) => {
         const pk = privateKeyRef.current;
@@ -720,6 +738,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         return (
             <ConfirmView
                 confirmation={pendingConf}
+                origin={parentOrigin}
                 onApprove={handleApprove}
                 onReject={handleReject}
             />
@@ -745,6 +764,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 profile={userProfile}
                 publishRelays={publishRelays}
                 autoApproveKinds={autoApproveKinds}
+                origin={parentOrigin}
                 isWnjMode={!!wnjPubkey}
                 backupAsk={backupAsk}
                 onBackupLater={handleBackupLater}

@@ -177,8 +177,9 @@ Session cached in localStorage from a previous visit. Works before `init()`, e.g
 Behaviour:
 - Calls made while the signer is still loading are queued. After that, calls made while logged out reject with "nostr-bridge: user is not logged in…".
 - Don't rely on `window.nostr` calls to open a login prompt. The user signs in through the widget, or your button calling `NostrBridge.login()`.
-- With Web3Auth login, kinds 1 (note) and 7 (reaction) are signed without asking. Other kinds, `nip04.encrypt` and both decrypts show a confirmation in the widget. Extensions and bunkers apply their own rules.
-- With Web3Auth login, calls reject after 30 s without an answer from the signer, e.g. an unanswered confirmation.
+- With Web3Auth login, ordinary public content is signed without asking by default: kinds 1, 7, 1111, 30818 (wiki), 10003/30003 (bookmarks), 31922/31923 (calendar), 30078 (app data), and 27235 (NIP-98) for nostr.build uploads. Users can turn these off per site. Kinds 0, 3, 10002 and 5, other kinds, `nip04.encrypt` and both decrypts show a confirmation in the widget. Extensions and bunkers apply their own rules.
+- Confirmations are queued, so parallel `signEvent` calls are fine; the user answers them one at a time. Still, sign the steps of one action in sequence if their order matters.
+- With Web3Auth login, calls reject after 30 s without an answer from the signer. A call waiting on a confirmation has no timeout: it settles when the user approves or rejects, or logs out.
 
 ## 4. Events
 
@@ -213,7 +214,8 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 | "nostr-bridge: no clientId…" (warning) | `init()` without `clientId` | Expected for Nostr-only sign-in; pass a `clientId` to add Google/Apple/X |
 | "nostr-bridge: bunkerOrigin must be an absolute URL…" | Bad `bunkerOrigin` | Omit it, or pass a full https URL |
 | "nostr-bridge: user is not logged in…" | Call made before sign-in | Wait for `onAuthChange` with `loggedIn: true`, or call `NostrBridge.login()` from a button |
-| "nostr-bridge: RPC timeout…" | No answer within 30 s | The user ignored the confirmation; retry |
+| "nostr-bridge: RPC timeout…" | No answer from the signer within 30 s | The signer iframe is stuck or was removed; reload |
+| "User rejected" | The user clicked Reject on the confirmation | Don't retry automatically |
 | "nostr-bridge: already initialized …" (warning) | `init()` called again with a different clientId | The first config stays in effect; reload the page to switch |
 
 ## 6. Don'ts
