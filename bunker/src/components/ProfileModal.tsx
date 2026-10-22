@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { UserProfile, KeyInfo } from '../types';
+import { KIND_GROUPS } from '../lib/approval';
 
 type TabId = 'profile' | 'keys' | 'settings';
 
@@ -8,6 +9,8 @@ interface Props {
     profile: UserProfile;
     publishRelays: string[];
     autoApproveKinds: Set<number>;
+    /** The host page; auto-approve settings apply to it only. */
+    origin: string;
     isWnjMode?: boolean;
     /** The user hasn't backed up their key yet: show the backup banner. */
     backupAsk?: boolean;
@@ -20,18 +23,12 @@ interface Props {
     onClose: () => void;
 }
 
-const ALL_KNOWN_KINDS: { kind: number; label: string }[] = [
-    { kind: 1, label: 'Short notes (kind 1)' },
-    { kind: 6, label: 'Reposts (kind 6)' },
-    { kind: 7, label: 'Reactions (kind 7)' },
-    { kind: 42, label: 'Channel messages (kind 42)' },
-];
-
 export function ProfileModal({
     keyInfo,
     profile,
     publishRelays,
     autoApproveKinds,
+    origin,
     isWnjMode = false,
     backupAsk = false,
     onBackupLater,
@@ -91,11 +88,14 @@ export function ProfileModal({
     // --- Settings tab state ---
     const [relayInput, setRelayInput] = useState('');
 
-    const toggleKind = (kind: number) => {
+    const toggleKinds = (kinds: number[], on: boolean) => {
         const next = new Set(autoApproveKinds);
-        next.has(kind) ? next.delete(kind) : next.add(kind);
+        for (const k of kinds) on ? next.add(k) : next.delete(k);
         onAutoApproveChange(next);
     };
+
+    let site = origin;
+    try { site = new URL(origin).host; } catch (_) { }
 
     const addRelay = () => {
         const url = relayInput.trim();
@@ -300,16 +300,19 @@ export function ProfileModal({
                     {activeTab === 'settings' && (
                         <div className="tab-content">
                             <section className="settings-section">
-                                <h4>Auto-approve event kinds</h4>
+                                <h4>Approve without asking</h4>
                                 <p className="settings-hint">
-                                    Events of these kinds will be signed without a confirmation prompt.
+                                    {site} can sign these as you without a confirmation prompt.
+                                    Uncheck any you want to approve one by one. Profile, follow
+                                    and relay list changes, deletions and reading private
+                                    messages always ask.
                                 </p>
-                                {ALL_KNOWN_KINDS.map(({ kind, label }) => (
-                                    <label key={kind} className="checkbox-row">
+                                {KIND_GROUPS.map(({ kinds, label }) => (
+                                    <label key={kinds.join()} className="checkbox-row">
                                         <input
                                             type="checkbox"
-                                            checked={autoApproveKinds.has(kind)}
-                                            onChange={() => toggleKind(kind)}
+                                            checked={kinds.every(k => autoApproveKinds.has(k))}
+                                            onChange={e => toggleKinds(kinds, e.target.checked)}
                                         />
                                         {label}
                                     </label>

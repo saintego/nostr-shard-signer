@@ -1,27 +1,6 @@
 import { finalizeEvent, nip04, nip44 } from "nostr-tools";
 import { bytesToHex } from "./hex";
 
-export const DEFAULT_AUTO_APPROVE_KINDS = [1, 7];
-
-export function requiresConfirmation(
-  method: string,
-  params: string[],
-  autoApproveKinds: Set<number>,
-): boolean {
-  if (method === "nip04_decrypt" || method === "nip44_decrypt") return true;
-  if (method === "nip04_encrypt") return true; // DM encryption needs explicit consent
-  if (method === "nip44_encrypt") return false; // plaintext already known to parent
-  if (method === "sign_event") {
-    try {
-      const evt = JSON.parse(params[0]) as { kind: number };
-      return !autoApproveKinds.has(evt.kind);
-    } catch (_) {
-      return true;
-    }
-  }
-  return true; // unknown method — always prompt
-}
-
 export async function processRpc(
   method: string,
   params: string[],

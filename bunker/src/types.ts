@@ -14,6 +14,8 @@ export interface KeyInfo {
 export interface PendingConfirmation {
   method: string;
   params: string[];
+  /** How many more confirmations wait behind this one. */
+  waiting?: number;
 }
 
 export type ViewName =

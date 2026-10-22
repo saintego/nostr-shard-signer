@@ -113,16 +113,18 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 
 5. **Auto-Approve Policy:**
 
-   | Action                                | Behaviour        |
-   | ------------------------------------- | ---------------- |
-   | Kind 1 (notes), Kind 7 (reactions)    | ✅ Auto-approved |
-   | Kind 0 (profile update)               | ⚠️ Prompt user   |
-   | Kind 4 / Kind 44 (DMs)                | ⚠️ Prompt user   |
-   | Kind 9734 (Zaps)                      | ⚠️ Prompt user   |
-   | Unknown custom kinds                  | ⚠️ Prompt user   |
-   | Any `nip04_decrypt` / `nip44_decrypt` | ⚠️ Prompt user   |
+   Stored per host site; the user can untick any auto-approved group in Settings.
 
-   For prompt-required actions: trigger `RESIZE → "modal"`, show confirmation UI ("Allow app to read direct messages?", "Approve Zap?", etc.), and only process and return if the user clicks **Approve**.
+   | Action                                                                          | Behaviour                    |
+   | ------------------------------------------------------------------------------- | ---------------------------- |
+   | Kinds 1, 7, 1111, 30818, 10003, 30003, 31922, 31923, 30078                      | ✅ Auto-approved by default  |
+   | Kind 27235 (NIP-98) with a `u` tag on `https://nostr.build` or a subdomain      | ✅ Auto-approved by default  |
+   | Kinds 6, 42                                                                     | ⚠️ Prompt user (can opt in)  |
+   | Kind 0 (profile), 3 (follows), 10002 (relays), 5 (deletion), other 27235        | ⚠️ Always prompt user        |
+   | Kind 4 / Kind 44 (DMs), Kind 9734 (Zaps), unknown custom kinds, `nip04_encrypt` | ⚠️ Prompt user               |
+   | Any `nip04_decrypt` / `nip44_decrypt`                                           | ⚠️ Prompt user               |
+
+   For prompt-required actions: post `{ type: "CONFIRM_PENDING", requestId }` to the parent (the bridge then stops that request's RPC timeout), queue the request, and show queued requests one at a time: trigger `RESIZE → "modal"`, show a plain-language description ("Replace your relay list?", "Publish a wiki article?", etc.) with the raw event behind "Show details", and only process and return if the user clicks **Approve**. Logout rejects every queued request.
 
 6. **Profile Modal UI** (shown when user clicks their avatar):
    - View and copy `npub` and `nsec` (Export Secret Key).
