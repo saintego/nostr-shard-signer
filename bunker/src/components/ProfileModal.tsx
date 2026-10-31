@@ -168,6 +168,11 @@ export function ProfileModal({
                     <p className="settings-hint">
                         Signing is handled by your connected extension or bunker.
                     </p>
+                    <div className="modal-actions">
+                        <button className="action-btn btn-danger" onClick={onLogout}>
+                            Log out
+                        </button>
+                    </div>
                 </div>
             ) : (
                 <>
