@@ -348,7 +348,7 @@ For users who already control their Nostr key, the bridge optionally loads [`win
 1. `NostrBridge.init()` loads the WNJ CDN bundle (if `forceIframe: false`).
 2. Clicking **Sign in** opens the Web3Auth login with a *Nostr signer or bunker* option right above it. Picking that opens WNJ's connect UI (bunker URL entry or QR scan for Amber).
 3. Once the user connects, WNJ stores the bunker session in `localStorage` and exposes `window.nostr`.
-4. The bridge detects WNJ's session and switches to `MODE_WNJ`: all `window.nostr` calls are routed to WNJ; the Web3Auth iframe is hidden.
+4. The bridge detects WNJ's session and switches to `MODE_WNJ`: all `window.nostr` calls are routed to WNJ. The bridge's widget shows the connected profile; WNJ's own floating pill is hidden so only one widget appears, and **Disconnect** in the profile also forgets the WNJ bunker.
 5. On subsequent page loads the session is restored silently — no UI shown, no modal opened.
 
 **Compatible remote signers:**

@@ -536,6 +536,14 @@
       // may still be present because the extension is still connected, but
       // the user explicitly chose to disconnect the profile.
       logoutWnj();
+      // WNJ's own Disconnect lives on its pill, which we hide, so forget its
+      // bunker here; otherwise the next page load would auto-reconnect it.
+      // An extension stays connected: only the bridge's routing changes.
+      if (wnjNostr && wnjNostr !== nativeNostrRef) {
+        try {
+          localStorage.removeItem("wnj:bunkerPointer");
+        } catch (_) {}
+      }
       return;
     }
     if (data.type === "OPEN_NOSTR_SIGNER") {
@@ -828,6 +836,10 @@
   // WNJ's connect panel has no max-height: on a short phone screen it grows
   // past the top edge (bottom-anchored), hiding the bunker input and close
   // button with no way to scroll. Cap it to the viewport and let it scroll.
+  // Once connected, WNJ also shows its own floating pill next to our avatar.
+  // Our widget already shows the WNJ profile, so hide the pill (any closed-
+  // state child) and keep only the open panel, which WNJ still raises for
+  // the connect flow and bunker auth prompts.
   function injectWnjStyles() {
     var root = wnjHostEl && wnjHostEl.shadowRoot;
     if (!root || root.getElementById(WNJ_STYLE_ID)) return;
@@ -840,6 +852,7 @@
       "  overflow-y: auto;",
       "  overscroll-behavior: contain;",
       "}",
+      ".draggable > div:not(.animate-show) { display: none !important; }",
     ].join("\n");
     root.appendChild(style);
   }
