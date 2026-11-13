@@ -118,13 +118,24 @@ declare global {
 
   interface NostrBridgeConfig {
     /**
-     * Your Web3Auth client ID. Optional: without it, users sign in only with a
-     * NIP-07 extension or a NIP-46 bunker. With it, Google/Apple/X sign-in works
+     * Your Web3Auth client ID. Optional. With it, Google/Apple/X sign-in works
      * on origins registered for it in the portal or listed in the project's
      * Allowlist URLs in the Web3Auth dashboard (which must also list
-     * https://saintego.github.io).
+     * https://saintego.github.io), and users get keys of your project.
+     *
+     * Without it, Google/Apple/X sign-in goes through the hosted signer's
+     * shared project: no setup, and a user gets the same npub on every site
+     * that uses it. Shared sign-in is free while donations cover it and may be
+     * limited or become paid; moving a live site to its own clientId later
+     * gives its users new npubs. Users can always also sign in with a NIP-07
+     * extension or a NIP-46 bunker.
      */
     clientId?: string;
+    /**
+     * Turn Google/Apple/X sign-in off: users sign in with a NIP-07 extension
+     * or a NIP-46 bunker only, and `clientId` is ignored. Default false.
+     */
+    nostrOnly?: boolean;
     /**
      * Base URL where signer.html is hosted. Defaults to the hosted signer,
      * "https://saintego.github.io/nostr-shard-signer". Only set it when you
@@ -138,7 +149,7 @@ declare global {
     registrarUrl?: string;
     /**
      * Skip the installed NIP-07 extension (Alby, nos2x…) and window.nostr.js,
-     * and always use the Web3Auth iframe. Default false. Ignored without clientId.
+     * and always use the Web3Auth iframe. Default false. Ignored with `nostrOnly`.
      */
     forceIframe?: boolean;
     /**

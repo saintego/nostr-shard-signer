@@ -21,6 +21,8 @@ const urlParams = {
     protocol: Number(searchParams.get('protocol') ?? '1'),
     // "0" when the host page turned off the library link (poweredBy: false).
     poweredBy: searchParams.get('poweredBy') !== '0',
+    // "1" when the host page turned off shared sign-in (nostrOnly: true).
+    nostrOnly: searchParams.get('nostrOnly') === '1',
 };
 
 // The passkey popup (src/lib/passkeyPopup.ts) is this same page, top-level.

@@ -1,6 +1,6 @@
 # nostr-shard-signer
 
-> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr` (getPublicKey, signEvent, nip04, nip44). Users sign in with their own NIP-07 extension or NIP-46 bunker, and, when a Web3Auth `clientId` is given, with Google/Apple/X (the key is held only in a cross-origin iframe). Alpha software with no security audit; not for high-value keys.
+> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr` (getPublicKey, signEvent, nip04, nip44). Users sign in with Google/Apple/X (the key is held only in a cross-origin iframe), or with their own NIP-07 extension or NIP-46 bunker. Google/Apple/X needs no setup: without a `clientId`, it goes through the hosted signer's shared Web3Auth project. Alpha software with no security audit; not for high-value keys.
 
 Use it when a Nostr web app should be easy to log in to for people with no Nostr experience (no browser extension, no key): they sign in with Google, Apple or X and get a Nostr account. App code only uses the standard NIP-07 API, so code written for Alby or nos2x works unchanged.
 
@@ -12,7 +12,7 @@ Use it when a Nostr web app should be easy to log in to for people with no Nostr
   NostrBridge.onAuthChange(({ loggedIn, pubkey }) => {
     // loggedIn: boolean, pubkey: hex string | null. Also called right away once the state is known.
   });
-  await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" }); // or init() for Nostr-only sign-in
+  await NostrBridge.init(); // or init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" }) for your own Web3Auth project, init({ nostrOnly: true }) for no Google/Apple/X
   // Optional: your own buttons can call NostrBridge.login() / NostrBridge.logout().
   // After the user has signed in:
   const pubkey = await window.nostr.getPublicKey(); // hex
@@ -24,15 +24,16 @@ Use it when a Nostr web app should be easy to log in to for people with no Nostr
 
 - Load `nostr-bridge.js` with a plain `<script>` tag from the URL above. In a bundled app (React, Vue, Svelte…) you can instead `npm install nostr-shard-signer` and call `await loadNostrBridge(config)` (from `"nostr-shard-signer"`) in place of `NostrBridge.init(config)`: it loads the same script from the signer and resolves with `NostrBridge`; the package also ships the TypeScript types. `nostr-bridge.js` itself is not an ES module: never `import` or bundle it.
 - Await `NostrBridge.init()` (or `NostrBridge.ready`) before using `window.nostr`. Calling `init()` again is harmless: it returns the first call's promise, so React StrictMode needs no guard.
-- Instead of a separate init call, the script tag can carry the config: `<script src="…/nostr-bridge.js" data-client-id="…"></script>` (also `data-layout`, `data-button-size`, `data-mount-selector`, `data-bunker-origin`, `data-registrar-url`, `data-force-iframe`, `data-powered-by`). Any of these attributes starts init.
-- All options are optional. Without `clientId`, the Sign in button opens the user's NIP-07 extension or NIP-46 bunker (window.nostr.js) and the console shows a warning. Leave out `bunkerOrigin` and `registrarUrl` unless you self-host the signer.
-- With `clientId`, the Web3Auth project's Allowlist URLs (Web3Auth dashboard → Project Settings → Domains) must list `https://saintego.github.io`, and the page's exact origin must be registered in the portal (https://saintego.github.io/nostr-shard-signer/portal/), which only accepts origins that are also in that allowlist. An origin in only one of the two still works, with a console warning (`NOT_IN_REGISTRY` / `NOT_ALLOWLISTED`). localhost can't be registered in the portal but works when it is in the allowlist.
+- Instead of a separate init call, the script tag can carry the config: `<script src="…/nostr-bridge.js" data-client-id="…"></script>` (also `data-nostr-only`, `data-layout`, `data-button-size`, `data-mount-selector`, `data-bunker-origin`, `data-registrar-url`, `data-force-iframe`, `data-powered-by`). Any of these attributes starts init.
+- All options are optional. Leave out `bunkerOrigin` and `registrarUrl` unless you self-host the signer.
+- Without `clientId` (shared sign-in): Google/Apple/X works on any site with no setup, through the hosted signer's own Web3Auth project, and a user gets the same npub on every site using it. It is free while donations cover it and may later be limited per site or become paid; moving a live site to its own `clientId` then gives its OAuth users new npubs. Whoever runs the hosted signer can obtain shared-mode users' keys. The console says (info) that the page uses it. Prefer it for prototypes and small apps; suggest an own `clientId` when the app needs its own keys or predictable costs. `nostrOnly: true` turns Google/Apple/X off (extension and bunker only).
+- With your own `clientId`, the Web3Auth project's Allowlist URLs (Web3Auth dashboard → Project Settings → Domains) must list `https://saintego.github.io`, and the page's exact origin must be registered in the portal (https://saintego.github.io/nostr-shard-signer/portal/), which only accepts origins that are also in that allowlist. An origin in only one of the two still works, with a console warning (`NOT_IN_REGISTRY` / `NOT_ALLOWLISTED`). localhost can't be registered in the portal but works when it is in the allowlist.
 - The user signs in with the widget's "Sign in" button (bottom-right by default), or an app button calling `NostrBridge.login()`. `window.nostr` calls reject with "nostr-bridge: user is not logged in" until then; don't rely on them to open a login prompt. Use `NostrBridge.onAuthChange` (or the `nostr-bridge:auth` window event) instead of polling.
 - Legacy: auth and error events are also `message` events on `window` with `event.origin === ""`. If you listen to those, check the origin.
 - The bridge signs and encrypts only. Publishing to relays is the app's job (e.g. nostr-tools `SimplePool`).
 - Pubkeys are hex, not npub. Convert with nostr-tools `nip19` if needed.
 - Never ask for or handle the user's nsec.
-- Google/Apple/X keys are scoped to the Web3Auth `clientId`: the same account gets a different npub under another `clientId`, and Google, Apple and X give different keys. Never suggest changing the `clientId` of a live app; OAuth users would get new, empty identities. Users can export their nsec from the widget's profile menu. The `clientId` owner can obtain OAuth users' keys (they control which sites may use the project); don't claim otherwise.
+- Google/Apple/X keys are scoped to the Web3Auth project: the same account gets a different npub under another `clientId` (shared sign-in is one more project), and Google, Apple and X give different keys. Never suggest changing the `clientId` of a live app, adding one to a live app that used shared sign-in, or removing it; OAuth users would get new, empty identities. Users can export their nsec from the widget's profile menu. The `clientId` owner can obtain OAuth users' keys (they control which sites may use the project); don't claim otherwise.
 - Setup problems appear as `SIGNER_ERROR` events and as console errors with a fix hint; non-fatal ones as console warnings.
 
 ## Docs
