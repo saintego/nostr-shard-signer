@@ -63,8 +63,8 @@ export function EvolustrSettings({ status, apps, holdsNsec, custody, busy, messa
                     {apps.map(app => (
                         <div key={app} className="relay-row evolustr-app-row">
                             <span className="relay-url" title={app}>{label(app)}</span>
-                            <button className="relay-remove" onClick={() => onForgetApp(app)} aria-label={`Forget ${app}`}>
-                                ✕
+                            <button className="action-btn btn-secondary evolustr-forget" onClick={() => onForgetApp(app)} aria-label={`Forget ${app}`}>
+                                Forget
                             </button>
                         </div>
                     ))}

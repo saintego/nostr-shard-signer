@@ -56,11 +56,16 @@ function run<T>(request: Op): Promise<T> {
         };
         const listener = (e: MessageEvent) => {
             if (e.source !== w || e.origin !== location.origin) return;
-            const d = e.data as { type?: string; result?: unknown; error?: string };
+            const d = e.data as { type?: string; result?: unknown; error?: string; name?: string };
             if (d?.type === 'EVOLUSTR_PASSKEY_READY') return send();  // the popup just loaded
             if (d?.type !== 'EVOLUSTR_PASSKEY_RESULT') return;
             done();
-            if (typeof d.error === 'string') reject(new Error(d.error));
+            if (typeof d.error === 'string') {
+                // Keep the DOMException name: callers tell errors apart by it.
+                const err = new Error(d.error);
+                if (typeof d.name === 'string') err.name = d.name;
+                reject(err);
+            }
             else resolve(d.result as T);
         };
         // Closed without a result: the user closed it. Seen twice in a row, so
@@ -120,7 +125,7 @@ export function servePasskeyPopup(onRequest: (r: PopupRequest | null) => void): 
                         : await passkeys.get(d.args as Parameters<Passkeys['get']>[0]);
                     reply({ result });
                 } catch (err) {
-                    reply({ error: (err as Error).message || 'The passkey step failed' });
+                    reply({ error: (err as Error).message || 'The passkey step failed', name: (err as Error).name });
                 }
                 // Each step opens its own popup, from its own click.
                 window.close();

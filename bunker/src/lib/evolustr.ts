@@ -116,9 +116,31 @@ export interface SignerPasskeys {
 export const signerPasskeys = (rpName: string): SignerPasskeys => {
     const frame = webauthnPasskeys({ rpName });
     const inFrame = frameAllows('publickey-credentials-get') && frameAllows('publickey-credentials-create');
-    if (inFrame) return { passkeys: frame, onGesture: () => { } };
-    return { passkeys: popupPasskeys(frame.rpId), onGesture: openPasskeyPopup };
+    const passkeys = inFrame ? frame : popupPasskeys(frame.rpId);
+    return { passkeys: withClearErrors(passkeys), onGesture: inFrame ? () => { } : openPasskeyPopup };
 };
+
+/**
+ * Creating a second passkey in a passkey manager that already has one for
+ * this signer fails with InvalidStateError (WebAuthn excludeCredentials), and
+ * the browser's own message for it is hard to read.
+ */
+const withClearErrors = (p: Passkeys): Passkeys => ({
+    ...p,
+    create: async args => {
+        try {
+            return await p.create(args);
+        } catch (e) {
+            const err = e as Error;
+            if (err?.name === 'InvalidStateError' || /already registered/i.test(err?.message ?? ''))
+                throw new Error(
+                    'This passkey manager already has a passkey for your app keys. To add another one, ' +
+                    'choose a different one (another device or a security key) when your browser asks.',
+                );
+            throw e;
+        }
+    },
+});
 
 // ── Signing through the bridge (passthrough mode) ────────────────────────────
 
