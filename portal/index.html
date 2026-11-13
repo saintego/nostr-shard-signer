@@ -6,6 +6,7 @@
   <title>Nostr Shard Signer — Developer Portal</title>
 
   <!-- nostr-bridge: injects window.nostr with Web3Auth iframe fallback -->
+  <script src="/nostr-shard-signer/site-config.js"></script>
   <script src="/nostr-shard-signer/nostr-bridge.js?v=20260602"></script>
 
   <!-- nostr-post CDN: signer helper + web components -->
@@ -437,12 +438,8 @@
 
   <script type="module">
     // ── Config ──────────────────────────────────────────────────────────────────
-    // Deployed registrar Worker URL.
-    const REGISTRAR_URL = "https://nostr-shard-registrar.nostr-shard-signer.workers.dev";
-
-    // Portal client ID — registered for https://saintego.github.io via the Register tab.
-    // Users with a NIP-07 extension (Alby etc.) will use it; others get the iframe signer.
-    const PORTAL_CLIENT_ID = "BAOAjkerFp9u0leoDRvFeYVVt4h8v_xtHR863RaY2jg_epR3QDKmXR3sU18BW4mQTQvTDQh4FOPyNGj6wJLeH4Y";
+    // Registrar URL and the portal's client ID: /nostr-shard-signer/site-config.js.
+    const { registrarUrl: REGISTRAR_URL, portalClientId: PORTAL_CLIENT_ID } = window.NOSTR_SHARD_SITE;
     // Initialize the bridge (required once)
     if (typeof NostrBridge !== "undefined") {
       NostrBridge.init({

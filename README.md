@@ -380,6 +380,7 @@ Setting `forceIframe: true` disables WNJ loading and always uses the Web3Auth if
 ```
 nostr-shard-signer/
 ├── nostr-bridge.js          # Parent wrapper — injects iframe, proxies window.nostr
+├── site-config.js           # Portal client ID and registrar URL for the hosted portal and examples
 ├── nostr-bridge.d.ts        # TypeScript declarations for NostrBridge
 ├── nostr-bridge-window.d.ts # Opt-in: types window.nostr as the bridge's signer
 ├── llms.txt, llms-full.txt  # Docs for AI coding agents (published to GitHub Pages)
@@ -545,19 +546,20 @@ In **Settings → Secrets → Actions**, add:
 
 In **Settings → Pages**, set source to **GitHub Actions**.
 
-#### f. Update the portal registrar URL
+#### f. Update the portal registrar URL and client ID
 
-In `portal/index.html`, replace the placeholder:
+In `site-config.js` (used by the portal and `examples/evolustr.html`), set your Worker URL and the portal's own Web3Auth client ID:
 
 ```js
-const REGISTRAR_URL = "https://nostr-shard-registrar.__ACCOUNT__.workers.dev";
+registrarUrl: "https://nostr-shard-registrar.__ACCOUNT__.workers.dev",
+portalClientId: "YOUR_PORTAL_CLIENT_ID",
 ```
 
 ### 2. Automated deploy (push to `main`)
 
 After the one-time setup, every push to `main` automatically:
 
-1. Publishes `nostr-bridge.js`, `signer.html`, and `portal/index.html` to GitHub Pages
+1. Publishes `nostr-bridge.js`, `site-config.js`, `signer.html`, and `portal/index.html` to GitHub Pages
 2. Deploys `registrar-worker.js` to Cloudflare Workers
 
 ```
@@ -829,7 +831,7 @@ curl -s https://nostr-shard-registrar.nostr-shard-signer.workers.dev/health     
 - [ ] Create both KV namespaces (`REGISTRY_KV`, `CHALLENGES_KV`) and update `wrangler.toml` IDs
 - [ ] Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub repository secrets
 - [ ] Enable GitHub Pages (Settings → Pages → Source: GitHub Actions)
-- [ ] Update `REGISTRAR_URL` in `portal/index.html` to your deployed Worker URL
+- [ ] Update `registrarUrl` (and `portalClientId`) in `site-config.js`
 
 **After first deploy**
 

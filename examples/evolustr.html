@@ -3,8 +3,8 @@
   Test page for the Evolustr Signer API (window.nostr.evolustr).
 
   Served next to the signer (GitHub Pages or the PR preview), it uses the signer
-  on its own origin, with the portal's Web3Auth client ID, which is registered
-  for saintego.github.io and the PR preview. The sign-in sheet offers Google,
+  on its own origin, with the portal's Web3Auth client ID (from site-config.js),
+  which is registered for saintego.github.io and the PR preview. The sign-in sheet offers Google,
   Apple or X, and a Nostr extension or bunker.
     ?clientId=<id>     another client ID (registered for this page's origin)
     ?clientId=none     extension / bunker sign-in only
@@ -33,12 +33,11 @@
     </div>
     <pre id="log"></pre>
 
+    <script src="../site-config.js"></script>
     <script>
       (function () {
         const q = new URLSearchParams(location.search);
-        // The portal's client ID (portal/index.html).
-        const PORTAL_CLIENT_ID = "BAOAjkerFp9u0leoDRvFeYVVt4h8v_xtHR863RaY2jg_epR3QDKmXR3sU18BW4mQTQvTDQh4FOPyNGj6wJLeH4Y";
-        const clientId = q.get("clientId") ?? PORTAL_CLIENT_ID;
+        const clientId = q.get("clientId") ?? window.NOSTR_SHARD_SITE.portalClientId;
         // The bridge from the same signer it talks to.
         const bunker = q.get("bunker") || location.href.replace(/\/examples\/.*$/, "");
         window.TEST_CONFIG = { bunkerOrigin: bunker, clientId: clientId === "none" ? undefined : clientId };
