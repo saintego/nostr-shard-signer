@@ -42,6 +42,29 @@ test.describe("with a NIP-07 extension", () => {
     await expect(page.locator("#nostr-signer-container")).toHaveCSS("width", "48px");
   });
 
+  test("lets the signer iframe use passkeys (Evolustr)", async ({ page }) => {
+    const allow = await page.locator("#nostr-signer-iframe").getAttribute("allow");
+    expect(allow).toContain("publickey-credentials-get");
+    expect(allow).toContain("publickey-credentials-create");
+  });
+
+  test("window.nostr.evolustr goes to the signer iframe, which identifies the page by its origin", async ({ page }) => {
+    await waitForAuth(page, true);
+    await expect(page.locator("#nostr-signer-container")).toHaveCSS("width", "48px");
+    // The test app is on plain http: the signer refuses to give it an app key
+    // (only https: origins, or http: on localhost). The answer comes from the
+    // iframe, not the extension.
+    await expect(page.evaluate(() => window.nostr.evolustr.capabilities())).rejects.toThrow(/https/);
+    await expect(page.evaluate(() => window.nostr.evolustr.getWrapKey())).rejects.toThrow(/https/);
+    expect(await page.evaluate(() => window.extensionCalls)).not.toContain("signEvent");
+  });
+
+  test("window.nostr.evolustr is refused after logout", async ({ page }) => {
+    await waitForAuth(page, true);
+    await page.evaluate(() => NostrBridge.logout());
+    await expect(page.evaluate(() => window.nostr.evolustr.capabilities())).rejects.toThrow(/not logged in/);
+  });
+
   test("logout() and login() round-trip through the signer iframe", async ({ page }) => {
     await waitForAuth(page, true);
     // Wait for the iframe to show the avatar (it has the session).

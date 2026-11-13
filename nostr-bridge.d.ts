@@ -28,6 +28,8 @@ export type NostrBridgeAuthState = globalThis.NostrBridgeAuthState;
 export type NostrBridgeSavedSession = globalThis.NostrBridgeSavedSession;
 export type NostrBridgeApi = globalThis.NostrBridgeApi;
 export type NostrBridgeEvent = globalThis.NostrBridgeEvent;
+export type NostrBridgeEvolustr = globalThis.NostrBridgeEvolustr;
+export type NostrBridgeEvolustrCapabilities = globalThis.NostrBridgeEvolustrCapabilities;
 
 declare global {
   /** Unsigned Nostr event (NIP-01) as passed to `window.nostr.signEvent`. */
@@ -62,8 +64,8 @@ declare global {
     getPublicKey(): Promise<string>;
     /**
      * Signs an event. With Web3Auth login, ordinary public content (kinds 1, 7,
-     * 1111, 30818, 10003, 30003, 31922, 31923, 30078, and 27235 for nostr.build)
-     * is auto-approved by default and other kinds show a confirmation prompt
+     * 1111, 30818, 10003, 30003, 31922, 31923, 30078 except Evolustr data keys,
+     * and 27235 for nostr.build) is auto-approved by default and other kinds show a confirmation prompt
      * inside the signer (extensions and bunkers apply their own rules). Rejects
      * after 30 s without an answer from the signer; a call waiting on the user's
      * confirmation waits until they answer.
@@ -79,6 +81,39 @@ declare global {
       encrypt(recipientPubkeyHex: string, plaintext: string): Promise<string>;
       decrypt(senderPubkeyHex: string, ciphertext: string): Promise<string>;
     };
+    /**
+     * Evolustr Signer API (https://github.com/saintego/evolustr, SPEC §5.4): a
+     * key per app for its encrypted data, derived in the signer from this
+     * page's origin. Works with Web3Auth login and with an extension or bunker.
+     * Calls may wait for the user to click inside the signer (a prompt, a
+     * passkey), so they have no timeout; don't add a short one.
+     */
+    evolustr: NostrBridgeEvolustr;
+  }
+
+  /** What the signer offers this page (Evolustr SPEC §5.4). */
+  interface NostrBridgeEvolustrCapabilities {
+    identity: "verified" | "connection";
+    /** The app id the signer derives the key for: this page's origin, or `nsite:<npub>`. */
+    appId: string;
+    /** Labels this signer's wraps in app vaults; null until its key is unlocked. */
+    signerId: string | null;
+    /** The signer's master key is unlocked. */
+    ready: boolean;
+    /** The master key can be unlocked with a signer passkey. */
+    signerPasskey: boolean;
+    /** The master key survives losing this device. */
+    recoverable: boolean;
+    /** Anyone with the user's nsec can derive the app keys. */
+    nsecProtected: boolean;
+  }
+
+  interface NostrBridgeEvolustr {
+    capabilities(): Promise<NostrBridgeEvolustrCapabilities>;
+    /** 32-byte key for this page's app vault, base64url. Asks the user the first time. */
+    getWrapKey(): Promise<string>;
+    /** Adds a signer passkey; the signer shows its own UI. */
+    enrollPasskey(): Promise<void>;
   }
 
   interface NostrBridgeConfig {

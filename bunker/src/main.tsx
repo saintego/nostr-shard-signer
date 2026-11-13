@@ -2,6 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { deriveParentOrigin } from './lib/origin';
+import { POPUP_PARAM } from './lib/passkeyPopup';
+import { PasskeyPopupView } from './components/PasskeyPopupView';
 import './styles.css';
 
 const parentOrigin = deriveParentOrigin();
@@ -21,8 +23,12 @@ const urlParams = {
     poweredBy: searchParams.get('poweredBy') !== '0',
 };
 
+// The passkey popup (src/lib/passkeyPopup.ts) is this same page, top-level.
+const isPasskeyPopup = searchParams.get(POPUP_PARAM) === '1';
+if (isPasskeyPopup) document.body.classList.add('popup-page');
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-        <App parentOrigin={parentOrigin} urlParams={urlParams} />
+        {isPasskeyPopup ? <PasskeyPopupView /> : <App parentOrigin={parentOrigin} urlParams={urlParams} />}
     </React.StrictMode>,
 );

@@ -1,4 +1,6 @@
 // Which signing requests run without a confirmation prompt, per host site.
+
+import { isProtectedEvent } from "./evolustr";
 //
 // Ordinary public content (notes, reactions, wiki pages, lists, calendar
 // events…) is signed without asking by default: a wrong one can be fixed by
@@ -33,6 +35,15 @@ export const DEFAULT_AUTO_APPROVE_KINDS = KIND_GROUPS.filter((g) => g.defaultOn)
 // publishing an empty or stale copy silently wipes data, so these always ask.
 const ALWAYS_CONFIRM_KINDS = new Set([0, 3, 5, 10002]);
 
+// Evolustr vault events (kind 30078, d-tag "evolustr:…") hold the keys of the
+// user's encrypted app data: a site replacing them can lock the user out of
+// that data, so they always ask, even with "App data" auto-approved
+// (evolustr SPEC §5.5 rule 2).
+function isEvolustrEvent(evt: { kind: number; tags?: unknown }): boolean {
+  const tags = Array.isArray(evt.tags) ? evt.tags.filter(Array.isArray) : [];
+  return isProtectedEvent({ kind: evt.kind, tags: tags as string[][] });
+}
+
 // Kind 27235 (NIP-98) is an HTTP login token for the URL in its `u` tag. Signed
 // blindly, a site could act as the user on any service, so only these media
 // hosts (and their subdomains) are approved without asking.
@@ -64,6 +75,7 @@ export function requiresConfirmation(
     try {
       const evt = JSON.parse(params[0]) as { kind: number; tags?: unknown };
       if (ALWAYS_CONFIRM_KINDS.has(evt.kind)) return true;
+      if (isEvolustrEvent(evt)) return true;
       if (evt.kind === 27235 && !isMediaUploadAuth(evt)) return true;
       return !autoApproveKinds.has(evt.kind);
     } catch (_) {
@@ -180,6 +192,14 @@ export function describeRequest(method: string, params: string[]): RequestDescri
   const tags = Array.isArray(evt.tags) ? evt.tags.filter(Array.isArray) : [];
   const content = typeof evt.content === "string" ? evt.content : "";
   const count = (name: string) => tags.filter((t) => t[0] === name).length;
+
+  if (isEvolustrEvent({ kind, tags })) {
+    return {
+      title: "Change your Evolustr data keys?",
+      summary: "This site wants to change the keys that protect your encrypted app data.",
+      warning: "Approve only if you just changed how this app's data is protected. A wrong change can lock you out of it.",
+    };
+  }
 
   switch (kind) {
     case 0: {

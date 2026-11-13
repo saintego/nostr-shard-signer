@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import type { UserProfile, KeyInfo } from '../types';
 import { KIND_GROUPS } from '../lib/approval';
 
@@ -21,6 +22,8 @@ interface Props {
     onRelaysChange: (relays: string[]) => void;
     onAutoApproveChange: (kinds: Set<number>) => void;
     onClose: () => void;
+    /** App data keys (Evolustr), shown in the settings. */
+    evolustrSection?: ReactNode;
 }
 
 export function ProfileModal({
@@ -38,6 +41,7 @@ export function ProfileModal({
     onRelaysChange,
     onAutoApproveChange,
     onClose,
+    evolustrSection,
 }: Props) {
     const [activeTab, setActiveTab] = useState<TabId>('profile');
 
@@ -168,6 +172,7 @@ export function ProfileModal({
                     <p className="settings-hint">
                         Signing is handled by your connected extension or bunker.
                     </p>
+                    {evolustrSection}
                     <div className="modal-actions">
                         <button className="action-btn btn-danger" onClick={onLogout}>
                             Log out
@@ -309,8 +314,8 @@ export function ProfileModal({
                                 <p className="settings-hint">
                                     {site} can sign these as you without a confirmation prompt.
                                     Uncheck any you want to approve one by one. Profile, follow
-                                    and relay list changes, deletions and reading private
-                                    messages always ask.
+                                    and relay list changes, deletions, changes to your app data
+                                    keys and reading private messages always ask.
                                 </p>
                                 {KIND_GROUPS.map(({ kinds, label }) => (
                                     <label key={kinds.join()} className="checkbox-row">
@@ -352,6 +357,8 @@ export function ProfileModal({
                                     </button>
                                 </div>
                             </section>
+
+                            {evolustrSection}
                         </div>
                     )}
                 </>

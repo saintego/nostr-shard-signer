@@ -20,6 +20,8 @@ export type {
   NostrBridgeSavedSession,
   NostrBridgeApi,
   NostrBridgeEvent,
+  NostrBridgeEvolustr,
+  NostrBridgeEvolustrCapabilities,
 } from "./nostr-bridge.js";
 
 /** NostrBridge.apiVersion that these types describe. */

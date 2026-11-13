@@ -682,6 +682,7 @@ Separately, `NostrBridge.apiVersion` versions the page-facing API that `nostr-br
 | `{ type: "AUTH_STATE", loggedIn: bool, pubkey: string\|null }` | On iframe load (passive session check) |
 | `{ type: "AUTH_SUCCESS", pubkey: string }`                     | After user completes OAuth flow        |
 | `{ type: "RESIZE", state: "button"\|"avatar"\|"modal" }`       | On every view transition               |
+| `{ type: "EVOLUSTR_SIGN", requestId, event }`                  | Extension/bunker mode: the signer asks the bridge to sign its Evolustr vault (kind 30078, `d` starting `evolustr:v1:signer:`); the bridge answers `{ type: "EVOLUSTR_SIGN_RESULT", requestId, event \| error }` |
 
 ### UI control (custom schema, parent → iframe)
 
@@ -703,7 +704,19 @@ Separately, `NostrBridge.apiVersion` versions the page-facing API that `nostr-br
 { "id": "req_0", "result": null, "error": "User rejected request" }
 ```
 
-Supported methods: `get_public_key`, `sign_event`, `nip04_encrypt`, `nip04_decrypt`, `nip44_encrypt`, `nip44_decrypt`
+Supported methods: `get_public_key`, `sign_event`, `nip04_encrypt`, `nip04_decrypt`, `nip44_encrypt`, `nip44_decrypt`, and the [Evolustr](#evolustr-app-data-keys) methods `evolustr_capabilities`, `evolustr_get_wrap_key`, `evolustr_enroll_passkey` (no timeout; they may wait for a click in the signer)
+
+### Evolustr: app data keys
+
+The signer implements the [Evolustr Signer API](https://github.com/saintego/evolustr) (its SPEC §5): `window.nostr.evolustr` gives each app its own key for its encrypted data, derived in the signer iframe from a secret the app never sees. Other apps can't read that data, even with permission to sign or decrypt. It works with Web3Auth login and with an extension or bunker.
+
+- **The app is the page's origin** (`event.origin` in the iframe), never anything the page sends. Apps on a known nsite gateway (`<npub>.nsite.lol`) are identified by their npub.
+- **The user approves each app** in the signer, once per site; Settings → *App data keys* lists them.
+- **Protection of the signer's secret:** with Web3Auth, the user chooses on first use between their login (the nsec; the owner of the Web3Auth project could then derive the app keys too) and a passkey. With an extension or bunker, a passkey is required, and the signer's encrypted vault event is signed by the extension or bunker through the bridge.
+- **Passkeys** run inside the iframe where the browser allows it (the bridge sets `allow="publickey-credentials-get; publickey-credentials-create"`), otherwise in a popup on the signer's origin, opened from a click in the signer.
+- **Auto-approve never signs Evolustr vault events** (kind 30078 with a `d` tag starting `evolustr:`), even with *App data* turned on.
+
+The package code is vendored in `bunker/src/vendor/evolustr/` until it is on npm; regenerate it with `scripts/vendor-evolustr.sh <path-to-evolustr-checkout>`.
 
 ### Auto-approve policy
 
@@ -715,6 +728,7 @@ Approval settings are stored per host site. Confirmations are queued and shown o
 | Kind 27235 (NIP-98) for `https://nostr.build` and its subdomains                                         | Auto-approved by default (user can untick) |
 | Kinds 6, 42                                                                                              | Confirmation modal (user can tick)        |
 | Kind 0 (profile), 3 (follows), 10002 (relays), 5 (deletion), 27235 for other hosts                       | Always a confirmation modal               |
+| Kind 30078 with a `d` tag starting `evolustr:` (Evolustr data keys)                                      | Always a confirmation modal               |
 | Other kinds (zaps, DMs, unknown kinds), `nip04_encrypt`, any decrypt                                     | Confirmation modal                        |
 | `get_public_key`, `nip44_encrypt`                                                                        | No confirmation                           |
 
