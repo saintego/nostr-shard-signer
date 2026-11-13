@@ -1,0 +1,83 @@
+<!doctype html>
+<!--
+  Test page for the Evolustr Signer API (window.nostr.evolustr).
+
+  Served next to the signer (GitHub Pages or the PR preview), it uses the signer
+  on its own origin:
+    …/nostr-shard-signer/examples/evolustr.html                    extension / bunker sign-in
+    …/nostr-shard-signer/examples/evolustr.html?clientId=<id>      also Google/Apple/X sign-in
+  Add &bunker=<url> to use a signer elsewhere. For OAuth, this page's origin must
+  be registered for the clientId (portal or Web3Auth allowlist).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Evolustr signer test</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 16px; max-width: 720px; }
+      button { margin: 4px 4px 4px 0; padding: 6px 10px; }
+      pre { background: #f3f4f6; padding: 10px; white-space: pre-wrap; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <h1>Evolustr signer test</h1>
+    <p id="status">Loading…</p>
+    <div>
+      <button id="caps">capabilities()</button>
+      <button id="key">getWrapKey()</button>
+      <button id="enroll">enrollPasskey()</button>
+      <button id="protected">Sign an Evolustr vault event (must prompt)</button>
+      <button id="logout">Sign out</button>
+    </div>
+    <pre id="log"></pre>
+
+    <script>
+      (function () {
+        const q = new URLSearchParams(location.search);
+        // The bridge from the same signer it talks to.
+        const bunker = q.get("bunker") || location.href.replace(/\/examples\/.*$/, "");
+        window.TEST_CONFIG = { bunkerOrigin: bunker, clientId: q.get("clientId") || undefined };
+        const s = document.createElement("script");
+        s.src = bunker + "/nostr-bridge.js";
+        s.onload = () => window.dispatchEvent(new Event("bridge-loaded"));
+        document.head.appendChild(s);
+      })();
+    </script>
+    <script>
+      const logEl = document.getElementById("log");
+      const log = (label, value) => {
+        const text = value instanceof Error ? "ERROR " + value.message : JSON.stringify(value, null, 2);
+        logEl.textContent = `[${new Date().toLocaleTimeString()}] ${label}: ${text}\n` + logEl.textContent;
+      };
+      const run = (label, f) => async () => {
+        log(label, "waiting… (answer in the signer widget if it asks)");
+        try { log(label, await f()); } catch (e) { log(label, e); }
+      };
+
+      window.addEventListener("bridge-loaded", async () => {
+        NostrBridge.onAuthChange(({ loggedIn, pubkey }) => {
+          document.getElementById("status").textContent = loggedIn
+            ? "Signed in as " + pubkey + " — app id is " + location.origin
+            : "Not signed in: use the widget's Sign in.";
+        });
+        window.addEventListener("message", (e) => {
+          if (e.origin === "" && e.data?.type === "SIGNER_ERROR") log("signer error", e.data);
+        });
+        document.getElementById("caps").onclick = run("capabilities", () => window.nostr.evolustr.capabilities());
+        document.getElementById("key").onclick = run("getWrapKey", () => window.nostr.evolustr.getWrapKey());
+        document.getElementById("enroll").onclick = run("enrollPasskey", () => window.nostr.evolustr.enrollPasskey().then(() => "done"));
+        document.getElementById("protected").onclick = run("signEvent (evolustr d-tag)", () =>
+          window.nostr.signEvent({
+            kind: 30078,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [["d", "evolustr:test:not-published"]],
+            content: "test only, not published",
+          }),
+        );
+        document.getElementById("logout").onclick = () => NostrBridge.logout();
+        await NostrBridge.init(window.TEST_CONFIG);
+      });
+    </script>
+  </body>
+</html>
