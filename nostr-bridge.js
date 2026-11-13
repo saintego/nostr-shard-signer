@@ -721,9 +721,11 @@
   }
 
   function dispatchEvolustr(method) {
-    return whenSignerHasSession().then(function () {
-      return dispatchRpc(method, []);
-    });
+    return whenSignerHasSession()
+      // The iframe can report its session before its "load" event fires, and
+      // postToIframe refuses until then.
+      .then(function () { return iframeLoaded; })
+      .then(function () { return dispatchRpc(method, []); });
   }
 
   // ── Evolustr: signing the signer's own vault in passthrough mode ────────────

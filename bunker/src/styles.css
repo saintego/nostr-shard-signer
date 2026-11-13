@@ -537,3 +537,4 @@ body.popup-page { background: #fff; overflow: auto; }
 .evolustr-status { font-size: 13px; color: #374151; }
 .evolustr-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .evolustr-actions .action-btn { width: auto; padding: 7px 14px; font-size: 13px; }
+.evolustr-forget { width: auto; padding: 4px 10px; font-size: 12px; flex-shrink: 0; }
