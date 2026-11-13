@@ -527,3 +527,13 @@ body.w3a-shifted #w3a-parent-container {
 }
 .nostr-signer-or::before,
 .nostr-signer-or::after { content: ""; flex: 1; border-top: 1px solid #e5e7eb; }
+
+/* ── Passkey popup (top-level page, not the iframe) ── */
+body.popup-page { background: #fff; overflow: auto; }
+.popup-view { position: static !important; max-width: 420px; min-height: 100vh; margin: 0 auto; justify-content: center; }
+
+/* ── Evolustr app keys (Settings) ── */
+.evolustr-app-row { justify-content: space-between; }
+.evolustr-status { font-size: 13px; color: #374151; }
+.evolustr-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.evolustr-actions .action-btn { width: auto; padding: 7px 14px; font-size: 13px; }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Web3Auth } from '@web3auth/modal';
 
-import type { ViewName, UserProfile, KeyInfo, PendingConfirmation } from './types';
+import type { ViewName, UserProfile, KeyInfo, PendingConfirmation, EvolustrPrompt, EvolustrAnswer } from './types';
 import { validateEmbedding, isLocalhostOrigin } from './lib/origin';
 import { fetchRegistrarConfig, checkAuthorization } from './lib/registry';
 import type { Authorization } from './lib/registry';
@@ -14,6 +14,12 @@ import { requiresConfirmation, loadAutoApproveKinds, saveAutoApproveKinds } from
 import { countSignedEvent, shouldAskForBackup, snoozeBackupPrompt, encryptKeyBackup, recordBackup, syncBackupMarker } from './lib/backup';
 import type { BackupMethod } from './lib/backup';
 import { npubEncode } from 'nostr-tools/nip19';
+import { finalizeEvent } from 'nostr-tools/pure';
+import {
+    createHostSigner, isEvolustrMethod, signerPasskeys, signThroughBridge,
+    loadCustody, saveCustody, loadAllowedApps, saveAllowedApps,
+} from './lib/evolustr';
+import type { Custody, EvolustrSigner, ConfirmRequest, SignerPasskeys } from './lib/evolustr';
 
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { ErrorBanner } from './components/ErrorBanner';
@@ -23,6 +29,9 @@ import { AvatarView } from './components/AvatarView';
 import { ConfirmView } from './components/ConfirmView';
 import { ProfileModal } from './components/ProfileModal';
 import { KeyExportView } from './components/KeyExportView';
+import { EvolustrPromptView } from './components/EvolustrPromptView';
+import { EvolustrSettings } from './components/EvolustrSettings';
+import type { EvolustrStatus } from './components/EvolustrSettings';
 
 const ROOT_PUBKEY_HEX = '__ROOT_PUBKEY_HEX__';
 const DEFAULT_AVATAR = 'https://robohash.org/nostr?set=set4&size=48x48';
@@ -88,9 +97,25 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // time; the head of the queue is the one on screen.
     const [pendingConf, setPendingConf] = useState<PendingConfirmation | null>(null);
     const confQueueRef = useRef<(PendingConfirmation & {
-        resolve: () => void;
+        resolve: (answer?: EvolustrAnswer) => void;
         reject: (e: Error) => void;
     })[]>([]);
+    // Where to go back to once the queue is empty (the settings, when a passkey
+    // step started there).
+    const afterConfirmViewRef = useRef<ViewName>('avatar');
+
+    // ── Evolustr Signer API (src/lib/evolustr.ts) ─────────────────────────────
+    const evolustrRef = useRef<EvolustrSigner | null>(null);
+    // Requests that arrived right after sign-in, before the signer was created.
+    const evolustrWaitersRef = useRef<((s: EvolustrSigner | null) => void)[]>([]);
+    const passkeysRef = useRef<SignerPasskeys | null>(null);
+    const custodyRef = useRef<Custody | null>(null);
+    // Set by a step that already has the user's OK for a passkey enrollment.
+    const enrollConsentRef = useRef(false);
+    const [evolustrApps, setEvolustrApps] = useState<string[]>([]);
+    const [evolustrStatus, setEvolustrStatus] = useState<EvolustrStatus | null>(null);
+    const [evolustrBusy, setEvolustrBusy] = useState(false);
+    const [evolustrMsg, setEvolustrMsg] = useState('');
     // ── WNJ profile mode: set when bridge sends WNJ_SESSION ───────────────────────
     const [wnjPubkey, setWnjPubkey] = useState<string | null>(null);
 
@@ -165,10 +190,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         const queue = confQueueRef.current;
         if (queue.length === 0) {
             setPendingConf(null);
-            setView(v => (v === 'confirm' ? 'avatar' : v));
+            setView(v => (v === 'confirm' ? afterConfirmViewRef.current : v));
             return;
         }
-        setPendingConf({ method: queue[0].method, params: queue[0].params, waiting: queue.length - 1 });
+        setPendingConf({ method: queue[0].method, params: queue[0].params, evolustr: queue[0].evolustr, waiting: queue.length - 1 });
         setView('confirm');
     }, []);
 
@@ -183,6 +208,44 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         countSignedEvent(pubkeyHex);
         setBackupAsk(shouldAskForBackup(pubkeyHex));
     };
+
+    // ── Evolustr Signer API ───────────────────────────────────────────────────
+
+    // Shows an Evolustr prompt in the confirmation queue and waits for the answer.
+    const askEvolustr = useCallback((prompt: EvolustrPrompt): Promise<EvolustrAnswer> => {
+        if (confQueueRef.current.length >= MAX_QUEUED_CONFIRMATIONS)
+            return Promise.reject(new Error('Too many confirmations are waiting for the user'));
+        return new Promise<EvolustrAnswer>((resolve, reject) => {
+            confQueueRef.current.push({
+                method: 'evolustr', params: [], evolustr: prompt,
+                resolve: answer => resolve(answer ?? 'allow'), reject,
+            });
+            if (confQueueRef.current.length === 1) showNextConfirmation();
+            else setPendingConf(p => (p ? { ...p, waiting: confQueueRef.current.length - 1 } : p));
+        });
+    }, [showNextConfirmation]);
+
+    // Forget the unlocked master key on this device (logout).
+    const lockEvolustr = () => {
+        const evolustr = evolustrRef.current;
+        evolustrRef.current = null;
+        setEvolustrStatus(null);
+        void evolustr?.lock();
+    };
+
+    // The bridge forwards Evolustr calls as soon as this iframe reports the
+    // session, which can be before the effect below has created the signer.
+    const waitForEvolustr = () => new Promise<EvolustrSigner | null>(resolve => {
+        const timer = setTimeout(() => {
+            evolustrWaitersRef.current = evolustrWaitersRef.current.filter(w => w !== waiter);
+            resolve(null);
+        }, 3000);
+        const waiter = (s: EvolustrSigner | null) => { clearTimeout(timer); resolve(s); };
+        evolustrWaitersRef.current.push(waiter);
+    });
+
+    // The signer itself, as the caller for status checks from the settings.
+    const selfCaller = { identity: 'verified' as const, origin: location.origin };
 
     // ── postMessage handler (use ref to always capture fresh state) ───────────
     const handleMessageRef = useRef<(event: MessageEvent) => void>(() => { });
@@ -228,8 +291,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
+            // Answers to EVOLUSTR_SIGN, handled by signThroughBridge.
+            if (event.data.type === 'EVOLUSTR_SIGN_RESULT') return;
+
             if (event.data.type === 'WNJ_DISCONNECT') {
                 rejectAllConfirmations('Logged out');
+                lockEvolustr();
                 setWnjPubkey(null);
                 setBackupAsk(false);
                 setKeyInfo(null);
@@ -247,6 +314,23 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
             const pk = privateKeyRef.current;
             const ki = keyInfo;
+
+            // Evolustr Signer API: works with OAuth and with an extension or
+            // bunker. The caller is event.origin, never anything in params.
+            if (isEvolustrMethod(method)) {
+                const evolustr = evolustrRef.current ?? await waitForEvolustr();
+                if (!evolustr) {
+                    postToParent({ id, error: 'Not authenticated', result: null });
+                    return;
+                }
+                try {
+                    const r = await evolustr.handle(method, Array.isArray(params) ? params : [], { identity: 'verified', origin: event.origin });
+                    postToParent(r.ok ? { id, result: r.value ?? null, error: null } : { id, result: null, error: r.error.message });
+                } catch (e) {
+                    postToParent({ id, result: null, error: (e as Error).message || 'Evolustr request failed' });
+                }
+                return;
+            }
 
             if (!pk || !ki) {
                 postToParent({ id, error: 'Not authenticated', result: null });
@@ -276,7 +360,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             postToParent({ type: 'CONFIRM_PENDING', requestId: id });
             try {
                 await new Promise<void>((resolve, reject) => {
-                    confQueueRef.current.push({ method, params, resolve, reject });
+                    confQueueRef.current.push({ method, params, resolve: () => resolve(), reject });
                     if (confQueueRef.current.length === 1) showNextConfirmation();
                     else setPendingConf(p => (p ? { ...p, waiting: confQueueRef.current.length - 1 } : p));
                 });
@@ -295,6 +379,119 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         window.addEventListener('message', listener);
         return () => window.removeEventListener('message', listener);
     }, []);
+
+    // ── Evolustr signer: one per signed-in user ──────────────────────────────
+    const evolustrPubkey = keyInfo?.publicKeyHex ?? null;
+    const holdsNsec = !!evolustrPubkey && !wnjPubkey;
+    const publishRelaysKey = publishRelays.join(' ');
+    useEffect(() => {
+        if (!evolustrPubkey) return;
+        const pubkey = evolustrPubkey;
+        const oauth = holdsNsec;
+        custodyRef.current = oauth ? loadCustody(pubkey) : 'passkey';
+        setEvolustrApps(loadAllowedApps(pubkey));
+        const passkeys = signerPasskeys('Nostr Shard Signer');
+        passkeysRef.current = passkeys;
+
+        let evolustr: EvolustrSigner;
+        const setCustody = (c: Custody) => {
+            custodyRef.current = c;
+            if (oauth) saveCustody(pubkey, c);
+        };
+        const enroll = async () => {
+            enrollConsentRef.current = true;
+            try {
+                const r = await evolustr.enrollPasskey();
+                if (!r.ok) throw new Error(r.error.message);
+            } finally {
+                enrollConsentRef.current = false;
+            }
+        };
+
+        const confirm = async (req: ConfirmRequest): Promise<boolean> => {
+            if (req.kind === 'enrollPasskey') {
+                if (enrollConsentRef.current) return true;
+                return (await askEvolustr({ kind: 'enrollPasskey' })) === 'allow';
+            }
+            // What does allowing this app also need? Read the signer vault
+            // first (no prompt, nothing published).
+            const caps = await evolustr.capabilities(selfCaller);
+            if (caps.ok && oauth && custodyRef.current === null) {
+                // Chosen on another site or device: the vault on the relays says how.
+                if (caps.value.nsecProtected) setCustody('sk');
+                else if (caps.value.signerPasskey) setCustody('passkey');
+            }
+            const ready = caps.ok && (caps.value.ready || caps.value.signerPasskey);
+            const needsSetup = !ready && !(oauth && custodyRef.current === 'sk');
+            const setup = !needsSetup ? 'none' : oauth && custodyRef.current === null ? 'choose' : 'passkey';
+            const apps = loadAllowedApps(pubkey);
+            if (setup === 'none' && apps.includes(req.appId)) return true;
+
+            const answer = await askEvolustr({ kind: 'appKey', appId: req.appId, setup });
+            if (answer === 'deny') return false;
+            if (answer === 'allow-sk') setCustody('sk');
+            if (answer === 'allow-passkey') {
+                const before = custodyRef.current;
+                setCustody('passkey');
+                try {
+                    await enroll();
+                } catch (e) {
+                    if (before !== 'passkey' && oauth) {
+                        custodyRef.current = before;
+                        if (before) saveCustody(pubkey, before);
+                    }
+                    throw e;
+                }
+            }
+            const next = loadAllowedApps(pubkey);
+            if (!next.includes(req.appId)) {
+                next.push(req.appId);
+                saveAllowedApps(pubkey, next);
+                setEvolustrApps(next);
+            }
+            return true;
+        };
+
+        evolustr = createHostSigner({
+            pubkey,
+            relays: publishRelaysKey.split(' ').filter(Boolean),
+            getSecretKey: oauth ? () => privateKeyRef.current : null,
+            sign: oauth
+                ? async event => {
+                    const sk = privateKeyRef.current;
+                    if (!sk) throw new Error('Not authenticated');
+                    return finalizeEvent({ ...event, tags: event.tags.map(t => [...t]) }, sk);
+                }
+                : signThroughBridge(postToParent, pubkey),
+            custody: () => custodyRef.current,
+            passkeys: passkeys.passkeys,
+            confirm,
+            requestGesture: async reason => {
+                if ((await askEvolustr({ kind: 'gesture', reason })) === 'deny') throw new Error('Cancelled');
+            },
+        });
+        evolustrRef.current = evolustr;
+        for (const w of evolustrWaitersRef.current.splice(0)) w(evolustr);
+        return () => {
+            if (evolustrRef.current === evolustr) evolustrRef.current = null;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [evolustrPubkey, holdsNsec, publishRelaysKey, askEvolustr, postToParent]);
+
+    // Status for the settings: read when they open.
+    useEffect(() => {
+        if (view !== 'profile') return;
+        const evolustr = evolustrRef.current;
+        if (!evolustr) return;
+        let stale = false;
+        evolustr.capabilities(selfCaller).then(r => {
+            if (stale || !r.ok) return;
+            const c = r.value;
+            setEvolustrStatus({ setUp: c.ready || c.signerPasskey || c.nsecProtected, nsecProtected: c.nsecProtected, signerPasskey: c.signerPasskey });
+        });
+        return () => { stale = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [view, evolustrPubkey]);
 
     // ── Send RESIZE messages whenever the view changes ────────────────────────
     useEffect(() => {
@@ -645,6 +842,55 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         showNextConfirmation();
     }, [showNextConfirmation]);
 
+    const handleEvolustrAnswer = useCallback((answer: EvolustrAnswer) => {
+        const head = confQueueRef.current[0];
+        // A passkey popup must open in this click, or the browser blocks it.
+        if (head?.evolustr?.kind === 'gesture' && answer === 'allow') passkeysRef.current?.onGesture();
+        confQueueRef.current.shift()?.resolve(answer);
+        showNextConfirmation();
+    }, [showNextConfirmation]);
+
+    const handleForgetApp = useCallback((appId: string) => {
+        if (!keyInfo) return;
+        const next = loadAllowedApps(keyInfo.publicKeyHex).filter(a => a !== appId);
+        saveAllowedApps(keyInfo.publicKeyHex, next);
+        setEvolustrApps(next);
+    }, [keyInfo]);
+
+    // "Add a passkey" / "Use a passkey instead" in the settings.
+    const handleEvolustrPasskey = useCallback(async () => {
+        const evolustr = evolustrRef.current;
+        if (!evolustr || !keyInfo) return;
+        const pubkey = keyInfo.publicKeyHex;
+        const oauth = !wnjPubkey;
+        const before = custodyRef.current;
+        setEvolustrBusy(true);
+        setEvolustrMsg('');
+        afterConfirmViewRef.current = 'profile';
+        // OAuth: from now on M is protected by passkeys only; the sk wrap is
+        // dropped when the passkey is added.
+        custodyRef.current = 'passkey';
+        enrollConsentRef.current = true;
+        try {
+            const r = await evolustr.enrollPasskey();
+            if (!r.ok) throw new Error(r.error.message);
+            if (oauth) saveCustody(pubkey, 'passkey');
+            setEvolustrMsg('Passkey added ✓');
+            const caps = await evolustr.capabilities(selfCaller);
+            if (caps.ok) setEvolustrStatus({
+                setUp: true, nsecProtected: caps.value.nsecProtected, signerPasskey: caps.value.signerPasskey,
+            });
+        } catch (e) {
+            custodyRef.current = before;
+            setEvolustrMsg(`Error: ${(e as Error).message}`);
+        } finally {
+            enrollConsentRef.current = false;
+            afterConfirmViewRef.current = 'avatar';
+            setEvolustrBusy(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [keyInfo, wnjPubkey]);
+
     const handleSaveProfile = useCallback(async (profile: UserProfile) => {
         const pk = privateKeyRef.current;
         if (!pk) throw new Error('Not authenticated');
@@ -659,6 +905,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             return;
         }
         rejectAllConfirmations('Logged out');
+        lockEvolustr();
         try { await web3authRef.current?.logout(); } catch (_) { }
         // Zero the key material before dropping the reference
         privateKeyRef.current?.fill(0);
@@ -734,6 +981,17 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             : null;
     }
 
+    if (view === 'confirm' && pendingConf?.evolustr) {
+        return (
+            <EvolustrPromptView
+                prompt={pendingConf.evolustr}
+                origin={parentOrigin}
+                waiting={pendingConf.waiting}
+                onAnswer={handleEvolustrAnswer}
+            />
+        );
+    }
+
     if (view === 'confirm' && pendingConf) {
         return (
             <ConfirmView
@@ -774,6 +1032,18 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 onRelaysChange={handleRelaysChange}
                 onAutoApproveChange={handleAutoApproveChange}
                 onClose={() => setView('avatar')}
+                evolustrSection={
+                    <EvolustrSettings
+                        status={evolustrStatus}
+                        apps={evolustrApps}
+                        holdsNsec={!wnjPubkey}
+                        custody={custodyRef.current}
+                        busy={evolustrBusy}
+                        message={evolustrMsg}
+                        onForgetApp={handleForgetApp}
+                        onAddPasskey={handleEvolustrPasskey}
+                    />
+                }
             />
         );
     }

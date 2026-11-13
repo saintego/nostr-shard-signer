@@ -1,6 +1,6 @@
 /// <reference types="nostr-shard-signer/window" />
 import { API_VERSION, loadNostrBridge } from "nostr-shard-signer";
-import type { NostrBridgeAuthState, NostrBridgeConfig, NostrSignedEvent } from "nostr-shard-signer";
+import type { NostrBridgeAuthState, NostrBridgeConfig, NostrBridgeEvolustrCapabilities, NostrSignedEvent } from "nostr-shard-signer";
 
 const config: NostrBridgeConfig = { clientId: "id", layout: "in-place", mountSelector: "#signer" };
 const version: 1 = API_VERSION;
@@ -16,6 +16,10 @@ export async function main(): Promise<void> {
   // window.nostr is typed by nostr-shard-signer/window.
   const signed: NostrSignedEvent = await window.nostr.signEvent({ kind: 1, created_at: 0, tags: [], content: "" });
   console.log(version, apiVersion, state, signed.sig);
+  // Evolustr Signer API.
+  const caps: NostrBridgeEvolustrCapabilities = await window.nostr.evolustr.capabilities();
+  const wrapKey: string = await window.nostr.evolustr.getWrapKey();
+  console.log(caps.appId, caps.ready, wrapKey);
 
   // @ts-expect-error: layout is a union
   loadNostrBridge({ layout: "sideways" });

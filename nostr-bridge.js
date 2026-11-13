@@ -14,6 +14,15 @@
  *   window.nostr.nip44?.encrypt(pubkey, plaintext) // returns ciphertext
  *   window.nostr.nip44?.decrypt(pubkey, ciphertext)// returns plaintext
  *
+ * Evolustr Signer API (https://github.com/saintego/evolustr, SPEC §5): a key
+ * per app for its encrypted data, derived inside the signer iframe:
+ *
+ *   window.nostr.evolustr.capabilities()           // what the signer offers this page
+ *   window.nostr.evolustr.getWrapKey()              // 32-byte key (base64url) for this origin
+ *   window.nostr.evolustr.enrollPasskey()           // add a signer passkey
+ *
+ *   These may wait for the user to click inside the signer: no timeout applies.
+ *
  * INITIALIZATION (required):
  *
  *   <script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
@@ -178,6 +187,9 @@
   const iframeLoaded = new Promise(function (resolve) {
     resolveIframeLoaded = resolve;
   });
+  let signerSession = null; // pubkey the signer iframe reports signed in (any mode)
+  let signerSessionWaiters = []; // Evolustr calls waiting for signerSession
+  const SIGNER_SESSION_TIMEOUT_MS = 15000;
   const authListeners = new Set(); // NostrBridge.onAuthChange callbacks
   let lastAuth = null; // last state given to listeners; null until known
 
@@ -335,7 +347,13 @@
       "sandbox",
       "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-downloads",
     );
-    iframeEl.setAttribute("allow", "clipboard-write");
+    // publickey-credentials-*: signer passkeys for the Evolustr Signer API.
+    // Browsers that still refuse them in an iframe get a popup on the signer's
+    // origin, opened from a click inside the signer.
+    iframeEl.setAttribute(
+      "allow",
+      "clipboard-write; publickey-credentials-get; publickey-credentials-create",
+    );
     iframeEl.setAttribute("referrerpolicy", "origin");
 
     // Guard RPC dispatch until the iframe document has finished loading
@@ -458,6 +476,11 @@
     if (!data || typeof data !== "object") return;
 
     // ── UI/State messages (custom schema) ────────────────────────────────────
+    if (data.type === "AUTH_STATE" || data.type === "AUTH_SUCCESS") {
+      setSignerSession(
+        data.type === "AUTH_SUCCESS" || data.loggedIn ? data.pubkey || null : null,
+      );
+    }
     if (data.type === "AUTH_STATE") {
       if (authStateTimer) {
         clearTimeout(authStateTimer);
@@ -590,6 +613,10 @@
         );
       return;
     }
+    if (data.type === "EVOLUSTR_SIGN") {
+      signForSigner(data);
+      return;
+    }
     if (data.type === "SIGNER_WARNING") {
       const code = typeof data.code === "string" ? data.code : "SIGNER_WARNING";
       const message = typeof data.message === "string" ? data.message : "";
@@ -665,7 +692,90 @@
     }
   }
 
+  // ── Evolustr: calls go to the signer iframe in every mode ────────────────────
+  // With an extension or bunker, the iframe learns the user from WNJ_SESSION,
+  // which may arrive after the page is ready: wait until the iframe reports the
+  // session for the current user before forwarding.
+  function setSignerSession(pubkey) {
+    signerSession = pubkey;
+    if (!pubkey || pubkey !== currentPubkey) return;
+    const waiters = signerSessionWaiters.splice(0);
+    waiters.forEach(function (w) { w.resolve(); });
+  }
+
+  function whenSignerHasSession() {
+    return new Promise(function (resolve, reject) {
+      if (authState === "loggedOut") return reject(notLoggedInError());
+      if (signerSession && signerSession === currentPubkey) return resolve();
+      const waiter = {
+        resolve: function () { clearTimeout(waiter.timer); resolve(); },
+        timer: setTimeout(function () {
+          signerSessionWaiters = signerSessionWaiters.filter(function (w) { return w !== waiter; });
+          reject(authState === "loggedIn"
+            ? new Error("nostr-bridge: the signer iframe did not get the session in time")
+            : notLoggedInError());
+        }, SIGNER_SESSION_TIMEOUT_MS),
+      };
+      signerSessionWaiters.push(waiter);
+    });
+  }
+
+  function dispatchEvolustr(method) {
+    return whenSignerHasSession().then(function () {
+      return dispatchRpc(method, []);
+    });
+  }
+
+  // ── Evolustr: signing the signer's own vault in passthrough mode ────────────
+  // With an extension or bunker the signer iframe has no key, so it asks us to
+  // sign its vault event (kind 30078, d "evolustr:v1:signer:…") with it. The
+  // event content is encrypted for the signer; the iframe checks the signature.
+  // Nothing else is signed this way.
+  function signForSigner(data) {
+    const requestId = data.requestId;
+    const reply = function (msg) {
+      const cw = iframeWindow();
+      if (cw)
+        cw.postMessage(
+          Object.assign({ type: "EVOLUSTR_SIGN_RESULT", requestId: requestId }, msg),
+          config._bunkerMessageOrigin,
+        );
+    };
+    const ev = data.event;
+    const dTag =
+      ev && Array.isArray(ev.tags)
+        ? ev.tags.find(function (t) { return Array.isArray(t) && t[0] === "d"; })
+        : null;
+    if (
+      typeof requestId !== "string" ||
+      !ev || ev.kind !== 30078 ||
+      !dTag || typeof dTag[1] !== "string" || dTag[1].indexOf("evolustr:v1:signer:") !== 0
+    ) {
+      reply({ error: "Only the signer's own Evolustr vault can be signed this way" });
+      return;
+    }
+    if (activeMode !== MODE_WNJ || !wnjNostr) {
+      reply({ error: "No extension or bunker is signing for this page" });
+      return;
+    }
+    Promise.resolve()
+      .then(function () {
+        return wnjNostr.signEvent({
+          kind: ev.kind,
+          created_at: ev.created_at,
+          tags: ev.tags,
+          content: ev.content,
+        });
+      })
+      .then(
+        function (signed) { reply({ event: signed }); },
+        function (err) { reply({ error: (err && err.message) || "Signing was refused" }); },
+      );
+  }
+
   // ── NIP-46 RPC dispatcher ────────────────────────────────────────────────────
+  // Evolustr methods may wait for the user to click inside the signer (a
+  // passkey, a prompt), so they get no timeout.
   function dispatchRpc(method, params) {
     return new Promise(function (resolve, reject) {
       if (authState === "unknown") {
@@ -681,7 +791,7 @@
       // Collision-resistant ID: monotonic counter + random suffix
       const id =
         "req_" + reqCounter++ + "_" + Math.random().toString(36).slice(2, 8);
-      const timer = setTimeout(function () {
+      const timer = method.indexOf("evolustr_") === 0 ? null : setTimeout(function () {
         delete pendingRequests[id];
         reject(
           new Error(
@@ -802,6 +912,22 @@
           if (activeMode === MODE_WNJ && wnjNostr && wnjNostr.nip44)
             return wnjNostr.nip44.decrypt(senderHex, ciphertext);
           return dispatchRpc("nip44_decrypt", [senderHex, ciphertext]);
+        },
+      },
+
+      // Evolustr Signer API: always answered by the signer iframe, also when an
+      // extension or bunker signs (the iframe derives the keys; it asks the
+      // extension or bunker only to sign its own vault event). The signer
+      // identifies the app by this page's origin, never by anything sent here.
+      evolustr: {
+        capabilities() {
+          return dispatchEvolustr("evolustr_capabilities");
+        },
+        getWrapKey() {
+          return dispatchEvolustr("evolustr_get_wrap_key");
+        },
+        enrollPasskey() {
+          return dispatchEvolustr("evolustr_enroll_passkey").then(function () {});
         },
       },
     };
