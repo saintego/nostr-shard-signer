@@ -131,6 +131,9 @@
       "the Update Domains tab if the clientId is already registered, or add it to " +
       WEB3AUTH_ALLOWLIST + ". Either one authorizes it. The registry lookup is cached per tab, " +
       "so reload in a new tab afterwards.",
+    NESTED_FRAME:
+      "The page using the signer must be the top-level window. Inside another site's frame it " +
+      "can't sign in, so that site can't hide or cover the signer's prompts. Open the app in its own tab.",
     NO_SIGN_IN_METHOD:
       "This signer offers no Google/Apple/X sign-in to this page (nostrOnly, or no shared " +
       "sign-in on this signer), and no NIP-07 extension or NIP-46 bunker is available " +
@@ -158,6 +161,9 @@
     NOT_ALLOWLISTED:
       "Sign-in works because the origin is in the NIP-33 registry. Also add it to " +
       WEB3AUTH_ALLOWLIST + ".",
+    SHARED_BLOCKED:
+      "The hosted signer's operator turned shared sign-in off for this site. Extension and " +
+      "bunker sign-in still work. For Google/Apple/X, pass your own Web3Auth clientId.",
   };
 
   // ── State ────────────────────────────────────────────────────────────────────
@@ -634,7 +640,8 @@
             "nostr-bridge: no clientId, so Google/Apple/X sign-in goes through the signer's " +
               "shared project: every site using it gives a user the same npub. It is free while " +
               "donations cover it and may be limited or become paid. Pass your own clientId " +
-              "for keys of your own, or nostrOnly: true to turn it off. Docs: " + DOCS_URL,
+              "for keys of your own, or nostrOnly: true to turn it off (pages without a clientId " +
+              "were Nostr-only before shared sign-in). Docs: " + DOCS_URL,
           );
         else
           console.warn(

@@ -31,6 +31,8 @@ export interface PendingConfirmation {
   evolustr?: EvolustrPrompt;
   /** How many more confirmations wait behind this one. */
   waiting?: number;
+  /** Counts prompts, so each one mounts fresh (its click guard starts over, #62). */
+  seq?: number;
 }
 
 export type ViewName =

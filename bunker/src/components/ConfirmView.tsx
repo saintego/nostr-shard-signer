@@ -1,17 +1,19 @@
 import type { PendingConfirmation } from '../types';
 import { describeRequest } from '../lib/approval';
+import { GuardedButton } from './GuardedButton';
 
 interface Props {
     confirmation: PendingConfirmation;
     /** The host page asking. */
     origin: string;
+    /** The signed-in user's pubkey: a decrypt of data they encrypted to themselves gets a warning (#63). */
+    ownPubkey?: string;
     onApprove: () => void;
     onReject: () => void;
 }
 
-export function ConfirmView({ confirmation, origin, onApprove, onReject }: Props) {
+export function ConfirmView({ confirmation, origin, ownPubkey, onApprove, onReject }: Props) {
     const { method, params, waiting = 0 } = confirmation;
-    const { title, summary, warning } = describeRequest(method, params);
 
     let detail: string;
     try {
@@ -26,6 +28,7 @@ export function ConfirmView({ confirmation, origin, onApprove, onReject }: Props
 
     let site = origin;
     try { site = new URL(origin).host; } catch (_) { }
+    const { title, summary, warning } = describeRequest(method, params, { ownPubkey, site });
 
     return (
         <div id="view-confirm" className="view active">
@@ -41,9 +44,9 @@ export function ConfirmView({ confirmation, origin, onApprove, onReject }: Props
                 <button className="action-btn btn-secondary" onClick={onReject}>
                     Reject
                 </button>
-                <button className="action-btn btn-primary" onClick={onApprove}>
+                <GuardedButton className="action-btn btn-primary" onClick={onApprove}>
                     Approve
-                </button>
+                </GuardedButton>
             </div>
             {waiting > 0 && (
                 <p className="confirm-waiting">{waiting} more {waiting === 1 ? 'request' : 'requests'} waiting</p>

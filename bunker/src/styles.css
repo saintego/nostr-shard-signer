@@ -262,6 +262,13 @@ body {
   transition: background 0.15s;
 }
 .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+/* A guarded button waiting to arm (src/lib/clickGuard.ts): no opacity, filter or
+   transform, or the browser could never vouch that it is visible. */
+.action-btn[data-armed="false"]:disabled,
+.copy-btn[data-armed="false"]:disabled { opacity: 1; cursor: progress; }
+.btn-primary[data-armed="false"]:disabled { background: #a78bfa; }
+.btn-secondary[data-armed="false"]:disabled,
+.copy-btn[data-armed="false"]:disabled { color: #9ca3af; }
 .btn-primary { background: #7c3aed; color: #fff; }
 .btn-primary:hover:not(:disabled) { background: #6d28d9; }
 .btn-danger { background: #fee2e2; color: #dc2626; }

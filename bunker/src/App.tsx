@@ -2,11 +2,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Web3Auth } from '@web3auth/modal';
 
 import type { ViewName, UserProfile, KeyInfo, PendingConfirmation, EvolustrPrompt, EvolustrAnswer } from './types';
-import { validateEmbedding, isLocalhostOrigin } from './lib/origin';
+import { validateEmbedding, isLocalhostOrigin, isNestedFrame } from './lib/origin';
+import { openConfirmPopup, askInPopup } from './lib/confirmPopup';
+import { needsTopLevelPrompt } from './lib/approval';
+import { bytesToHex } from './lib/hex';
+import { ReviewInPopupView } from './components/ReviewInPopupView';
 import { checkAuthorization } from './lib/registry';
 import type { Authorization } from './lib/registry';
 import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
-import { sharedClientIdFor } from './lib/shared';
+import { isOriginBlocked, sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
+import { fetchSharedBlocklist } from './lib/blocklist';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
@@ -69,9 +74,15 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     const { nostrSigner, protocol, poweredBy, nostrOnly } = urlParams;
     // Shared mode: no clientId from the page, so the signer's own project is
     // used (src/lib/shared.ts). Nostr-only pages get no Web3Auth at all.
-    const sharedClientId = sharedClientIdFor(urlParams.clientId, nostrOnly);
+    const sharedClientId = sharedClientIdFor(urlParams.clientId, nostrOnly, parentOrigin);
+    // On the built-in block list: the page would get shared sign-in otherwise (#65).
+    const blockedBuiltIn = !sharedClientId && wantsSharedSignIn(urlParams.clientId, nostrOnly);
     const shared = !!sharedClientId;
     const clientId = shared ? sharedClientId : nostrOnly ? '' : urlParams.clientId;
+    // Sensitive prompts in a popup the page can't cover (#62): in shared mode any
+    // site may embed the signer; self-hosters can turn it on everywhere.
+    const popupPrompts = shared || import.meta.env.VITE_POPUP_CONFIRM === 'always';
+    const [popupError, setPopupError] = useState('');
 
     // ── View routing ──────────────────────────────────────────────────────────
     const [view, setView] = useState<ViewName>('loading');
@@ -116,6 +127,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // Where to go back to once the queue is empty (the settings, when a passkey
     // step started there).
     const afterConfirmViewRef = useRef<ViewName>('avatar');
+    const promptSeqRef = useRef(0);
 
     // ── Evolustr Signer API (src/lib/evolustr.ts) ─────────────────────────────
     const evolustrRef = useRef<EvolustrSigner | null>(null);
@@ -202,7 +214,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             setView(v => (v === 'confirm' ? afterConfirmViewRef.current : v));
             return;
         }
-        setPendingConf({ method: queue[0].method, params: queue[0].params, evolustr: queue[0].evolustr, waiting: queue.length - 1 });
+        promptSeqRef.current += 1;
+        setPopupError('');
+        setPendingConf({ method: queue[0].method, params: queue[0].params, evolustr: queue[0].evolustr, waiting: queue.length - 1, seq: promptSeqRef.current });
         setView('confirm');
     }, []);
 
@@ -528,6 +542,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Unauthorized context', 'This signer must be embedded in an authorized page.', 'NOT_EMBEDDED');
                 return;
             }
+            // Only the direct parent's origin is known: a third site framing it
+            // would control what the user sees around the signer (#62).
+            if (isNestedFrame()) {
+                showError('Unsupported embedding', 'The page using this signer must not be inside another frame.', 'NESTED_FRAME');
+                return;
+            }
 
             // 2. Protocol handshake: refuse a bridge this signer can't talk to
             // instead of misreading its messages.
@@ -535,12 +555,35 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Version mismatch', `nostr-bridge.js speaks protocol ${protocol}; this signer supports ${SUPPORTED_PROTOCOLS.join(', ')}.`, 'PROTOCOL_UNSUPPORTED');
                 return;
             }
+            // Web3Auth init shows no UI and exposes nothing until a session is
+            // resolved below, so it runs while the domain (or, in shared mode,
+            // the block list) is being checked.
+            const startInit = () => initWeb3Auth(clientId).then(
+                w3a => ({ w3a, err: null as unknown }),
+                (err: unknown) => ({ w3a: null, err }),
+            );
+            let earlyInit: ReturnType<typeof startInit> | null = null;
+            // Shared mode: the operator's signed block list (#65), so a site can
+            // be blocked without a deploy. On failure, the built-in list only.
+            let blocked = blockedBuiltIn;
+            if (shared) {
+                earlyInit = startInit();
+                if (ROOT_PUBKEY_VALID) {
+                    const list = await fetchSharedBlocklist(ROOT_PUBKEY_HEX, REGISTRY_RELAYS).catch(() => []);
+                    if (cancelled) return;
+                    if (isOriginBlocked(parentOrigin, list)) blocked = true;
+                }
+            }
+            // Blocked: no Google/Apple/X, also when the page passed the shared clientId itself.
+            const pageClientId = blocked ? '' : clientId;
+
             // oauth tells the bridge which Google/Apple/X sign-in the page gets:
             // its own clientId, the shared project, or none.
-            postToParent({ type: 'SIGNER_HELLO', protocol, oauth: !clientId ? 'none' : shared ? 'shared' : 'own' });
+            postToParent({ type: 'SIGNER_HELLO', protocol, oauth: !pageClientId ? 'none' : shared ? 'shared' : 'own' });
+            if (blocked) warnParent('SHARED_BLOCKED', "Shared sign-in isn't available for this site. Use your own clientId.");
 
             // 3. No clientId: no Web3Auth, the Sign in button opens the Nostr signer.
-            if (!clientId) {
+            if (!pageClientId) {
                 if (!nostrSigner) {
                     showError('No sign-in method', 'No clientId was given and no Nostr signer is available on the page.', 'NO_SIGN_IN_METHOD');
                     return;
@@ -550,12 +593,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            // Web3Auth init shows no UI and exposes nothing until a session is
-            // resolved below, so run it while the domain is being checked.
-            const w3aInit = initWeb3Auth(clientId).then(
-                w3a => ({ w3a, err: null }),
-                (err: unknown) => ({ w3a: null, err }),
-            );
+            const w3aInit = earlyInit ?? startInit();
             console.log('[signer] initWeb3Auth: start');
 
             // 4–5. Domain authorization. Shared mode is open to every site, so
@@ -862,6 +900,29 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         showNextConfirmation();
     }, [showNextConfirmation]);
 
+    // Shared mode (#62): the prompt opens in a popup; its answer applies to the
+    // request it was opened for, even if the queue moved on meanwhile.
+    const handleReviewInPopup = useCallback(() => {
+        const head = confQueueRef.current[0];
+        if (!head) return;
+        openConfirmPopup(); // synchronously, in this click
+        setPopupError('');
+        const request = head.evolustr
+            ? { kind: 'evolustr' as const, origin: parentOrigin, prompt: head.evolustr }
+            : { kind: 'rpc' as const, origin: parentOrigin, method: head.method, params: head.params, ...(keyInfo ? { ownPubkey: keyInfo.publicKeyHex } : {}) };
+        askInPopup(request).then(answer => {
+            if (confQueueRef.current[0] !== head) return;
+            if (head.evolustr) handleEvolustrAnswer(answer === 'closed' || answer === 'approve' || answer === 'reject' || answer === 'done' ? 'deny' : answer);
+            else if (answer === 'approve') handleApprove();
+            else handleReject();
+        }, (e: Error) => setPopupError(e.message));
+    }, [parentOrigin, keyInfo, handleApprove, handleReject, handleEvolustrAnswer]);
+
+    const handleRejectHead = useCallback(() => {
+        if (confQueueRef.current[0]?.evolustr) handleEvolustrAnswer('deny');
+        else handleReject();
+    }, [handleEvolustrAnswer, handleReject]);
+
     const handleForgetApp = useCallback((appId: string) => {
         if (!keyInfo) return;
         const next = loadAllowedApps(keyInfo.publicKeyHex).filter(a => a !== appId);
@@ -960,6 +1021,20 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         recordBackup(pk, keyInfo.publicKeyHex, method, publishRelays);
     }, [keyInfo, publishRelays]);
 
+    // Shared mode: the key is shown in the popup, not in the iframe (#62).
+    const handleExportKey = useCallback(() => {
+        const pk = privateKeyRef.current;
+        if (!popupPrompts || !pk || !keyInfo) {
+            setView('export');
+            return;
+        }
+        openConfirmPopup();
+        askInPopup(
+            { kind: 'export', nsecStr: keyInfo.nsecStr, npubStr: keyInfo.npubStr, privateKeyHex: bytesToHex(pk), shared },
+            e => handleBackedUp(e.backedUp),
+        ).catch(() => setView('export'));
+    }, [popupPrompts, keyInfo, shared, handleBackedUp]);
+
     const handleBackupLater = useCallback(() => {
         if (keyInfo) snoozeBackupPrompt(keyInfo.publicKeyHex);
         setBackupAsk(false);
@@ -993,9 +1068,24 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             : null;
     }
 
+    if (view === 'confirm' && pendingConf && popupPrompts &&
+        (pendingConf.evolustr ? pendingConf.evolustr.kind === 'appKey' : needsTopLevelPrompt(pendingConf.method, pendingConf.params))) {
+        return (
+            <ReviewInPopupView
+                key={pendingConf.seq}
+                origin={parentOrigin}
+                waiting={pendingConf.waiting}
+                onReview={handleReviewInPopup}
+                onReject={handleRejectHead}
+                error={popupError}
+            />
+        );
+    }
+
     if (view === 'confirm' && pendingConf?.evolustr) {
         return (
             <EvolustrPromptView
+                key={pendingConf.seq}
                 prompt={pendingConf.evolustr}
                 origin={parentOrigin}
                 waiting={pendingConf.waiting}
@@ -1007,8 +1097,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     if (view === 'confirm' && pendingConf) {
         return (
             <ConfirmView
+                key={pendingConf.seq}
                 confirmation={pendingConf}
                 origin={parentOrigin}
+                {...(keyInfo ? { ownPubkey: keyInfo.publicKeyHex } : {})}
                 onApprove={handleApprove}
                 onReject={handleReject}
             />
@@ -1041,7 +1133,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 backupAsk={backupAsk}
                 onBackupLater={handleBackupLater}
                 onSaveProfile={handleSaveProfile}
-                onExportKey={() => setView('export')}
+                onExportKey={handleExportKey}
                 onLogout={handleLogout}
                 onRelaysChange={handleRelaysChange}
                 onAutoApproveChange={handleAutoApproveChange}
