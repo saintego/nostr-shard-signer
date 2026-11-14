@@ -14,8 +14,9 @@ npm install nostr-shard-signer
 import { loadNostrBridge } from "nostr-shard-signer";
 
 // Client-side only (it rejects without `window`). Safe to call more than once.
+// No config needed: Google/Apple/X through shared sign-in (see Setup).
 const NostrBridge = await loadNostrBridge({
-  clientId: "YOUR_WEB3AUTH_CLIENT_ID", // optional: adds Google/Apple/X sign-in
+  // clientId: "YOUR_WEB3AUTH_CLIENT_ID", // optional: your own Web3Auth project
 });
 
 NostrBridge.onAuthChange(({ loggedIn, pubkey }) => {
@@ -36,23 +37,23 @@ React:
 ```tsx
 useEffect(() => {
   let off = () => {};
-  loadNostrBridge({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" }).then((bridge) => {
+  loadNostrBridge().then((bridge) => {
     off = bridge.onAuthChange(setAuth);
   });
   return () => off();
 }, []);
 ```
 
-`loadNostrBridge(config)` takes the same options as `NostrBridge.init(config)`: `clientId`, `layout`, `buttonSize`, `mountSelector`, `forceIframe`, `poweredBy`, and `bunkerOrigin` for a self-hosted signer.
+`loadNostrBridge(config)` takes the same options as `NostrBridge.init(config)`: `clientId`, `nostrOnly`, `layout`, `buttonSize`, `mountSelector`, `forceIframe`, `poweredBy`, and `bunkerOrigin` for a self-hosted signer.
 
 ## OAuth login on Nostr
 
-With a Web3Auth `clientId`, the **Sign in** sheet offers Google, Apple and X. Web3Auth checks the login and its MPC network returns the user's key, split into shares so no single party holds it. The key is put back together only in the signer iframe and becomes the user's Nostr keypair. Signing in again with the same account gives the same key; nothing is stored on your server.
+The **Sign in** sheet offers Google, Apple and X, through your own Web3Auth `clientId` or, without one, the hosted signer's shared project. Web3Auth checks the login and its MPC network returns the user's key, split into shares so no single party holds it. The key is put back together only in the signer iframe and becomes the user's Nostr keypair. Signing in again with the same account gives the same key; nothing is stored on your server.
 
 - The npub is a normal Nostr identity that works in every client. The widget's profile menu has an **Export key** button, so users can take their nsec to an extension or bunker at any time.
-- Keys belong to your Web3Auth project: the same Google account gets a different npub in an app with another `clientId`. **Never change the `clientId` of a live app**, or OAuth users get new, empty identities.
+- Keys belong to the Web3Auth project: the same Google account gets a different npub in an app with another `clientId` (shared sign-in is one more project). **Never change the `clientId` of a live app**, add one to an app that used shared sign-in, or remove it, or OAuth users get new, empty identities.
 - Google, Apple and X are separate identities with separate keys.
-- The signer keeps the key away from your page's code, not from the owner of the `clientId`: whoever owns the Web3Auth project decides which sites may use it, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. Users trust an app's owner with the identity they create in that app.
+- The signer keeps the key away from your page's code, not from the owner of the `clientId`: whoever owns the Web3Auth project decides which sites may use it, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. Users trust an app's owner with the identity they create in that app. With shared sign-in, that owner is whoever runs the hosted signer.
 
 Why use it: onboarding without a browser extension or nsec paste, drop-in NIP-07 (code written for Alby or nos2x works unchanged), extension and bunker users in the same button, the key out of reach of your page's code and XSS, and no backend to run. The [README](https://github.com/saintego/nostr-shard-signer#readme) compares it with other approaches and has a FAQ.
 
@@ -66,11 +67,17 @@ The package types `NostrBridge` and exports its interfaces (`NostrBridgeConfig`,
 
 ## Setup
 
-### Nostr-only sign-in: nothing to set up
+### Shared sign-in: nothing to set up
 
-Call `loadNostrBridge()` without a `clientId`. Users sign in with a NIP-07 browser extension (Alby, nos2x…) or a NIP-46 bunker (Amber, nsecBunker…). The console warns that Google/Apple/X sign-in is off; that's expected.
+Call `loadNostrBridge()` without a `clientId`. Users sign in with Google, Apple or X through the hosted signer's own Web3Auth project, or with a NIP-07 browser extension (Alby, nos2x…) or a NIP-46 bunker (Amber, nsecBunker…).
 
-### Google/Apple/X sign-in: a Web3Auth project (once)
+- It works on any site, and a user gets the same npub on every site that uses it.
+- It is free while donations cover its Web3Auth bill, and may later be limited per site, become paid, or be turned off. Moving a live app to its own `clientId` then gives its OAuth users new npubs, so if you'll need your own keys or predictable costs, start with your own project (below).
+- Whoever runs the hosted signer can obtain shared-mode users' keys. Sites can't: the shared project's allowlist lists only the signer's origin.
+
+For Nostr-only sign-in (no Google/Apple/X), pass `nostrOnly: true`.
+
+### Your own Web3Auth project (optional, once)
 
 Social login goes through [Web3Auth](https://web3auth.io): the user signs in with Google, Apple or X, and Web3Auth's MPC network gives the signer iframe the user's key, which never leaves that iframe. You use your own Web3Auth project, and declare which sites may use it, so other sites can't use your project (and its quota).
 

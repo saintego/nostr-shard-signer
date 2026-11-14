@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { UserProfile, KeyInfo } from '../types';
 import { KIND_GROUPS } from '../lib/approval';
+import { SUPPORT_URL } from '../lib/shared';
 
 type TabId = 'profile' | 'keys' | 'settings';
 
@@ -13,6 +14,8 @@ interface Props {
     /** The host page; auto-approve settings apply to it only. */
     origin: string;
     isWnjMode?: boolean;
+    /** Signed in through the shared project (src/lib/shared.ts), not the app's own. */
+    shared?: boolean;
     /** The user hasn't backed up their key yet: show the backup banner. */
     backupAsk?: boolean;
     onBackupLater?: () => void;
@@ -33,6 +36,7 @@ export function ProfileModal({
     autoApproveKinds,
     origin,
     isWnjMode = false,
+    shared = false,
     backupAsk = false,
     onBackupLater,
     onSaveProfile,
@@ -257,8 +261,17 @@ export function ProfileModal({
                         <div className="tab-content">
                             <div className="export-warning">
                                 ⚠️&ensp;Your secret key grants <strong>full control</strong> of your Nostr identity.
-                                Copying it doesn't take it away from this app: whoever runs it can still obtain it.
+                                Copying it doesn't take it away from {shared ? 'the shared sign-in you used' : 'this app'}:
+                                whoever runs it can still obtain it.
                             </div>
+                            {shared && (
+                                <p className="settings-hint">
+                                    You signed in through the shared sign-in of Nostr Shard Signer, so this
+                                    key is the same on every site that uses it. It is free while donations
+                                    cover its costs and may be limited or turned off, so keep a backup.
+                                    {SUPPORT_URL && <> <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">Support it</a></>}
+                                </p>
+                            )}
                             <div className="key-section">
                                 <label>Public key (npub)</label>
                                 <div className="key-row">

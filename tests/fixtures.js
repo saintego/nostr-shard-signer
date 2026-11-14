@@ -1,5 +1,5 @@
 import { test as base, expect } from "@playwright/test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -13,6 +13,11 @@ export const SIGNER_ORIGIN = "http://signer.test";
 export const BUNKER = SIGNER_ORIGIN + "/nostr-shard-signer";
 export const APP = "http://app.test";
 export const PUBKEY = "a".repeat(64);
+
+// Whether the built signer offers shared sign-in (bunker/src/lib/shared.ts).
+const sharedTs = readFileSync(path.join(root, "bunker/src/lib/shared.ts"), "utf8");
+export const SHARED_SIGN_IN =
+  /SHARED_CLIENT_ID = '[^']+'/.test(sharedTs) && /SHARED_MODE_ON = true/.test(sharedTs);
 
 if (!existsSync(path.join(dist, "index.html")))
   throw new Error("bunker/dist is missing: run `npm run build` first (npm test does it)");
@@ -97,6 +102,16 @@ export function waitForAuth(page, loggedIn) {
       }),
     loggedIn,
   );
+}
+
+// The signer's SIGNER_HELLO messages to the app page, in window.signerHellos.
+export function collectSignerHellos(page) {
+  return page.addInitScript((signerOrigin) => {
+    window.signerHellos = [];
+    window.addEventListener("message", (e) => {
+      if (e.origin === signerOrigin && e.data?.type === "SIGNER_HELLO") window.signerHellos.push(e.data);
+    });
+  }, SIGNER_ORIGIN);
 }
 
 // Collects the bridge's SIGNER_ERROR events (origin "") into window.signerErrors.

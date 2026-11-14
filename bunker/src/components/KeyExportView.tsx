@@ -9,11 +9,13 @@ interface Props {
     /** The user copied or downloaded a backup. */
     onBackedUp: (method: BackupMethod) => void;
     onBack: () => void;
+    /** Signed in through the shared project (src/lib/shared.ts), not the app's own. */
+    shared?: boolean;
 }
 
 const MIN_PASSWORD = 8;
 
-export function KeyExportView({ nsecStr, npubStr, onEncrypt, onBackedUp, onBack }: Props) {
+export function KeyExportView({ nsecStr, npubStr, onEncrypt, onBackedUp, onBack, shared = false }: Props) {
     const [nsecVisible, setNsecVisible] = useState(false);
     const [nsecCopied, setNsecCopied] = useState(false);
     const [npubCopied, setNpubCopied] = useState(false);
@@ -160,7 +162,7 @@ export function KeyExportView({ nsecStr, npubStr, onEncrypt, onBackedUp, onBack 
                 ⚠️&ensp;Your secret key grants <strong>full control</strong> of your Nostr identity.
                 Never share it with anyone. Store it somewhere safe.
                 <br />
-                A backup doesn't take the key away from this app: <strong>whoever runs it can still obtain
+                A backup doesn't take the key away from {shared ? 'the shared sign-in you used' : 'this app'}: <strong>whoever runs it can still obtain
                 it</strong>, and Nostr keys can't be changed. For an identity nobody else can obtain, create
                 a new key in a signer of your own.
             </div>
