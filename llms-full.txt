@@ -21,6 +21,8 @@ Shared sign-in, what to tell the developer:
 
 Nostr-only sign-in (extension or NIP-46 bunker, no Google/Apple/X): `NostrBridge.init({ nostrOnly: true })`.
 
+Behaviour change: before shared sign-in, `init()` without a `clientId` meant Nostr-only sign-in, and pages that load the hosted bridge get the new default by themselves. When editing an existing page that calls `init()` without a `clientId` and was meant for extension and bunker users only, add `nostrOnly: true`.
+
 For Google/Apple/X sign-in with keys of the app's own Web3Auth project:
 
 1. Create a Web3Auth project (Sapphire Mainnet) at https://web3auth.io and copy its client ID.

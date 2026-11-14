@@ -637,7 +637,8 @@
             "nostr-bridge: no clientId, so Google/Apple/X sign-in goes through the signer's " +
               "shared project: every site using it gives a user the same npub. It is free while " +
               "donations cover it and may be limited or become paid. Pass your own clientId " +
-              "for keys of your own, or nostrOnly: true to turn it off. Docs: " + DOCS_URL,
+              "for keys of your own, or nostrOnly: true to turn it off (pages without a clientId " +
+              "were Nostr-only before shared sign-in). Docs: " + DOCS_URL,
           );
         else
           console.warn(

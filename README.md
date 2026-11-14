@@ -71,6 +71,8 @@ A page that passes no `clientId` gets Google/Apple/X sign-in through the hosted 
 
 To opt out, pass your own `clientId` (keys of your project, your Web3Auth bill), or `nostrOnly: true` (extension and bunker sign-in only). The console says which sign-in the page got.
 
+> **Existing pages without a `clientId`: this changes what they offer.** Before shared sign-in, `NostrBridge.init()` without a `clientId` meant extension and bunker sign-in only. Pages that load the hosted `nostr-bridge.js` get the new behaviour without a release on their side: once shared sign-in is live they offer Google/Apple/X too, with keys the signer's operator can obtain, one npub shared with every other shared-mode site, and users counted on the shared project's bill. To keep Nostr-only sign-in, add `nostrOnly: true` (or `data-nostr-only="true"` on the script tag). See the [Changelog](#changelog).
+
 ## Why nostr-shard-signer
 
 - **Onboarding without Nostr knowledge.** New users start with a Google, Apple or X login, not a key-management lesson.
@@ -459,7 +461,7 @@ A release is only needed when the types or the loader change. Changes to `nostr-
 
    This edits `npm/package.json` and `package-lock.json` only (no git tag). Commit, open a PR, merge. Use npm 11 (`npm install -g npm@11`, or Node 24): npm 10 rewrites the lockfile, dropping its `libc` entries.
 
-2. **Create a GitHub release** from `main`: Releases → Draft a new release → new tag `npm-v<version>` (e.g. `npm-v0.1.1`), target `main`, title `nostr-shard-signer <version>`, notes on what changed for package users → Publish release.
+2. **Create a GitHub release** from `main`: Releases → Draft a new release → new tag `npm-v<version>` (e.g. `npm-v0.1.1`), target `main`, title `nostr-shard-signer <version>`, notes: the version's entry from the [Changelog](#changelog), behaviour changes first → Publish release.
 
 3. The **Stage npm package** workflow (`.github/workflows/npm-publish.yml`) checks that the tag matches `npm/package.json` and isn't published yet, runs `npm test`, and **stages** the version with provenance: it is uploaded to npm but not public yet. Check the run in the Actions tab; its summary repeats the next step.
 
@@ -870,6 +872,31 @@ If you are contributing or using this in production, please be aware of the foll
 
 - [ ] **Extension Override Lockout:** If a user has a NIP-07 extension installed (like Alby), the bridge detects it and completely skips the Web3Auth iframe. Currently, if an Alby user _wants_ to log in with Google, there is no UI toggle to let them do so.
   - **Workaround:** Parent apps must manually implement two login buttons and call `NostrBridge.init({ forceIframe: true })` to bypass the extension check.
+
+---
+
+## Changelog
+
+Changes to `nostr-bridge.js` and the signer reach every page that loads them from the hosted signer, without a release on the page's side. Behaviour changes are listed first. Each npm release copies its entry into the GitHub release notes.
+
+### Unreleased: shared sign-in (npm 0.2.0)
+
+**Changed behaviour, for pages that pass no `clientId`:**
+
+- `NostrBridge.init()` without a `clientId` now gets Google/Apple/X sign-in through the hosted signer's own Web3Auth project ([shared sign-in](#shared-sign-in-no-clientid)). Before, it meant extension and bunker sign-in only. For such a page this means:
+  - it offers a sign-in whose keys the signer's operator can obtain;
+  - its OAuth users get one npub shared with every other shared-mode site;
+  - its users count on the shared project's bill, which donations cover for now; it may be limited, become paid or be turned off.
+- **To keep Nostr-only sign-in, add `nostrOnly: true`** (or `data-nostr-only="true"` on the script tag). Pages that loaded the hosted bridge for extension and bunker users only should do this before shared sign-in goes live.
+- The console says which sign-in a page got (`console.info` for shared sign-in).
+- A page that is itself inside another site's frame can't use the signer anymore (`NESTED_FRAME`): that site could hide or cover the signer's prompts.
+
+**Added:**
+
+- `nostrOnly` option and `data-nostr-only` attribute (npm types in 0.2.0).
+- `SIGNER_HELLO` carries `oauth: "own" | "shared" | "none"`.
+- Prompts can't be clicked through by the host page: approve buttons react after a short delay, and, in Chromium, only while nothing covers them. In shared sign-in, sensitive requests (decrypts, profile, follow-list and relay-list replacements, deletions, Evolustr app keys, key export) are confirmed in a popup on the signer's origin. Self-hosters can turn that on for every page (`POPUP_CONFIRM=always`).
+- The decrypt prompt warns when a site asks for data the user encrypted to themselves, which can be the key to another app's private data, and otherwise shows whose message it is.
 
 ---
 
