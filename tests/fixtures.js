@@ -47,6 +47,8 @@ export const test = base.extend({
         const p = url.pathname.replace(/^\/nostr-shard-signer/, "");
         if (p === "/signer.html") return route.fulfill({ path: path.join(dist, "index.html") });
         if (p.startsWith("/assets/")) return route.fulfill({ path: path.join(dist, p) });
+        if (p.startsWith("/examples/") || p === "/site-config.js")
+          return route.fulfill({ path: path.join(root, p) });
         if (p === "/nostr-bridge.js") {
           const src = await readFile(path.join(root, "nostr-bridge.js"), "utf8");
           return route.fulfill({

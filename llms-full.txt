@@ -126,7 +126,6 @@ Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, 
 | --------------- | ----------------------------------- | ---------------------------------------------------- | ----- |
 | `clientId`      | string                              | none                                                 | Web3Auth client ID; adds Google/Apple/X sign-in. Without it, only extension / bunker sign-in |
 | `bunkerOrigin`  | string (absolute URL)               | `https://saintego.github.io/nostr-shard-signer`      | Only for a self-hosted signer |
-| `registrarUrl`  | string                              | hosted registrar, when `bunkerOrigin` is the default | Only for a self-hosted signer |
 | `forceIframe`   | boolean                             | `false`                                              | `true`: ignore an installed extension and don't offer bunkers; always use Web3Auth. Ignored without `clientId` |
 | `layout`        | `"floating"` \| `"in-place"`        | `"floating"`                                         | Floating widget sits bottom-right |
 | `buttonSize`    | `"standard"` \| `"large_social_grid"` | `"standard"`                                       | |
@@ -209,7 +208,7 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 | `NOT_IN_REGISTRY` (warning) | The origin is allowlisted in Web3Auth but not registered in the portal | Register it in the portal so sign-in keeps working when the allowlist can't be read |
 | `NOT_ALLOWLISTED` (warning) | The origin is registered in the portal but not in the Web3Auth allowlist | Add it to the Web3Auth Allowlist URLs |
 | `WEB3AUTH_INIT_FAILED` | Wrong clientId, or the signer origin is not allowlisted | Check the clientId; add `https://saintego.github.io` to the Web3Auth Allowlist URLs |
-| `MISSING_ROOT_PUBKEY` | The signer can't reach the registrar | Omit `bunkerOrigin`/`registrarUrl` to use the defaults; if self-hosting, fix `registrarUrl` |
+| `MISSING_ROOT_PUBKEY` | The signer was built without a registry root key, and the origin isn't in the Web3Auth allowlist | Omit `bunkerOrigin` to use the hosted signer; if self-hosting, build it with `VITE_ROOT_PUBKEY_HEX` |
 | `NOT_EMBEDDED` | `signer.html` was opened directly | Only load it through `nostr-bridge.js` |
 | `PROTOCOL_UNSUPPORTED` | `nostr-bridge.js` and the signer at `bunkerOrigin` are different versions (e.g. a copied or CDN-pinned bridge with a newer or self-hosted signer) | Load `nostr-bridge.js` from `<bunkerOrigin>/nostr-bridge.js`, or use the npm package's `loadNostrBridge()`, which does that |
 | `LOGIN_FAILED` | The OAuth login failed (not cancelled) | Usually transient; the user can retry |
@@ -246,4 +245,4 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 
 ## 9. Self-hosting
 
-Self-hosting means your own GitHub Pages signer, Cloudflare Worker registrar and root key. Pass `bunkerOrigin` and `registrarUrl`. See "Deployment" in https://github.com/saintego/nostr-shard-signer#readme.
+Self-hosting means your own GitHub Pages signer, Cloudflare Worker registrar and root key. Build the signer with your registrar's root key (`VITE_ROOT_PUBKEY_HEX`) and pass `bunkerOrigin`. See "Deployment" in https://github.com/saintego/nostr-shard-signer#readme.

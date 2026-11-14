@@ -8,7 +8,12 @@
   Apple or X, and a Nostr extension or bunker.
     ?clientId=<id>     another client ID (registered for this page's origin)
     ?clientId=none     extension / bunker sign-in only
-    &bunker=<url>      a signer elsewhere
+    &bunker=<url>      another signer path on this page's origin
+
+  The bridge is only loaded from this page's own origin: this page is served
+  from the signer's origin, so a script from elsewhere would run with access to
+  the signer's keys and sessions. To test another signer, open the copy of this
+  page that ships with that signer's deployment.
 -->
 <html lang="en">
   <head>
@@ -38,11 +43,20 @@
       (function () {
         const q = new URLSearchParams(location.search);
         const clientId = q.get("clientId") ?? window.NOSTR_SHARD_SITE.portalClientId;
-        // The bridge from the same signer it talks to.
-        const bunker = q.get("bunker") || location.href.replace(/\/examples\/.*$/, "");
+        // The bridge from the same signer it talks to, and only from this
+        // origin (see the comment at the top).
+        let bunker = location.href.replace(/\/examples\/.*$/, "");
+        const given = q.get("bunker");
+        if (given) {
+          try {
+            const u = new URL(given, location.href);
+            if (u.origin === location.origin) bunker = u.href.replace(/[?#].*$/, "").replace(/\/$/, "");
+            else console.warn("evolustr example: ignoring bunker on another origin");
+          } catch (_) { /* keep the default */ }
+        }
         window.TEST_CONFIG = { bunkerOrigin: bunker, clientId: clientId === "none" ? undefined : clientId };
         const s = document.createElement("script");
-        s.src = bunker + "/nostr-bridge.js";
+        s.src = bunker + "/nostr-bridge.js"; // static-src-ok: same origin only, checked above
         s.onload = () => window.dispatchEvent(new Event("bridge-loaded"));
         document.head.appendChild(s);
       })();

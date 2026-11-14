@@ -49,8 +49,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The registry root key is built into the signer, so pages can't choose
+      # it (#59). Set the repository variable ROOT_PUBKEY_HEX to the value of
+      # the registrar's GET /pubkey; REGISTRY_RELAYS (comma-separated) is optional.
       - name: Build signer (Vite)
-        run: npm run build --workspace=bunker
+        run: |
+          if ! echo "$VITE_ROOT_PUBKEY_HEX" | grep -qiE '^[0-9a-f]{64}$'; then
+            echo "::error::Repository variable ROOT_PUBKEY_HEX is missing or not 64 hex characters"
+            exit 1
+          fi
+          npm run build --workspace=bunker
+        env:
+          VITE_ROOT_PUBKEY_HEX: ${{ vars.ROOT_PUBKEY_HEX }}
+          VITE_REGISTRY_RELAYS: ${{ vars.REGISTRY_RELAYS }}
 
       # Nested under /nostr-shard-signer/ to match the GitHub Pages URL: the
       # portal loads /nostr-shard-signer/nostr-bridge.js and uses that path as
