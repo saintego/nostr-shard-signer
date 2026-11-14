@@ -12,7 +12,8 @@ const searchParams = new URLSearchParams(location.search);
 const urlParams = {
     clientId: searchParams.get('clientId') ?? '',
     buttonSize: (searchParams.get('buttonSize') ?? 'standard') as 'standard' | 'large_social_grid',
-    registrarUrl: (searchParams.get('registrarUrl') ?? '').replace(/\/$/, ''),
+    // registrarUrl, still sent by older bridges, is ignored: the registry key
+    // is fixed when the signer is built (#59).
     // Set by the bridge when a Nostr signer is available on the parent page:
     // "1" = window.nostr.js (bunkers), "extension" = a NIP-07 browser extension.
     nostrSigner: ({ '1': 'bunker', extension: 'extension' } as const)[searchParams.get('nostrSigner') ?? ''] ?? null,

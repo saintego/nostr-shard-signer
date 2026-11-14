@@ -32,7 +32,6 @@
  *       // extension or a NIP-46 bunker only.
  *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // adds Google/Apple/X sign-in; allowlist your origin in Web3Auth
  *       bunkerOrigin:   "https://yourdomain.com/path",// self-hosted signer; defaults to the hosted one
- *       registrarUrl:   "https://registrar.example",  // defaults to the hosted registrar with the hosted signer
  *       forceIframe:    false,                        // skip native extensions if true
  *       layout:         "floating",                   // "floating" | "in-place"
  *       buttonSize:     "standard",                   // "standard" | "large_social_grid"
@@ -112,8 +111,6 @@
 
   // Hosted deployment, used when init() is called without bunkerOrigin.
   const DEFAULT_BUNKER_ORIGIN = "https://saintego.github.io/nostr-shard-signer";
-  const DEFAULT_REGISTRAR_URL =
-    "https://nostr-shard-registrar.nostr-shard-signer.workers.dev";
   const PORTAL_URL = "https://saintego.github.io/nostr-shard-signer/portal/";
   const DOCS_URL = "https://saintego.github.io/nostr-shard-signer/llms.txt";
 
@@ -138,8 +135,9 @@
       "Check that clientId is your Web3Auth client ID and that the signer origin (" +
       "https://saintego.github.io for the hosted signer) is in " + WEB3AUTH_ALLOWLIST + ".",
     MISSING_ROOT_PUBKEY:
-      "The signer could not load the registry key. With the hosted signer, omit bunkerOrigin and " +
-      "registrarUrl so the defaults are used; a self-hosted signer needs a reachable registrarUrl.",
+      "The signer was built without a registry key (VITE_ROOT_PUBKEY_HEX), so only the Web3Auth " +
+      "allowlist can authorize this origin. Omit bunkerOrigin to use the hosted signer, or rebuild " +
+      "your self-hosted signer with its registrar's key.",
     NOT_EMBEDDED:
       "signer.html only works inside the iframe that nostr-bridge.js creates; do not open or embed it directly.",
     PROTOCOL_UNSUPPORTED:
@@ -307,9 +305,6 @@
     url.searchParams.set("buttonSize", config.buttonSize || "standard");
     url.searchParams.set("parentOrigin", global.location.origin);
     url.searchParams.set("protocol", String(PROTOCOL_VERSION));
-    if (config.registrarUrl) {
-      url.searchParams.set("registrarUrl", config.registrarUrl);
-    }
     // Only sent to turn the link off, so signers default to showing it.
     if (config.poweredBy === false) url.searchParams.set("poweredBy", "0");
     // Tells the signer to offer a Nostr signer in its sign-in chooser; picking
@@ -1112,6 +1107,15 @@
 
   async function initOnce(userConfig) {
     userConfig = Object.assign({}, userConfig);
+    // Removed option: the signer's registry key is fixed when the signer is
+    // built, so a page can't point it at a registry it controls (#59).
+    if (userConfig.registrarUrl !== undefined) {
+      console.warn(
+        "nostr-bridge: registrarUrl was removed and is ignored; the signer uses the registry " +
+          "it was built with. Remove it from init().",
+      );
+      delete userConfig.registrarUrl;
+    }
     if (!userConfig.clientId) {
       console.warn(
         "nostr-bridge: no clientId, so Google/Apple/X sign-in is off; users sign in with a " +
@@ -1125,15 +1129,7 @@
         userConfig.forceIframe = false;
       }
     }
-    // With the hosted signer, the hosted registrar is the matching default: the
-    // signer needs it to verify domain registrations.
     const bunkerOriginGiven = userConfig.bunkerOrigin || DEFAULT_BUNKER_ORIGIN;
-    if (
-      !userConfig.registrarUrl &&
-      bunkerOriginGiven.replace(/\/$/, "") === DEFAULT_BUNKER_ORIGIN
-    ) {
-      userConfig.registrarUrl = DEFAULT_REGISTRAR_URL;
-    }
 
     // Sanitize bunkerOrigin: keep origin + optional path, drop query/fragment.
     // This allows project-site hosting like /nostr-shard-signer on GitHub Pages.
@@ -1548,7 +1544,7 @@
   // option) initializes itself; an explicit init() afterwards gets the same promise.
   function autoInit() {
     var ds = currentScript && currentScript.dataset;
-    var keys = ["clientId", "bunkerOrigin", "registrarUrl", "layout", "buttonSize", "mountSelector"];
+    var keys = ["clientId", "bunkerOrigin", "layout", "buttonSize", "mountSelector"];
     var flags = ["forceIframe", "poweredBy"];
     if (!ds || !keys.concat(flags).some(function (key) { return ds[key] !== undefined; }))
       return;

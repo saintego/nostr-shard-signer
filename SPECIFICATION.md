@@ -97,6 +97,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
        "#d": ["${clientId}"]
      }
      ```
+   - `YOUR_ROOT_PUBKEY` is fixed when the signer is built (`VITE_ROOT_PUBKEY_HEX`), and so are the registry relays (`VITE_REGISTRY_RELAYS`). The embedding page can't change either: a page that chose the root key could sign its own entry for any `clientId`.
    - Parse event content. If parent domain is in `allowed_domains`, proceed. Otherwise halt with: `"Domain not authorized for this Client ID."`.
    - Use in-memory session caching and a dedicated relay for speed.
 

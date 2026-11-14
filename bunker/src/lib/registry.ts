@@ -1,19 +1,6 @@
 import { SimplePool } from "nostr-tools";
 import type { RegistryContent } from "../types";
 
-export async function fetchRegistrarConfig(
-  registrarUrl: string,
-): Promise<{ pubkey?: string; relays?: string[] }> {
-  if (!registrarUrl) return {};
-  try {
-    const res = await fetch(`${registrarUrl}/pubkey`);
-    if (!res.ok) return {};
-    return (await res.json()) as { pubkey?: string; relays?: string[] };
-  } catch (_) {
-    return {};
-  }
-}
-
 export interface Authorization {
   /** Resolves on the first signed registry event that allows the origin (or a
    *  cached positive answer); otherwise with `final`. Fast, but a relay that
