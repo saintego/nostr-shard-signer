@@ -66,6 +66,7 @@ A page that passes no `clientId` gets Google/Apple/X sign-in through the hosted 
 - **Free while donations cover it.** Web3Auth bills the shared project for every monthly active user, on every site. Donations pay for it: support it on Geyser <!-- TODO: Geyser project link -->. If they stop covering the bill, shared sign-in may get a free allowance per site with payment above it ([#32](https://github.com/saintego/nostr-shard-signer/issues/32)–[#35](https://github.com/saintego/nostr-shard-signer/issues/35)), or be turned off. Plan for that.
 - **Switching later costs your users their npub.** A site that later moves to its own `clientId` (to avoid paying, for example) gives its OAuth users new, empty npubs there. Users who backed up their key keep their identity and can sign in with it through an extension or bunker. If you expect to need your own project, start with it.
 - **Who can obtain the keys.** Whoever runs the hosted signer owns the shared project and can obtain shared-mode users' keys, as an app owner can with its own `clientId`. The project's Web3Auth allowlist lists only the signer's origin, never a site's, so no site can obtain other sites' users' keys.
+- **Sensitive requests open a small window.** Any site may embed the signer here and the identity is the same on every site, so decrypts, replacing the profile, follows or relays, deletions, Evolustr app keys and key export are confirmed in a popup on the signer's own origin, which no page can cover or restyle. The user clicks "Review this request" in the widget, then approves in the popup (it opens from that click, so popup blockers don't interfere).
 - **If it is turned off**, shared-mode users can't sign in with Google/Apple/X until it is back, with the same keys. Their key backup still works. The widget asks every OAuth user to back up their key.
 
 To opt out, pass your own `clientId` (keys of your project, your Web3Auth bill), or `nostrOnly: true` (extension and bunker sign-in only). The console says which sign-in the page got.
@@ -171,6 +172,8 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 | Domain spoofing to steal Web3Auth quota | The page origin must be in the NIP-33 registry on Nostr or in the clientId's Web3Auth allowlist (only its owner can edit it); the registrar only registers allowlisted origins. The registry's root key is built into the signer, so a page can't point the signer at a registry it signed itself. Shared sign-in is open to every site by design |
 | A site obtaining shared-mode users' keys | The shared project's Web3Auth allowlist lists only the signer's origin, so no site can run Web3Auth with its `clientId` |
 | Rogue iframe injected by attacker       | `event.source === window.parent` check + `_parentOrigin` derived from `document.ancestorOrigins` (not URL params) |
+| Host page hiding or covering a prompt (clickjacking) | Approve, Allow, Unlock and reveal-key buttons react only 0.7 s after they appear, after the iframe is resized, or after the tab becomes visible again; in Chromium, also only while the browser vouches that nothing covers or hides them. In shared sign-in, where any site may embed the signer, decrypts, profile, follow-list and relay-list replacements, deletions, Evolustr app keys and key export are shown in a popup on the signer's own origin, which no page can frame or style (two clicks). Moving the iframe under the cursor without resizing it isn't detected in the iframe itself |
+| A third site framing the app            | The signer refuses to run when the page that embeds it is itself inside a frame (`NESTED_FRAME`): only the direct parent's origin is known |
 | null-origin postMessage attacks         | All `window.addEventListener("message")` handlers reject `event.origin === "null"` unconditionally                |
 
 ---
@@ -522,8 +525,9 @@ The root public key is built into the signer; no page can change it. In **Settin
 | ----------------- | ------------------------------------------------------------------------------------------ |
 | `ROOT_PUBKEY_HEX` | The root public key (hex), the `pubkey` from your registrar's `GET /pubkey`. Required: the deploy fails without it |
 | `REGISTRY_RELAYS` | Optional, comma-separated relays that host your NIP-33 events. Defaults to `DEFAULT_REGISTRY_RELAYS` in `bunker/src/lib/nostr.ts` |
+| `POPUP_CONFIRM`   | Optional. `always` shows sensitive prompts (decrypts, profile and list replacements, deletions, Evolustr app keys, key export) in a popup on the signer's origin for every page, not only in shared sign-in. Pages with their own `clientId` keep them in the iframe otherwise |
 
-The workflows pass them to the build as `VITE_ROOT_PUBKEY_HEX` and `VITE_REGISTRY_RELAYS`. A signer built without a valid root key authorizes domains through the Web3Auth allowlist only, and reports `MISSING_ROOT_PUBKEY` for the others.
+The workflows pass them to the build as `VITE_ROOT_PUBKEY_HEX`, `VITE_REGISTRY_RELAYS` and `VITE_POPUP_CONFIRM`. A signer built without a valid root key authorizes domains through the Web3Auth allowlist only, and reports `MISSING_ROOT_PUBKEY` for the others.
 
 `DEFAULT_PUBLISH_RELAYS` in `bunker/src/lib/nostr.ts` sets the relays that profile updates are broadcast to.
 

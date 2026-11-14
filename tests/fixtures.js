@@ -12,6 +12,11 @@ const dist = path.join(root, "bunker/dist");
 export const SIGNER_ORIGIN = "http://signer.test";
 export const BUNKER = SIGNER_ORIGIN + "/nostr-shard-signer";
 export const APP = "http://app.test";
+// An app on localhost: the signer gives app keys (Evolustr) only to https: or
+// http://localhost pages, so prompts can be tested offline.
+export const LOCAL_APP = "http://localhost:4173";
+// A third site that frames the app (#62).
+export const FRAMER = "http://framer.test";
 export const PUBKEY = "a".repeat(64);
 
 // Whether the built signer offers shared sign-in (bunker/src/lib/shared.ts).
@@ -24,7 +29,7 @@ if (!existsSync(path.join(dist, "index.html")))
 
 // A NIP-07 extension, installed in the app page only (not the signer iframe).
 function fakeExtension(pubkey) {
-  if (location.origin !== "http://app.test") return;
+  if (location.origin !== "http://app.test" && location.origin !== "http://localhost:4173") return;
   window.extensionCalls = [];
   window.nostr = {
     async getPublicKey() {
@@ -62,7 +67,9 @@ export const test = base.extend({
           });
         }
       }
-      if (url.origin === APP) {
+      if (url.origin === FRAMER && pages.has("framer:" + url.pathname))
+        return route.fulfill({ contentType: "text/html", body: pages.get("framer:" + url.pathname) });
+      if (url.origin === APP || url.origin === LOCAL_APP) {
         if (pages.has(url.pathname))
           return route.fulfill({ contentType: "text/html", body: pages.get(url.pathname) });
         if (url.pathname.startsWith("/npm/"))

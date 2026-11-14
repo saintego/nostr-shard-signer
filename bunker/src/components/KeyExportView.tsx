@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { BackupMethod } from '../lib/backup';
+import { GuardedButton } from './GuardedButton';
 
 interface Props {
     nsecStr: string;
@@ -187,15 +188,15 @@ export function KeyExportView({ nsecStr, npubStr, onEncrypt, onBackedUp, onBack,
                     <code className="key-display">
                         {nsecVisible ? nsecStr : '•'.repeat(Math.min(nsecStr.length, 40))}
                     </code>
-                    <button
+                    <GuardedButton
                         className="copy-btn"
                         onClick={toggleNsec}
                         aria-label={nsecVisible ? 'Hide nsec' : 'Reveal nsec'}
                     >
                         {nsecVisible ? '🙈' : '👁️'}
-                    </button>
+                    </GuardedButton>
                     {nsecVisible && (
-                        <button
+                        <GuardedButton
                             className="copy-btn"
                             onClick={async () => {
                                 if (await copyText(nsecStr, setNsecCopied)) onBackedUp('nsec');
@@ -203,7 +204,7 @@ export function KeyExportView({ nsecStr, npubStr, onEncrypt, onBackedUp, onBack,
                             aria-label="Copy nsec"
                         >
                             {nsecCopied ? '✓' : '⧉'}
-                        </button>
+                        </GuardedButton>
                     )}
                 </div>
             </div>

@@ -33,6 +33,11 @@ jobs:
       - name: Test
         run: npm test
 
+      # Prompts in a popup (shared sign-in, or VITE_POPUP_CONFIRM=always): a
+      # second build, with the clickjacking tests that need it (#62).
+      - name: Test prompts in a popup
+        run: VITE_POPUP_CONFIRM=always npm run build && VITE_POPUP_CONFIRM=always npx playwright test tests/clickjacking.spec.js
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

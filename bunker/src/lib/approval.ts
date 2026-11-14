@@ -62,6 +62,22 @@ function isMediaUploadAuth(evt: { tags?: unknown }): boolean {
   }
 }
 
+/**
+ * Requests whose prompt, in shared mode, opens in a top-level popup the page
+ * can't cover (#62): decrypts, replacing the profile, follows or relays,
+ * deletions, and Evolustr vault events.
+ */
+export function needsTopLevelPrompt(method: string, params: string[]): boolean {
+  if (method === "nip04_decrypt" || method === "nip44_decrypt") return true;
+  if (method !== "sign_event") return false;
+  try {
+    const evt = JSON.parse(params[0]) as { kind: number; tags?: unknown };
+    return ALWAYS_CONFIRM_KINDS.has(evt.kind) || isEvolustrEvent(evt);
+  } catch (_) {
+    return true;
+  }
+}
+
 export function requiresConfirmation(
   method: string,
   params: string[],

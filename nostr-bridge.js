@@ -131,6 +131,9 @@
       "the Update Domains tab if the clientId is already registered, or add it to " +
       WEB3AUTH_ALLOWLIST + ". Either one authorizes it. The registry lookup is cached per tab, " +
       "so reload in a new tab afterwards.",
+    NESTED_FRAME:
+      "The page using the signer must be the top-level window. Inside another site's frame it " +
+      "can't sign in, so that site can't hide or cover the signer's prompts. Open the app in its own tab.",
     NO_SIGN_IN_METHOD:
       "This signer offers no Google/Apple/X sign-in to this page (nostrOnly, or no shared " +
       "sign-in on this signer), and no NIP-07 extension or NIP-46 bunker is available " +

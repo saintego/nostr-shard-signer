@@ -1,5 +1,6 @@
 import type { PendingConfirmation } from '../types';
 import { describeRequest } from '../lib/approval';
+import { GuardedButton } from './GuardedButton';
 
 interface Props {
     confirmation: PendingConfirmation;
@@ -41,9 +42,9 @@ export function ConfirmView({ confirmation, origin, onApprove, onReject }: Props
                 <button className="action-btn btn-secondary" onClick={onReject}>
                     Reject
                 </button>
-                <button className="action-btn btn-primary" onClick={onApprove}>
+                <GuardedButton className="action-btn btn-primary" onClick={onApprove}>
                     Approve
-                </button>
+                </GuardedButton>
             </div>
             {waiting > 0 && (
                 <p className="confirm-waiting">{waiting} more {waiting === 1 ? 'request' : 'requests'} waiting</p>

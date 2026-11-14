@@ -16,6 +16,8 @@ Shared sign-in, what to tell the developer:
 - It is free while donations cover the shared project's Web3Auth bill, and may later be limited per site, become paid, or be turned off.
 - Moving a live app from shared sign-in to its own `clientId` (or back) gives its OAuth users new, empty npubs. If the app will need its own keys or predictable costs, start with its own `clientId`.
 - Whoever runs the hosted signer can obtain shared-mode users' keys. The shared project's Web3Auth allowlist lists only the signer's origin, so sites can't.
+- Decrypts, replacing the profile, follows or relays, deletions, Evolustr app keys and key export are confirmed in a popup on the signer's origin (the widget shows "Review this request" first), so no page can cover the prompt. Expect two clicks for those.
+- The page using the signer must be a top-level window: inside another site's frame the signer refuses with `NESTED_FRAME` (all modes).
 
 Nostr-only sign-in (extension or NIP-46 bunker, no Google/Apple/X): `NostrBridge.init({ nostrOnly: true })`.
 
@@ -214,6 +216,7 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 | -------------- | ----- | --- |
 | `CLIENT_ID_NOT_FOUND` | Web3Auth has no Sapphire Mainnet project with this clientId | Copy the right client ID, or leave `clientId` out for shared sign-in |
 | `DOMAIN_NOT_REGISTERED` | The origin is neither in the NIP-33 registry nor in the Web3Auth allowlist | Register the exact origin (scheme + host + port) in the portal, or add it to the Web3Auth Allowlist URLs. The registry lookup is cached per browser tab, so test in a new tab |
+| `NESTED_FRAME` | The page using the signer is itself inside another site's frame; that site could hide or cover the signer's prompts | Open the app in its own tab (top-level window) |
 | `NO_SIGN_IN_METHOD` | No Google/Apple/X for the page (`nostrOnly`, or a signer without shared sign-in), and window.nostr.js failed to load or `forceIframe` skipped it | Check that cdn.jsdelivr.net is reachable, or pass a `clientId` |
 | `NOT_IN_REGISTRY` (warning) | The origin is allowlisted in Web3Auth but not registered in the portal | Register it in the portal so sign-in keeps working when the allowlist can't be read |
 | `NOT_ALLOWLISTED` (warning) | The origin is registered in the portal but not in the Web3Auth allowlist | Add it to the Web3Auth Allowlist URLs |
