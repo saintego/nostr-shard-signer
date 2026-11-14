@@ -16,7 +16,7 @@ export const CONFIRM_PARAM = 'confirm';
 
 /** What the popup shows. `origin` is the verified host page, from the iframe. */
 export type ConfirmPopupRequest =
-    | { kind: 'rpc'; origin: string; method: string; params: string[] }
+    | { kind: 'rpc'; origin: string; method: string; params: string[]; ownPubkey?: string }
     | { kind: 'evolustr'; origin: string; prompt: EvolustrPrompt }
     /** Key export; `privateKeyHex` lets the popup encrypt a backup itself. */
     | { kind: 'export'; nsecStr: string; npubStr: string; privateKeyHex: string; shared: boolean };

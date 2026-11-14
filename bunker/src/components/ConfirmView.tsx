@@ -6,13 +6,14 @@ interface Props {
     confirmation: PendingConfirmation;
     /** The host page asking. */
     origin: string;
+    /** The signed-in user's pubkey: a decrypt of data they encrypted to themselves gets a warning (#63). */
+    ownPubkey?: string;
     onApprove: () => void;
     onReject: () => void;
 }
 
-export function ConfirmView({ confirmation, origin, onApprove, onReject }: Props) {
+export function ConfirmView({ confirmation, origin, ownPubkey, onApprove, onReject }: Props) {
     const { method, params, waiting = 0 } = confirmation;
-    const { title, summary, warning } = describeRequest(method, params);
 
     let detail: string;
     try {
@@ -27,6 +28,7 @@ export function ConfirmView({ confirmation, origin, onApprove, onReject }: Props
 
     let site = origin;
     try { site = new URL(origin).host; } catch (_) { }
+    const { title, summary, warning } = describeRequest(method, params, { ownPubkey, site });
 
     return (
         <div id="view-confirm" className="view active">

@@ -29,6 +29,7 @@ export function ConfirmPopupView() {
                 <ConfirmView
                     confirmation={{ method: request.method, params: request.params }}
                     origin={request.origin}
+                    {...(request.ownPubkey ? { ownPubkey: request.ownPubkey } : {})}
                     onApprove={() => answer('approve')}
                     onReject={() => answer('reject')}
                 />

@@ -888,14 +888,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setPopupError('');
         const request = head.evolustr
             ? { kind: 'evolustr' as const, origin: parentOrigin, prompt: head.evolustr }
-            : { kind: 'rpc' as const, origin: parentOrigin, method: head.method, params: head.params };
+            : { kind: 'rpc' as const, origin: parentOrigin, method: head.method, params: head.params, ...(keyInfo ? { ownPubkey: keyInfo.publicKeyHex } : {}) };
         askInPopup(request).then(answer => {
             if (confQueueRef.current[0] !== head) return;
             if (head.evolustr) handleEvolustrAnswer(answer === 'closed' || answer === 'approve' || answer === 'reject' || answer === 'done' ? 'deny' : answer);
             else if (answer === 'approve') handleApprove();
             else handleReject();
         }, (e: Error) => setPopupError(e.message));
-    }, [parentOrigin, handleApprove, handleReject, handleEvolustrAnswer]);
+    }, [parentOrigin, keyInfo, handleApprove, handleReject, handleEvolustrAnswer]);
 
     const handleRejectHead = useCallback(() => {
         if (confQueueRef.current[0]?.evolustr) handleEvolustrAnswer('deny');
@@ -1079,6 +1079,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 key={pendingConf.seq}
                 confirmation={pendingConf}
                 origin={parentOrigin}
+                {...(keyInfo ? { ownPubkey: keyInfo.publicKeyHex } : {})}
                 onApprove={handleApprove}
                 onReject={handleReject}
             />

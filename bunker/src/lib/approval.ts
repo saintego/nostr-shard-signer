@@ -1,6 +1,7 @@
 // Which signing requests run without a confirmation prompt, per host site.
 
 import { isProtectedEvent } from "./evolustr";
+import { npubEncode } from "nostr-tools/nip19";
 //
 // Ordinary public content (notes, reactions, wiki pages, lists, calendar
 // events…) is signed without asking by default: a wrong one can be fixed by
@@ -181,13 +182,47 @@ function hostOf(url: string | undefined): string | undefined {
   }
 }
 
-export function describeRequest(method: string, params: string[]): RequestDescription {
+/** Who is asking, and who the user is: decrypt prompts depend on both (#63). */
+export interface RequestContext {
+  /** The signed-in user's pubkey (hex). */
+  ownPubkey?: string;
+  /** The host of the page asking. */
+  site?: string;
+}
+
+/** npub1abcd…wxyz */
+export function shortNpub(hex: string): string {
+  try {
+    const npub = npubEncode(hex);
+    return `${npub.slice(0, 9)}…${npub.slice(-4)}`;
+  } catch (_) {
+    return `${hex.slice(0, 8)}…`;
+  }
+}
+
+export function describeRequest(method: string, params: string[], ctx: RequestContext = {}): RequestDescription {
+  const site = ctx.site || "the app";
   switch (method) {
     case "nip04_encrypt":
       return { title: "Encrypt a direct message?", summary: "The app will send it as you." };
     case "nip04_decrypt":
-    case "nip44_decrypt":
-      return { title: "Let the app read a private message?", summary: "The app will see the decrypted text." };
+    case "nip44_decrypt": {
+      const peer = typeof params[0] === "string" ? params[0].toLowerCase() : "";
+      // Encrypted to the user themselves: how apps (e.g. Evolustr's compatible
+      // mode) keep private data and keys. Any site can copy such a ciphertext
+      // from the user's public events and ask for it (#63).
+      if (ctx.ownPubkey && peer === ctx.ownPubkey.toLowerCase()) {
+        return {
+          title: `Let ${site} read data you encrypted to yourself?`,
+          summary: "Apps keep private data and keys this way.",
+          warning: `This can be the key to another app's private data. Approve only if ${site} stored it itself.`,
+        };
+      }
+      return {
+        title: `Let ${site} read a private message?`,
+        summary: `From or to ${shortNpub(peer)}. ${site === "the app" ? "The app" : site} will see the decrypted text.`,
+      };
+    }
     case "nip44_encrypt":
       return { title: "Encrypt a sealed message?" };
     case "get_public_key":
