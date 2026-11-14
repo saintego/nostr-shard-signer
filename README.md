@@ -168,7 +168,7 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 | Parent page JS reading your nsec        | Key lives only in a cross-origin iframe; Same-Origin Policy makes it unreachable                                  |
 | Owner of the clientId obtaining users' keys | **Not prevented.** The owner controls the Web3Auth project's allowlist, so they can run Web3Auth on a page of their own and get the key of any user who signs in there (true of every Web3Auth embedded wallet). Users trust the app owner with the identity they create in that app; users who don't sign in with their own extension or bunker |
 | Browser extension / XSS on parent page  | Same isolation — the iframe context is physically separate                                                        |
-| Domain spoofing to steal Web3Auth quota | The page origin must be in the NIP-33 registry on Nostr or in the clientId's Web3Auth allowlist (only its owner can edit it); the registrar only registers allowlisted origins. Shared sign-in is open to every site by design |
+| Domain spoofing to steal Web3Auth quota | The page origin must be in the NIP-33 registry on Nostr or in the clientId's Web3Auth allowlist (only its owner can edit it); the registrar only registers allowlisted origins. The registry's root key is built into the signer, so a page can't point the signer at a registry it signed itself. Shared sign-in is open to every site by design |
 | A site obtaining shared-mode users' keys | The shared project's Web3Auth allowlist lists only the signer's origin, so no site can run Web3Auth with its `clientId` |
 | Rogue iframe injected by attacker       | `event.source === window.parent` check + `_parentOrigin` derived from `document.ancestorOrigins` (not URL params) |
 | null-origin postMessage attacks         | All `window.addEventListener("message")` handlers reject `event.origin === "null"` unconditionally                |
@@ -197,8 +197,8 @@ The signer accepts an origin found in either the registry or the Web3Auth allowl
 
 ```js
 // Initialize the bridge (required once). clientId is optional (without it,
-// shared sign-in); bunkerOrigin and registrarUrl default to the hosted signer;
-// set them only when self-hosting.
+// shared sign-in); bunkerOrigin defaults to the hosted signer; set it only
+// when self-hosting.
 await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
 
 // After the user signs in via the widget, use the standard NIP-07 API
@@ -495,11 +495,13 @@ npm publish --workspace=npm
 
 ## Deployment
 
+**Rule for everything on the signer's origin:** never serve a page from the signer's origin that loads script from a URL the visitor can influence (query string, fragment, `document.referrer`, `postMessage` data). Such a script runs as the signer: it can start Web3Auth with any clientId that allowlists this origin, use the signer's passkeys, and read its stored sessions. `tests/static.spec.js` checks `examples/` and `portal/` for this.
+
 ### 1. One-time setup
 
 #### a. Generate the root keypair
 
-The root keypair signs all NIP-33 registry events. Keep the private key secret; only the public key is embedded in `signer.html`.
+The root keypair signs all NIP-33 registry events. Keep the private key secret; only the public key is built into `signer.html`.
 
 ```bash
 node -e "
@@ -514,23 +516,21 @@ console.log('ROOT_PUBKEY_HEX      =', pk);
 
 #### b. Configure the bunker
 
-In `bunker/src/App.tsx` (or the compiled output), replace the placeholder:
+The root public key is built into the signer; no page can change it. In **Settings → Secrets and variables → Actions → Variables**, add:
 
-```ts
-const ROOT_PUBKEY_HEX = "__ROOT_PUBKEY_HEX__";
-// → your actual hex public key, e.g.:
-const ROOT_PUBKEY_HEX = "a3b2...";
-```
+| Variable          | Value                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| `ROOT_PUBKEY_HEX` | The root public key (hex), the `pubkey` from your registrar's `GET /pubkey`. Required: the deploy fails without it |
+| `REGISTRY_RELAYS` | Optional, comma-separated relays that host your NIP-33 events. Defaults to `DEFAULT_REGISTRY_RELAYS` in `bunker/src/lib/nostr.ts` |
 
-Optionally adjust:
+The workflows pass them to the build as `VITE_ROOT_PUBKEY_HEX` and `VITE_REGISTRY_RELAYS`. A signer built without a valid root key authorizes domains through the Web3Auth allowlist only, and reports `MISSING_ROOT_PUBKEY` for the others.
 
-- `REGISTRY_RELAYS` — array of relays that host your NIP-33 events
-- `PUBLISH_RELAYS` — relays to broadcast profile updates to
+`DEFAULT_PUBLISH_RELAYS` in `bunker/src/lib/nostr.ts` sets the relays that profile updates are broadcast to.
 
 The bunker is a Vite + React + TypeScript app. Build it with:
 
 ```bash
-cd bunker && npm install && npm run build
+cd bunker && npm install && VITE_ROOT_PUBKEY_HEX=<hex> npm run build
 ```
 
 The compiled output is published to GitHub Pages as `signer.html` by the deploy workflow.
@@ -621,7 +621,7 @@ A successful response returns the Nostr event ID of the published NIP-33 record:
 
 ### 4. Integrate `nostr-bridge.js` into your app
 
-For a self-hosted signer, pass `bunkerOrigin` (and `registrarUrl` if the signer gets its root pubkey from your registrar). Without them, the bridge uses the hosted signer and registrar.
+For a self-hosted signer, pass `bunkerOrigin`. Without it, the bridge uses the hosted signer. The signer uses the registry it was built with (`ROOT_PUBKEY_HEX`).
 
 ```html
 <!-- In your parent app's <head> -->
@@ -630,7 +630,6 @@ For a self-hosted signer, pass `bunkerOrigin` (and `registrarUrl` if the signer 
   NostrBridge.init({
     clientId: "YOUR_WEB3AUTH_CLIENT_ID",
     bunkerOrigin: "https://bunker.yourdomain.com", // your self-hosted signer
-    registrarUrl: "https://nostr-shard-registrar.<account>.workers.dev",
     layout: "floating", // or "in-place"
     buttonSize: "standard", // or "large_social_grid"
     forceIframe: false, // true = skip native extension check
@@ -844,7 +843,7 @@ curl -s https://nostr-shard-registrar.nostr-shard-signer.workers.dev/health     
 
 **One-time setup**
 
-- [ ] Replace `__ROOT_PUBKEY_HEX__` in `signer.html`
+- [ ] Set the repository variable `ROOT_PUBKEY_HEX` (and optionally `REGISTRY_RELAYS`)
 - [ ] Run `wrangler secret put ROOT_PRIVATE_KEY_HEX` — never commit the private key
 - [ ] Create both KV namespaces (`REGISTRY_KV`, `CHALLENGES_KV`) and update `wrangler.toml` IDs
 - [ ] Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub repository secrets
@@ -854,7 +853,7 @@ curl -s https://nostr-shard-registrar.nostr-shard-signer.workers.dev/health     
 
 **After first deploy**
 
-- [ ] Pass `bunkerOrigin` (your Pages `signer.html` URL) and `registrarUrl` to `NostrBridge.init()` — otherwise the hosted signer is used
+- [ ] Pass `bunkerOrigin` (your Pages `signer.html` URL) to `NostrBridge.init()` — otherwise the hosted signer is used
 - [ ] Add SRI hashes to CDN `<script>` tags in `signer.html`
 - [ ] Restrict `Access-Control-Allow-Origin` in `registrar-worker.js` to your admin origins
 - [ ] Configure `REGISTRY_RELAYS` in `signer.html` to relays you control or trust

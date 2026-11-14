@@ -3,7 +3,7 @@ import type { Web3Auth } from '@web3auth/modal';
 
 import type { ViewName, UserProfile, KeyInfo, PendingConfirmation, EvolustrPrompt, EvolustrAnswer } from './types';
 import { validateEmbedding, isLocalhostOrigin } from './lib/origin';
-import { fetchRegistrarConfig, checkAuthorization } from './lib/registry';
+import { checkAuthorization } from './lib/registry';
 import type { Authorization } from './lib/registry';
 import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
 import { sharedClientIdFor } from './lib/shared';
@@ -34,7 +34,14 @@ import { EvolustrPromptView } from './components/EvolustrPromptView';
 import { EvolustrSettings } from './components/EvolustrSettings';
 import type { EvolustrStatus } from './components/EvolustrSettings';
 
-const ROOT_PUBKEY_HEX = '__ROOT_PUBKEY_HEX__';
+// The registry is fixed when the signer is built (VITE_ROOT_PUBKEY_HEX,
+// VITE_REGISTRY_RELAYS), never by the embedding page: a page that could pick
+// the root key could sign its own registry entry for any clientId (#59).
+const ROOT_PUBKEY_HEX = (import.meta.env.VITE_ROOT_PUBKEY_HEX ?? '').trim().toLowerCase();
+const ROOT_PUBKEY_VALID = /^[0-9a-f]{64}$/.test(ROOT_PUBKEY_HEX);
+const PINNED_REGISTRY_RELAYS = (import.meta.env.VITE_REGISTRY_RELAYS ?? '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+const REGISTRY_RELAYS = PINNED_REGISTRY_RELAYS.length ? PINNED_REGISTRY_RELAYS : DEFAULT_REGISTRY_RELAYS;
 const DEFAULT_AVATAR = 'https://robohash.org/nostr?set=set4&size=48x48';
 // Height of the iframe while the error card shows: enough for the message
 // without covering a phone screen like the full modal height would.
@@ -51,7 +58,6 @@ interface AppProps {
     parentOrigin: string;
     urlParams: {
         clientId: string;
-        registrarUrl: string;
         nostrSigner: 'bunker' | 'extension' | null;
         protocol: number;
         poweredBy: boolean;
@@ -60,7 +66,7 @@ interface AppProps {
 }
 
 export function App({ parentOrigin, urlParams }: AppProps) {
-    const { registrarUrl, nostrSigner, protocol, poweredBy, nostrOnly } = urlParams;
+    const { nostrSigner, protocol, poweredBy, nostrOnly } = urlParams;
     // Shared mode: no clientId from the page, so the signer's own project is
     // used (src/lib/shared.ts). Nostr-only pages get no Web3Auth at all.
     const sharedClientId = sharedClientIdFor(urlParams.clientId, nostrOnly);
@@ -126,10 +132,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // ── WNJ profile mode: set when bridge sends WNJ_SESSION ───────────────────────
     const [wnjPubkey, setWnjPubkey] = useState<string | null>(null);
 
-    // ── Registry config (resolved from registrar) ─────────────────────────────
-    const [registryRelays, setRegistryRelays] = useState<string[]>(DEFAULT_REGISTRY_RELAYS);
-    const [rootPubkeyHex, setRootPubkeyHex] = useState<string>(ROOT_PUBKEY_HEX);
-
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     const postToParent = useCallback(
@@ -191,7 +193,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         if (mergedProfile) setUserProfile(mergedProfile);
 
         setView('avatar');
-    }, [postToParent, publishRelays]);  // use publishRelays, not registryRelays
+    }, [postToParent, publishRelays]);  // publish relays, not the registry relays
 
     const showNextConfirmation = useCallback(() => {
         const queue = confQueueRef.current;
@@ -564,20 +566,13 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (shared) {
                 auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
             } else {
-                // The Web3Auth allowlist decides; the registrar config (registry
-                // relays / root pubkey) is needed for the NIP-33 registry.
-                const [allowlist, regConfig] = await Promise.all([
-                    fetchAllowlist(clientId),
-                    fetchRegistrarConfig(registrarUrl),
-                ]);
+                // The Web3Auth allowlist or the NIP-33 registry (under the root
+                // key built into this signer) must list the origin.
+                const allowlist = await fetchAllowlist(clientId);
                 if (cancelled) return;
-                if (regConfig.relays?.length) setRegistryRelays(regConfig.relays);
-                if (regConfig.pubkey) setRootPubkeyHex(regConfig.pubkey);
 
-                const activeRegistryRelays = regConfig.relays?.length ? regConfig.relays : DEFAULT_REGISTRY_RELAYS;
-                const activeRootPubkey = regConfig.pubkey ?? ROOT_PUBKEY_HEX;
-                const rootPubkeyMissing = activeRootPubkey === ROOT_PUBKEY_HEX || /^__/.test(activeRootPubkey);
-                const checkRegistry = () => checkAuthorization(clientId, parentOrigin, activeRootPubkey, activeRegistryRelays);
+                const rootPubkeyMissing = !ROOT_PUBKEY_VALID;
+                const checkRegistry = () => checkAuthorization(clientId, parentOrigin, ROOT_PUBKEY_HEX, REGISTRY_RELAYS);
 
                 // Local testing only: the registrar refuses localhost domains, so a build
                 // made with VITE_LOCAL_TEST=true (scripts/local.sh) skips the domain
@@ -608,9 +603,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                         });
                     }
                 } else {
-                    // Fail closed if the root pubkey is missing/placeholder.
+                    // Fail closed if the signer was built without a root pubkey.
                     if (rootPubkeyMissing) {
-                        showError('Signer misconfiguration', 'Missing root registry public key. Configure registrarUrl or replace __ROOT_PUBKEY_HEX__.', 'MISSING_ROOT_PUBKEY');
+                        showError('Signer misconfiguration', 'Missing root registry public key. Build the signer with VITE_ROOT_PUBKEY_HEX.', 'MISSING_ROOT_PUBKEY');
                         return;
                     }
                     auth = checkRegistry();

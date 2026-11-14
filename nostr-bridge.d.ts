@@ -143,11 +143,6 @@ declare global {
      */
     bunkerOrigin?: string;
     /**
-     * Registrar Worker URL the signer uses to find the registry key. Defaults to
-     * the hosted registrar when `bunkerOrigin` is the hosted signer.
-     */
-    registrarUrl?: string;
-    /**
      * Skip the installed NIP-07 extension (Alby, nos2x…) and window.nostr.js,
      * and always use the Web3Auth iframe. Default false. Ignored with `nostrOnly`.
      */
