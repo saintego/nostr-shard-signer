@@ -161,6 +161,9 @@
     NOT_ALLOWLISTED:
       "Sign-in works because the origin is in the NIP-33 registry. Also add it to " +
       WEB3AUTH_ALLOWLIST + ".",
+    SHARED_BLOCKED:
+      "The hosted signer's operator turned shared sign-in off for this site. Extension and " +
+      "bunker sign-in still work. For Google/Apple/X, pass your own Web3Auth clientId.",
   };
 
   // ── State ────────────────────────────────────────────────────────────────────

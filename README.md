@@ -67,6 +67,7 @@ A page that passes no `clientId` gets Google/Apple/X sign-in through the hosted 
 - **Switching later costs your users their npub.** A site that later moves to its own `clientId` (to avoid paying, for example) gives its OAuth users new, empty npubs there. Users who backed up their key keep their identity and can sign in with it through an extension or bunker. If you expect to need your own project, start with it.
 - **Who can obtain the keys.** Whoever runs the hosted signer owns the shared project and can obtain shared-mode users' keys, as an app owner can with its own `clientId`. The project's Web3Auth allowlist lists only the signer's origin, never a site's, so no site can obtain other sites' users' keys.
 - **Sensitive requests open a small window.** Any site may embed the signer here and the identity is the same on every site, so decrypts, replacing the profile, follows or relays, deletions, Evolustr app keys and key export are confirmed in a popup on the signer's own origin, which no page can cover or restyle. The user clicks "Review this request" in the widget, then approves in the popup (it opens from that click, so popup blockers don't interfere).
+- **The operator can block a single site** (abuse, phishing, or more users than donations cover) without turning shared sign-in off for everyone. A blocked site's users keep extension and bunker sign-in; the console shows `SHARED_BLOCKED`. See [Blocking a site from shared sign-in](#blocking-a-site-from-shared-sign-in).
 - **If it is turned off**, shared-mode users can't sign in with Google/Apple/X until it is back, with the same keys. Their key backup still works. The widget asks every OAuth user to back up their key.
 
 To opt out, pass your own `clientId` (keys of your project, your Web3Auth bill), or `nostrOnly: true` (extension and bunker sign-in only). The console says which sign-in the page got.
@@ -693,6 +694,22 @@ The nonce is stored in `CHALLENGES_KV` with a 5-minute TTL and deleted after use
 
 ## Communication Protocol
 
+### Blocking a site from shared sign-in
+
+Shared sign-in is open to every origin, and Web3Auth bills the shared project for every site's users. To take it away from one site without turning it off for everyone (`SHARED_MODE_ON`), block that site's origin. Its page then gets `SIGNER_HELLO.oauth === "none"` and the warning `SHARED_BLOCKED`; extension and bunker sign-in keep working there. Entries are origins (`https://evil.example`) or `*.example.com` for every subdomain of a host.
+
+- **Without a deploy (preferred):** publish a list signed with the registry root key. The signer reads the newest one from the registry relays, in shared mode only, while Web3Auth starts (at most 3 s; without an answer it uses the built-in list only). Each publish replaces the whole list:
+
+  ```bash
+  ROOT_PRIVATE_KEY_HEX=<hex or nsec> node scripts/publish-blocklist.mjs https://evil.example '*.bad.example'
+  ROOT_PRIVATE_KEY_HEX=<hex or nsec> node scripts/publish-blocklist.mjs --clear     # unblock every site
+  ```
+
+  `--dry-run` prints the signed event without publishing; `--relays wss://a,wss://b` (or `REGISTRY_RELAYS`) picks the relays, by default the signer's `DEFAULT_REGISTRY_RELAYS`. Use the same key the registrar holds as `ROOT_PRIVATE_KEY_HEX`. The event is kind 30078 with `d` = `nostr-shard-signer:shared-blocked`; the colon keeps it apart from registry entries, since the registrar refuses colons in a clientId.
+- **Built in:** `SHARED_BLOCKED_ORIGINS` in `bunker/src/lib/shared.ts`, or `VITE_SHARED_BLOCKED_ORIGINS` (comma-separated) at build time. Needs a deploy; applies even when the relays can't be reached.
+
+What it can't do: the embedding origin is known reliably (`ancestorOrigins`), but a blocked operator can move to another domain. Counting users per site ([#32](https://github.com/saintego/nostr-shard-signer/issues/32)) is what makes limits real.
+
 ### Versioning
 
 The bridge passes its protocol version in the iframe URL (`signer.html?protocol=1&…`; bridges from before the handshake send none and speak 1). The signer answers `{ type: "SIGNER_HELLO", protocol }`, or, for a version it doesn't support, shows an error and posts `SIGNER_ERROR` with code `PROTOCOL_UNSUPPORTED`. Bump `PROTOCOL_VERSION` in `nostr-bridge.js` on breaking message changes, and keep the old version in the signer's `SUPPORTED_PROTOCOLS` while bridges speaking it may still be pinned or cached (jsDelivr, copies, older npm loaders on self-hosted signers).
@@ -896,6 +913,7 @@ Changes to `nostr-bridge.js` and the signer reach every page that loads them fro
 - `nostrOnly` option and `data-nostr-only` attribute (npm types in 0.2.0).
 - `SIGNER_HELLO` carries `oauth: "own" | "shared" | "none"`.
 - Prompts can't be clicked through by the host page: approve buttons react after a short delay, and, in Chromium, only while nothing covers them. In shared sign-in, sensitive requests (decrypts, profile, follow-list and relay-list replacements, deletions, Evolustr app keys, key export) are confirmed in a popup on the signer's origin. Self-hosters can turn that on for every page (`POPUP_CONFIRM=always`).
+- The operator can block a single site from shared sign-in, with a list signed by the registry root key (`scripts/publish-blocklist.mjs`) or built into the signer. A blocked page gets the `SHARED_BLOCKED` warning and keeps extension and bunker sign-in.
 - The decrypt prompt warns when a site asks for data the user encrypted to themselves, which can be the key to another app's private data, and otherwise shows whose message it is.
 
 ---

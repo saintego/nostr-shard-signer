@@ -11,4 +11,7 @@ interface ImportMetaEnv {
   /** "always": show sensitive prompts in a top-level popup for every page, not
    *  only in shared mode (#62). For self-hosters who want it everywhere. */
   readonly VITE_POPUP_CONFIRM?: string;
+  /** Comma-separated origins (or "*.host") with no shared sign-in, added to
+   *  SHARED_BLOCKED_ORIGINS in src/lib/shared.ts (#65). */
+  readonly VITE_SHARED_BLOCKED_ORIGINS?: string;
 }

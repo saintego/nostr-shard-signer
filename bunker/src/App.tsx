@@ -10,7 +10,8 @@ import { ReviewInPopupView } from './components/ReviewInPopupView';
 import { checkAuthorization } from './lib/registry';
 import type { Authorization } from './lib/registry';
 import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
-import { sharedClientIdFor } from './lib/shared';
+import { isOriginBlocked, sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
+import { fetchSharedBlocklist } from './lib/blocklist';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
@@ -73,7 +74,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     const { nostrSigner, protocol, poweredBy, nostrOnly } = urlParams;
     // Shared mode: no clientId from the page, so the signer's own project is
     // used (src/lib/shared.ts). Nostr-only pages get no Web3Auth at all.
-    const sharedClientId = sharedClientIdFor(urlParams.clientId, nostrOnly);
+    const sharedClientId = sharedClientIdFor(urlParams.clientId, nostrOnly, parentOrigin);
+    // On the built-in block list: the page would get shared sign-in otherwise (#65).
+    const blockedBuiltIn = !sharedClientId && wantsSharedSignIn(urlParams.clientId, nostrOnly);
     const shared = !!sharedClientId;
     const clientId = shared ? sharedClientId : nostrOnly ? '' : urlParams.clientId;
     // Sensitive prompts in a popup the page can't cover (#62): in shared mode any
@@ -552,12 +555,35 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Version mismatch', `nostr-bridge.js speaks protocol ${protocol}; this signer supports ${SUPPORTED_PROTOCOLS.join(', ')}.`, 'PROTOCOL_UNSUPPORTED');
                 return;
             }
+            // Web3Auth init shows no UI and exposes nothing until a session is
+            // resolved below, so it runs while the domain (or, in shared mode,
+            // the block list) is being checked.
+            const startInit = () => initWeb3Auth(clientId).then(
+                w3a => ({ w3a, err: null as unknown }),
+                (err: unknown) => ({ w3a: null, err }),
+            );
+            let earlyInit: ReturnType<typeof startInit> | null = null;
+            // Shared mode: the operator's signed block list (#65), so a site can
+            // be blocked without a deploy. On failure, the built-in list only.
+            let blocked = blockedBuiltIn;
+            if (shared) {
+                earlyInit = startInit();
+                if (ROOT_PUBKEY_VALID) {
+                    const list = await fetchSharedBlocklist(ROOT_PUBKEY_HEX, REGISTRY_RELAYS).catch(() => []);
+                    if (cancelled) return;
+                    if (isOriginBlocked(parentOrigin, list)) blocked = true;
+                }
+            }
+            // Blocked: no Google/Apple/X, also when the page passed the shared clientId itself.
+            const pageClientId = blocked ? '' : clientId;
+
             // oauth tells the bridge which Google/Apple/X sign-in the page gets:
             // its own clientId, the shared project, or none.
-            postToParent({ type: 'SIGNER_HELLO', protocol, oauth: !clientId ? 'none' : shared ? 'shared' : 'own' });
+            postToParent({ type: 'SIGNER_HELLO', protocol, oauth: !pageClientId ? 'none' : shared ? 'shared' : 'own' });
+            if (blocked) warnParent('SHARED_BLOCKED', "Shared sign-in isn't available for this site. Use your own clientId.");
 
             // 3. No clientId: no Web3Auth, the Sign in button opens the Nostr signer.
-            if (!clientId) {
+            if (!pageClientId) {
                 if (!nostrSigner) {
                     showError('No sign-in method', 'No clientId was given and no Nostr signer is available on the page.', 'NO_SIGN_IN_METHOD');
                     return;
@@ -567,12 +593,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            // Web3Auth init shows no UI and exposes nothing until a session is
-            // resolved below, so run it while the domain is being checked.
-            const w3aInit = initWeb3Auth(clientId).then(
-                w3a => ({ w3a, err: null }),
-                (err: unknown) => ({ w3a: null, err }),
-            );
+            const w3aInit = earlyInit ?? startInit();
             console.log('[signer] initWeb3Auth: start');
 
             // 4–5. Domain authorization. Shared mode is open to every site, so
