@@ -5,7 +5,7 @@
 // Nothing secret is shown: snapshots list key names and value lengths only, and
 // the key export (C17) shows only the resulting pubkey.
 
-import { Web3Auth, WEB3AUTH_NETWORK } from '@web3auth/modal';
+import { authConnector, Web3Auth, WEB3AUTH_NETWORK } from '@web3auth/modal';
 import { getPublicKey } from 'nostr-tools/pure';
 import { Report, button, crossFrame, fromHex, h, otherOrigin, originPicker, params, role } from './ui';
 
@@ -122,7 +122,19 @@ class Instance {
             clientId: this.clientId.value.trim(),
             web3AuthNetwork: this.network.value === 'sapphire_mainnet' ? WEB3AUTH_NETWORK.SAPPHIRE_MAINNET : WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
             ...(st > 0 ? { sessionTime: st } : {}),
-            ...(storageConfig(this.mode.value as Mode, this.name) ? { storage: storageConfig(this.mode.value as Mode, this.name) } : {}),
+            // The top-level `storage` only covers Web3Auth-state; the login tokens
+            // (auth_store:*, refresh token cookie) belong to the auth connector,
+            // which needs its own sessionKey and storage. Ours is listed first,
+            // so Web3Auth's default auth connector is dropped as a duplicate.
+            ...(storageConfig(this.mode.value as Mode, this.name) ? {
+                storage: storageConfig(this.mode.value as Mode, this.name),
+                connectors: [authConnector({
+                    connectorSettings: {
+                        sessionKey: `auth_store_${this.name}`,
+                        storage: storageConfig(this.mode.value as Mode, this.name),
+                    },
+                } as Parameters<typeof authConnector>[0])],
+            } : {}),
         } as ConstructorParameters<typeof Web3Auth>[0]);
         await this.w3a.init();
         return `${this.settings()}; connected after init: ${this.w3a.connected} (a restored session if true)`;
