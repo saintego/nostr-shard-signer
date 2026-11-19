@@ -44,7 +44,9 @@ export function openConfirmPopup(): void {
     url.search = `?${CONFIRM_PARAM}=1`;
     url.hash = '';
     readyPopup = null;
-    popup = window.open(url.toString(), 'nostr-signer-confirm', 'popup,width=440,height=620');
+    // Unnamed (#77): the page that embeds the signer could find a named
+    // popup with window.open('', name) and navigate it. We keep `popup`.
+    popup = window.open(url.toString(), '_blank', 'popup,width=440,height=620');
 }
 
 /** Sends a request to the open popup and waits for the answer; closing it answers "closed". */
