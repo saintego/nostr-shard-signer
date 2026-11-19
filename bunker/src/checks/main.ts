@@ -5,10 +5,12 @@
 //   checks.html?c=C19&role=tab   the tab opened by that iframe
 // Results are copied as Markdown into the results issue.
 
+import '../lib/bufferBase64url'; // before Evolu (see the file)
 import { runC12 } from './c12';
 import { viewC13 } from './c13';
 import { frameC19, hostC19, tabC19 } from './c19';
 import { hostC8, runStorage } from './c8';
+import { hostEvolu, viewEvolu } from './evolu';
 import { hostPrf, viewPrf } from './prf';
 import { Report, app, h, params, role } from './ui';
 import { hostW3A, viewW3A } from './w3a';
@@ -38,6 +40,11 @@ const CHECKS: Check[] = [
         id: 'C8', title: 'Storage in a cross-site iframe', checks: 'C8 (storage part)',
         how: 'Open once, copy both reports, then revisit after 1, 3, 7 and 10 days.',
         top: hostC8, frame: r => { void runStorage(r); return h('div'); },
+    },
+    {
+        id: 'EVOLU', title: 'Evolu in a cross-site iframe', checks: 'C8 (Evolu part), D11',
+        how: 'Write rows at top level and in the iframe; they should sync between the two and survive reloads.',
+        top: hostEvolu, frame: viewEvolu,
     },
     {
         id: 'C13', title: 'Do relays keep our events?', checks: 'C13',

@@ -53,3 +53,15 @@ test("C8: storage checks run at top level and in the cross-site iframe", async (
   await expect(frame.locator(".log")).toContainText("OPFS sync access handle in a worker");
   await expect(frame.locator(".log")).toContainText("non-extractable key stored");
 });
+
+test("Evolu: starts and keeps rows at top level and in the cross-site iframe", async ({ page: p }) => {
+  await p.goto(page(A) + "EVOLU");
+  await expect(p.locator(".log").first()).toContainText("Evolu started", { timeout: 20000 });
+  await p.getByRole("button", { name: "Write a row" }).first().click();
+  await expect(p.locator(".log").first()).toContainText("Rows changed: 1 rows (1 written here");
+  const frame = p.frameLocator("iframe");
+  await expect(frame.locator(".log")).toContainText("Evolu started", { timeout: 20000 });
+  await frame.getByRole("button", { name: "Write a row" }).click();
+  await expect(frame.locator(".log")).toContainText("1 written here");
+  await expect(p.locator(".log .fail")).toHaveCount(0);
+});
