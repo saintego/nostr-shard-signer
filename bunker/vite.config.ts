@@ -60,6 +60,8 @@ export default defineConfig({
   // fails. Resolve the trailing-slash form to the same shim file first.
   // (Production builds go through Rollup and are unaffected.)
   optimizeDeps: {
+    // Evolu's SQLite (check kit): served as is, with its wasm file.
+    exclude: ["@evolu/sqlite-wasm"],
     esbuildOptions: {
       plugins: [
         {
@@ -73,8 +75,13 @@ export default defineConfig({
       ],
     },
   },
+  worker: { format: "es" },
   build: {
     outDir: "dist",
     sourcemap: false,
+    rollupOptions: {
+      // The signer, and the v1 check kit (#73), served as checks.html.
+      input: { main: "index.html", checks: "checks.html" },
+    },
   },
 });

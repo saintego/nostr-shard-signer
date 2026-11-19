@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- v1 check kit (#73). Same limits as the signer page, plus frames of the
+       signer's own deployments for the cross-site checks. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none';
+                 script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://*.web3auth.io;
+                 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+                 img-src 'self' https: data:;
+                 connect-src 'self' https: wss: https://*.web3auth.io wss://*.web3auth.io;
+                 frame-src https://saintego.github.io https://*.nostr-shard-signer.pages.dev https://nostr-shard-checks.pages.dev https://*.web3auth.io;
+                 worker-src 'self' blob:;
+                 font-src 'self' https:;" />
+  <title>v1 checks</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; max-width: 900px; }
+    button { margin: 2px 4px 2px 0; padding: 6px 10px; }
+    .log { list-style: none; padding-left: 0; font-size: 14px; }
+    .log li { padding: 2px 0; border-bottom: 1px solid #eee; word-break: break-word; }
+    .log .fail { color: #b00020; } .log .warn { color: #8a5a00; }
+    table { border-collapse: collapse; } td, th { border: 1px solid #ddd; padding: 6px; text-align: left; }
+    fieldset { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <!-- process.nextTick for Web3Auth, as in index.html -->
+  <script>
+    (function () {
+      var p = globalThis.process || (globalThis.process = {});
+      if (typeof p.nextTick !== 'function') {
+        p.nextTick = function nextTick(fn) {
+          var a = Array.prototype.slice.call(arguments, 1);
+          Promise.resolve().then(function () { fn.apply(null, a); });
+        };
+      }
+      p.env = p.env || {};
+      p.version = p.version || 'v18.0.0';
+      p.versions = p.versions || {};
+      p.platform = p.platform || 'browser';
+    }());
+  </script>
+  <script type="module" src="/src/checks/main.ts"></script>
+</body>
+</html>
