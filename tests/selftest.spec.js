@@ -26,7 +26,7 @@ test('derivation, Buffer and Evolu work in the production build', async ({ page,
   await page.goto(`${ORIGIN}/nostr-shard-signer/selftest.html`);
   await expect.poll(() => page.evaluate(() => window.selftest), { timeout: 20000 }).toBeTruthy();
   const results = await page.evaluate(() => window.selftest);
-  expect(results.map((r) => r.name)).toEqual(['derivation', 'buffer', 'evolu']);
+  expect(results.map((r) => r.name)).toEqual(['derivation', 'buffer', 'evolu', 'siteCache']);
   for (const r of results) expect(r, JSON.stringify(r)).toMatchObject({ ok: true });
   expect(errors).toEqual([]);
 });

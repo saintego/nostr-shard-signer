@@ -7,6 +7,8 @@ import { POPUP_PARAM } from './lib/passkeyPopup';
 import { PasskeyPopupView } from './components/PasskeyPopupView';
 import { CONFIRM_PARAM } from './lib/confirmPopup';
 import { ConfirmPopupView } from './components/ConfirmPopupView';
+import { GLOBAL_PARAM } from './lib/globalPopup';
+import { GlobalSignInPopupView } from './components/GlobalSignInPopupView';
 import { resolveLocale } from './lib/i18n';
 import { sweepGlobalSession } from './lib/web3authSession';
 import { LocaleContext } from './lib/useMessages';
@@ -38,7 +40,9 @@ const urlParams = {
 const isPasskeyPopup = searchParams.get(POPUP_PARAM) === '1';
 // The confirmation popup for sensitive prompts in shared mode (src/lib/confirmPopup.ts).
 const isConfirmPopup = !isPasskeyPopup && searchParams.get(CONFIRM_PARAM) === '1';
-if (isPasskeyPopup || isConfirmPopup) document.body.classList.add('popup-page');
+// The global sign-in popup (src/lib/globalPopup.ts, #80); it sweeps by itself.
+const isGlobalPopup = !isPasskeyPopup && !isConfirmPopup && searchParams.get(GLOBAL_PARAM) === '1';
+if (isPasskeyPopup || isConfirmPopup || isGlobalPopup) document.body.classList.add('popup-page');
 // Signer popups run on the signer's own top-level storage, where a global
 // sign-in leaves its tokens if its popup closes or crashes (#73 D23, #79).
 if (isPasskeyPopup || isConfirmPopup) void sweepGlobalSession();
@@ -51,7 +55,7 @@ document.documentElement.lang = locale;
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
         <LocaleContext.Provider value={locale}>
-            {isPasskeyPopup ? <PasskeyPopupView /> : isConfirmPopup ? <ConfirmPopupView /> : <App parentOrigin={parentOrigin} urlParams={urlParams} />}
+            {isPasskeyPopup ? <PasskeyPopupView /> : isConfirmPopup ? <ConfirmPopupView /> : isGlobalPopup ? <GlobalSignInPopupView /> : <App parentOrigin={parentOrigin} urlParams={urlParams} />}
         </LocaleContext.Provider>
     </React.StrictMode>,
 );

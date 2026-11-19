@@ -10,11 +10,10 @@ import { ReviewInPopupView } from './components/ReviewInPopupView';
 import { checkAuthorization } from './lib/registry';
 import type { Authorization } from './lib/registry';
 import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
-import { isOriginBlocked, sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
-import { fetchSharedBlocklist } from './lib/blocklist';
-import { initWeb3Auth, extractKey as extractLoginKey, getProvider } from './lib/web3auth';
-import { sharedIdentity } from './lib/identity';
-import { endSession, SITE_SESSION } from './lib/web3authSession';
+import { sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
+import { isBlockedBySignedList, signOutOnThisSite } from './lib/sharedSignIn';
+import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
+import { useSharedSignIn } from './useSharedSignIn';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { processRpc } from './lib/crypto';
@@ -81,13 +80,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     const blockedBuiltIn = !sharedClientId && wantsSharedSignIn(urlParams.clientId, nostrOnly);
     const shared = !!sharedClientId;
     const clientId = shared ? sharedClientId : nostrOnly ? '' : urlParams.clientId;
-    // Shared sign-in: Web3Auth's key is the global login key, never an
-    // identity; the user's identity 0 is derived from it (#73 D1, #78).
-    // Own clientId: the login key is the site's account, as before.
-    const extractKey = async (w3a: Parameters<typeof extractLoginKey>[0]) => {
-        const login = await extractLoginKey(w3a);
-        return shared ? sharedIdentity(login, 0) : login;
-    };
     // Sensitive prompts in a popup the page can't cover (#62): in shared mode any
     // site may embed the signer; self-hosters can turn it on everywhere.
     const popupPrompts = shared || import.meta.env.VITE_POPUP_CONFIRM === 'always';
@@ -215,6 +207,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
         setView('avatar');
     }, [postToParent, publishRelays]);  // publish relays, not the registry relays
+    // Shared sign-in (#80): the widget's cache, or the global sign-in popup.
+    const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError });
 
     const showNextConfirmation = useCallback(() => {
         const queue = confQueueRef.current;
@@ -564,25 +558,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Version mismatch', `nostr-bridge.js speaks protocol ${protocol}; this signer supports ${SUPPORTED_PROTOCOLS.join(', ')}.`, 'PROTOCOL_UNSUPPORTED');
                 return;
             }
-            // Web3Auth init shows no UI and exposes nothing until a session is
-            // resolved below, so it runs while the domain (or, in shared mode,
-            // the block list) is being checked.
-            const startInit = () => initWeb3Auth(clientId).then(
-                w3a => ({ w3a, err: null as unknown }),
-                (err: unknown) => ({ w3a: null, err }),
-            );
-            let earlyInit: ReturnType<typeof startInit> | null = null;
-            // Shared mode: the operator's signed block list (#65), so a site can
-            // be blocked without a deploy. On failure, the built-in list only.
-            let blocked = blockedBuiltIn;
-            if (shared) {
-                earlyInit = startInit();
-                if (ROOT_PUBKEY_VALID) {
-                    const list = await fetchSharedBlocklist(ROOT_PUBKEY_HEX, REGISTRY_RELAYS).catch(() => []);
-                    if (cancelled) return;
-                    if (isOriginBlocked(parentOrigin, list)) blocked = true;
-                }
-            }
+            // Shared mode: the operator's signed block list too (#65).
+            const blocked = blockedBuiltIn || (shared && ROOT_PUBKEY_VALID
+                && await isBlockedBySignedList(parentOrigin, ROOT_PUBKEY_HEX, REGISTRY_RELAYS));
+            if (cancelled) return;
             // Blocked: no Google/Apple/X, also when the page passed the shared clientId itself.
             const pageClientId = blocked ? '' : clientId;
 
@@ -602,7 +581,17 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            const w3aInit = earlyInit ?? startInit();
+            // Shared sign-in (#80): the widget never runs Web3Auth. The global
+            // sign-in runs in the signer's popup; here, this site's cache opens
+            // with the device secret, or the user signs in.
+            if (shared) return sharedSignIn.restore(() => cancelled);
+
+            // Web3Auth init shows no UI and exposes nothing until a session is
+            // resolved below, so it runs while the domain is being checked.
+            const w3aInit = initWeb3Auth(clientId).then(
+                w3a => ({ w3a, err: null as unknown }),
+                (err: unknown) => ({ w3a: null, err }),
+            );
             console.log('[signer] initWeb3Auth: start');
 
             // 4–5. Domain authorization. Shared mode is open to every site, so
@@ -833,6 +822,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // ── Event handlers ────────────────────────────────────────────────────────
 
     const handleConnect = useCallback(async () => {
+        if (shared) return sharedSignIn.openSheet();
         const w3a = web3authRef.current;
         if (!w3a) {
             // Web3Auth setup failed: the Nostr signer is the only way in.
@@ -877,7 +867,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Login failed', msg, 'LOGIN_FAILED');
             }
         }
-    }, [postToParent, onLoginSuccess, showError, nostrSigner]);
+    }, [postToParent, onLoginSuccess, showError, nostrSigner, shared, sharedSignIn]);
 
     // "Nostr signer or bunker" picked next to Web3Auth's sheet: the bridge opens
     // window.nostr.js on the parent page, and closing Web3Auth rejects connect(),
@@ -988,10 +978,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         }
         rejectAllConfirmations('Logged out');
         lockEvolustr();
-        // Web3Auth's logout, then its keys deleted either way: a session it can't
-        // log out (code 5113) would otherwise stay in storage (#79).
-        const w3a = web3authRef.current;
-        await endSession(w3a ? () => w3a.logout() : null, SITE_SESSION);
+        await signOutOnThisSite(web3authRef.current, shared);
         // Zero the key material before dropping the reference
         privateKeyRef.current?.fill(0);
         privateKeyRef.current = null;
@@ -1070,6 +1057,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             />
         );
     }
+    if (sharedSignIn.sheet) return sharedSignIn.sheet;
     if (view === 'login') return <LoginView onConnect={handleConnect} notice={setupError} />;
     // Web3Auth's modal is open and draws its own UI over the iframe; under that
     // sheet, offer the parent page's Nostr signer (if any) and link the library

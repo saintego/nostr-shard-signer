@@ -74,15 +74,20 @@ test.describe("with a NIP-07 extension", () => {
     expect(await page.evaluate(() => NostrBridge.getAuthState())).toEqual({ loggedIn: false, pubkey: null });
     expect(await page.evaluate(() => NostrBridge.getSavedSession())).toBeNull();
     await expect(page.locator("#nostr-signer-container")).toHaveCSS("width", "220px");
-    // With shared sign-in, Web3Auth can't load here (no network), and the
-    // error names that cause instead.
     await expect(
       page.evaluate(() => window.nostr.signEvent({ kind: 1, created_at: 1, tags: [], content: "" })),
-    ).rejects.toThrow(SHARED_SIGN_IN ? /WEB3AUTH_INIT_FAILED/ : /not logged in/);
+    ).rejects.toThrow(/not logged in/);
 
-    // login() → signer OPEN_LOGIN → its Sign in (no Web3Auth) → OPEN_NOSTR_SIGNER → extension.
+    // login() → signer OPEN_LOGIN → its Sign in → OPEN_NOSTR_SIGNER → extension.
+    // With shared sign-in the widget shows its sheet first (#80): Google opens
+    // the signer's popup from a click there; here the user picks the extension.
     const signedIn = waitForAuth(page, true);
     await page.evaluate(() => NostrBridge.login());
+    if (SHARED_SIGN_IN) {
+      // The widget grows to the sheet's size first.
+      await expect(page.locator("#nostr-signer-container")).toHaveCSS("height", "580px");
+      await page.frameLocator("#nostr-signer-iframe").getByRole("button", { name: "Use my Nostr extension" }).click();
+    }
     expect(await signedIn).toEqual({ loggedIn: true, pubkey: PUBKEY });
   });
 

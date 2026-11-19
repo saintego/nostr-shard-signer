@@ -63,9 +63,31 @@ async function evolu(): Promise<Check> {
   return { name: 'evolu', ok, detail: `${rows.length} rows` };
 }
 
+async function siteCache(): Promise<Check> {
+  const { saveSiteCache, loadSiteCache, deleteSiteCache } = await import('../lib/siteCache');
+  const cache = {
+    storeKey: 'a'.repeat(64),
+    identity: { secretKey: 'b'.repeat(64), pubkey: 'c'.repeat(64) },
+    createdAt: Date.now(),
+  };
+  await saveSiteCache(cache);
+  const sealed = localStorage.getItem('nss_site_cache') ?? '';
+  const back = await loadSiteCache();
+  const expired = await (async () => {
+    await saveSiteCache({ ...cache, createdAt: Date.now() - 31 * 24 * 3600 * 1000 });
+    return loadSiteCache();
+  })();
+  await saveSiteCache(cache);
+  deleteSiteCache();
+  const gone = await loadSiteCache();
+  const ok =
+    JSON.stringify(back) === JSON.stringify(cache) && !sealed.includes('bbbb') && expired === null && gone === null;
+  return { name: 'siteCache', ok, detail: ok ? 'sealed, restored, expired, deleted' : JSON.stringify({ back, expired, gone }) };
+}
+
 async function main() {
   const results: Check[] = [];
-  for (const check of [derivation, async () => buffer(), evolu]) {
+  for (const check of [derivation, async () => buffer(), evolu, siteCache]) {
     try {
       results.push(await check());
     } catch (e) {

@@ -1,6 +1,6 @@
 # nostr-shard-signer: full reference for coding agents
 
-> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr`. Users sign in with Google/Apple/X (the key exists only inside a cross-origin iframe), or with their own NIP-07 extension or NIP-46 bunker. Google/Apple/X needs no setup: without a `clientId`, it goes through the hosted signer's shared Web3Auth project. Alpha software with no security audit; not for high-value keys.
+> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr`. Users sign in with Google/Apple/X (the key exists only inside a cross-origin iframe), or with their own NIP-07 extension or NIP-46 bunker. Google needs no setup: without a `clientId`, it goes through the hosted signer's shared Web3Auth project (Google only; Apple and X need an own `clientId`). Alpha software with no security audit; not for high-value keys.
 
 Source: https://github.com/saintego/nostr-shard-signer
 npm: `nostr-shard-signer` (loader + types, see "In a framework" below)
@@ -8,7 +8,7 @@ Types without npm: https://raw.githubusercontent.com/saintego/nostr-shard-signer
 
 ## 1. Prerequisites (the developer does these once, by hand)
 
-Nothing, by default: call `NostrBridge.init()` without a `clientId` and users sign in with Google/Apple/X through the hosted signer's **shared sign-in**, or with an extension or NIP-46 bunker. The console notes (info) that the page uses shared sign-in.
+Nothing, by default: call `NostrBridge.init()` without a `clientId` and users sign in with Google through the hosted signer's **shared sign-in** (in a small window on the signer's origin, opened from the widget's sign-in sheet; `NostrBridge.login()` opens that sheet), or with an extension or NIP-46 bunker. The console notes (info) that the page uses shared sign-in.
 
 Shared sign-in, what to tell the developer:
 
