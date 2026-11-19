@@ -77,6 +77,8 @@ Call `loadNostrBridge()` without a `clientId`. Users sign in with Google, Apple 
 
 For Nostr-only sign-in (no Google/Apple/X), pass `nostrOnly: true`.
 
+> **Upgrading from 0.1.x:** `loadNostrBridge()` without a `clientId` used to mean extension and bunker sign-in only. It now offers Google/Apple/X through shared sign-in too, and the hosted bridge applies that to existing pages by itself. Pass `nostrOnly: true` to keep Nostr-only sign-in. See the [Changelog](https://github.com/saintego/nostr-shard-signer#changelog).
+
 ### Your own Web3Auth project (optional, once)
 
 Social login goes through [Web3Auth](https://web3auth.io): the user signs in with Google, Apple or X, and Web3Auth's MPC network gives the signer iframe the user's key, which never leaves that iframe. You use your own Web3Auth project, and declare which sites may use it, so other sites can't use your project (and its quota).
