@@ -79,8 +79,8 @@ class Instance {
         h('option', { value: 'sapphire_mainnet', textContent: 'sapphire_mainnet' }));
     readonly mode = h('select', {},
         h('option', { value: 'default', textContent: 'default storage' }),
-        h('option', { value: 'local-ns', textContent: 'own namespace in localStorage' }),
-        h('option', { value: 'session-ns', textContent: 'own namespace in sessionStorage' }));
+        h('option', { value: 'local-ns', textContent: 'own namespace (state in localStorage)' }),
+        h('option', { value: 'session-ns', textContent: 'own namespace (state in sessionStorage)' }));
     readonly sessionTime = h('input', { size: 8, placeholder: 'default' });
 
     constructor(readonly name: 'A' | 'B', readonly r: Report, readonly snap: () => Promise<void>) {
@@ -128,17 +128,18 @@ class Instance {
             clientId: this.clientId.value.trim(),
             web3AuthNetwork: this.network.value === 'sapphire_mainnet' ? WEB3AUTH_NETWORK.SAPPHIRE_MAINNET : WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
             ...(st > 0 ? { sessionTime: st } : {}),
-            // The top-level `storage` only covers Web3Auth-state; the login tokens
-            // (auth_store:*, refresh token cookie) belong to the auth connector,
-            // which needs its own sessionKey and storage. Ours is listed first,
-            // so Web3Auth's default auth connector is dropped as a duplicate.
+            // The top-level `storage` only covers Web3Auth-state. The login tokens
+            // (auth_store:*, refresh-token cookie) belong to the auth connector.
+            // Its settings are posted to the sign-in popup, so only plain values
+            // work there: custom storage adapters make Login hang. `sessionKey`
+            // renames the token keys (auth_store_A:*), which is enough to keep
+            // two instances apart; where the tokens live (localStorage, cookie)
+            // can't be changed this way. Ours is listed first, so Web3Auth's
+            // default auth connector is dropped as a duplicate.
             ...(storageConfig(this.mode.value as Mode, this.name) ? {
                 storage: storageConfig(this.mode.value as Mode, this.name),
                 connectors: [authConnector({
-                    connectorSettings: {
-                        sessionKey: `auth_store_${this.name}`,
-                        storage: storageConfig(this.mode.value as Mode, this.name),
-                    },
+                    connectorSettings: { sessionKey: `auth_store_${this.name}` },
                 } as Parameters<typeof authConnector>[0])],
             } : {}),
         } as ConstructorParameters<typeof Web3Auth>[0]);
@@ -207,9 +208,9 @@ export function viewW3A(r: Report): HTMLElement {
     const wipe = button('Remove Web3Auth session keys (without Web3Auth)', async () => {
         const removed: string[] = [];
         for (const st of [localStorage, sessionStorage]) {
-            for (const k of Object.keys(st)) if (/^auth_store:|^w3a_[AB]_|^Web3Auth-state$/.test(k)) { st.removeItem(k); removed.push(k); }
+            for (const k of Object.keys(st)) if (/^auth_store[_:]|^w3a_[AB]_|^Web3Auth-state$/.test(k)) { st.removeItem(k); removed.push(k); }
         }
-        for (const c of document.cookie.split(';').map(x => x.trim().split('=')[0]).filter(n => /^auth_store:/.test(n))) {
+        for (const c of document.cookie.split(';').map(x => x.trim().split('=')[0]).filter(n => /^auth_store[_:]/.test(n))) {
             for (const path of ['/', location.pathname.replace(/[^/]*$/, '')])
                 document.cookie = `${c}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path}`;
             removed.push(`cookie ${c}`);
