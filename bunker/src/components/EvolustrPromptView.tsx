@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { EvolustrAnswer, EvolustrPrompt } from '../types';
+import { GuardedButton } from './GuardedButton';
 
 interface Props {
     prompt: EvolustrPrompt;
@@ -32,9 +33,9 @@ export function EvolustrPromptView({ prompt, origin, waiting = 0, onAnswer }: Pr
                 </p>
                 <div className="confirm-actions">
                     <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Cancel</button>
-                    <button className="action-btn btn-primary" onClick={() => onAnswer('allow')}>
+                    <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow')}>
                         {unlock ? 'Unlock' : 'Continue'}
-                    </button>
+                    </GuardedButton>
                 </div>
             </>
         );
@@ -49,7 +50,7 @@ export function EvolustrPromptView({ prompt, origin, waiting = 0, onAnswer }: Pr
                 </p>
                 <div className="confirm-actions">
                     <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Cancel</button>
-                    <button className="action-btn btn-primary" onClick={() => onAnswer('allow')}>Continue</button>
+                    <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow')}>Continue</GuardedButton>
                 </div>
             </>
         );
@@ -72,12 +73,12 @@ export function EvolustrPromptView({ prompt, origin, waiting = 0, onAnswer }: Pr
                             with you alone.
                         </p>
                         <div className="confirm-actions">
-                            <button className="action-btn btn-secondary" onClick={() => onAnswer('allow-sk')}>
+                            <GuardedButton className="action-btn btn-secondary" onClick={() => onAnswer('allow-sk')}>
                                 With my login
-                            </button>
-                            <button className="action-btn btn-primary" onClick={() => onAnswer('allow-passkey')}>
+                            </GuardedButton>
+                            <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow-passkey')}>
                                 With a passkey
-                            </button>
+                            </GuardedButton>
                         </div>
                         <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Don't allow</button>
                     </>
@@ -90,16 +91,16 @@ export function EvolustrPromptView({ prompt, origin, waiting = 0, onAnswer }: Pr
                         </p>
                         <div className="confirm-actions">
                             <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Don't allow</button>
-                            <button className="action-btn btn-primary" onClick={() => onAnswer('allow-passkey')}>
+                            <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow-passkey')}>
                                 Create passkey
-                            </button>
+                            </GuardedButton>
                         </div>
                     </>
                 )}
                 {prompt.setup === 'none' && (
                     <div className="confirm-actions">
                         <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Don't allow</button>
-                        <button className="action-btn btn-primary" onClick={() => onAnswer('allow')}>Allow</button>
+                        <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow')}>Allow</GuardedButton>
                     </div>
                 )}
             </>

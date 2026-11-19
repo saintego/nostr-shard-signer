@@ -62,6 +62,7 @@ jobs:
         env:
           VITE_ROOT_PUBKEY_HEX: ${{ vars.ROOT_PUBKEY_HEX }}
           VITE_REGISTRY_RELAYS: ${{ vars.REGISTRY_RELAYS }}
+          VITE_POPUP_CONFIRM: ${{ vars.POPUP_CONFIRM }}
 
       # Nested under /nostr-shard-signer/ to match the GitHub Pages URL: the
       # portal loads /nostr-shard-signer/nostr-bridge.js and uses that path as

@@ -1,5 +1,5 @@
 import { test as base, expect } from "@playwright/test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -12,14 +12,24 @@ const dist = path.join(root, "bunker/dist");
 export const SIGNER_ORIGIN = "http://signer.test";
 export const BUNKER = SIGNER_ORIGIN + "/nostr-shard-signer";
 export const APP = "http://app.test";
+// An app on localhost: the signer gives app keys (Evolustr) only to https: or
+// http://localhost pages, so prompts can be tested offline.
+export const LOCAL_APP = "http://localhost:4173";
+// A third site that frames the app (#62).
+export const FRAMER = "http://framer.test";
 export const PUBKEY = "a".repeat(64);
+
+// Whether the built signer offers shared sign-in (bunker/src/lib/shared.ts).
+const sharedTs = readFileSync(path.join(root, "bunker/src/lib/shared.ts"), "utf8");
+export const SHARED_SIGN_IN =
+  /SHARED_CLIENT_ID = '[^']+'/.test(sharedTs) && /SHARED_MODE_ON = true/.test(sharedTs);
 
 if (!existsSync(path.join(dist, "index.html")))
   throw new Error("bunker/dist is missing: run `npm run build` first (npm test does it)");
 
 // A NIP-07 extension, installed in the app page only (not the signer iframe).
 function fakeExtension(pubkey) {
-  if (location.origin !== "http://app.test") return;
+  if (location.origin !== "http://app.test" && location.origin !== "http://localhost:4173") return;
   window.extensionCalls = [];
   window.nostr = {
     async getPublicKey() {
@@ -45,6 +55,9 @@ export const test = base.extend({
       const url = new URL(route.request().url());
       if (url.origin === SIGNER_ORIGIN) {
         const p = url.pathname.replace(/^\/nostr-shard-signer/, "");
+        // Test pages on the signer's origin: pages.set("signer:/path", html).
+        if (pages.has("signer:" + p))
+          return route.fulfill({ contentType: "text/html", body: pages.get("signer:" + p) });
         if (p === "/signer.html") return route.fulfill({ path: path.join(dist, "index.html") });
         if (p.startsWith("/assets/")) return route.fulfill({ path: path.join(dist, p) });
         if (p.startsWith("/examples/") || p === "/site-config.js")
@@ -57,7 +70,9 @@ export const test = base.extend({
           });
         }
       }
-      if (url.origin === APP) {
+      if (url.origin === FRAMER && pages.has("framer:" + url.pathname))
+        return route.fulfill({ contentType: "text/html", body: pages.get("framer:" + url.pathname) });
+      if (url.origin === APP || url.origin === LOCAL_APP) {
         if (pages.has(url.pathname))
           return route.fulfill({ contentType: "text/html", body: pages.get(url.pathname) });
         if (url.pathname.startsWith("/npm/"))
@@ -97,6 +112,16 @@ export function waitForAuth(page, loggedIn) {
       }),
     loggedIn,
   );
+}
+
+// The signer's SIGNER_HELLO messages to the app page, in window.signerHellos.
+export function collectSignerHellos(page) {
+  return page.addInitScript((signerOrigin) => {
+    window.signerHellos = [];
+    window.addEventListener("message", (e) => {
+      if (e.origin === signerOrigin && e.data?.type === "SIGNER_HELLO") window.signerHellos.push(e.data);
+    });
+  }, SIGNER_ORIGIN);
 }
 
 // Collects the bridge's SIGNER_ERROR events (origin "") into window.signerErrors.

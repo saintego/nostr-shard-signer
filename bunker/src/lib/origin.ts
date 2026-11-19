@@ -54,3 +54,18 @@ export function isLocalhostOrigin(origin: string): boolean {
     return false;
   }
 }
+
+/**
+ * True when the page that embeds the signer is itself inside a frame (#62).
+ * A third site framing a registered app would control what the user sees
+ * around it, and only the direct parent's origin is checked. Comparing window
+ * references is allowed across origins and works in Firefox, which has no
+ * ancestorOrigins.
+ */
+export function isNestedFrame(): boolean {
+  try {
+    return window.parent !== window.top;
+  } catch (_) {
+    return true;
+  }
+}

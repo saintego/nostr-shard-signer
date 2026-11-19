@@ -2,13 +2,15 @@
 <!--
   Minimal nostr-shard-signer integration: sign in, show the pubkey, publish a note.
 
-  To run it on your own site:
+  Works as is on any site: Google/Apple/X sign-in goes through the hosted
+  signer's shared sign-in (free while donations cover it; may be limited or
+  become paid). For keys of your own Web3Auth project instead:
     1. Get a Web3Auth client ID (https://web3auth.io) and add https://saintego.github.io
        to its Allowlist URLs (Project Settings → Domains).
     2. Register the client ID with your site's origin in the portal:
        https://saintego.github.io/nostr-shard-signer/portal/
        (localhost cannot be registered.)
-    3. Replace YOUR_WEB3AUTH_CLIENT_ID below and serve this file from that origin.
+    3. Pass { clientId: "YOUR_WEB3AUTH_CLIENT_ID" } to NostrBridge.init() below.
 -->
 <html lang="en">
   <head>
@@ -44,7 +46,7 @@
         logoutBtn.hidden = !loggedIn;
       });
 
-      // Setup problems (e.g. this origin is not registered for the clientId).
+      // Setup problems (e.g. this origin is not registered for a clientId).
       // origin === "" marks events dispatched by the bridge itself.
       window.addEventListener("message", (e) => {
         if (e.origin === "" && e.data?.type === "SIGNER_ERROR")
@@ -55,7 +57,7 @@
       logoutBtn.addEventListener("click", () => NostrBridge.logout());
 
       // Safe to call more than once; later calls return the same promise.
-      await NostrBridge.init({ clientId: "YOUR_WEB3AUTH_CLIENT_ID" });
+      await NostrBridge.init();
 
       publishBtn.addEventListener("click", async () => {
         const signed = await window.nostr.signEvent({

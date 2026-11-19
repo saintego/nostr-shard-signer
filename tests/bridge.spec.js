@@ -2,8 +2,8 @@
 // through a NIP-07 extension, but every auth change still round-trips through
 // the signer iframe.
 import {
-  test, expect, APP, BUNKER, PUBKEY,
-  bridgePage, waitForAuth, collectSignerErrors,
+  test, expect, APP, BUNKER, PUBKEY, SHARED_SIGN_IN,
+  bridgePage, waitForAuth, collectSignerErrors, collectSignerHellos,
 } from "./fixtures.js";
 
 test.describe("with a NIP-07 extension", () => {
@@ -74,11 +74,13 @@ test.describe("with a NIP-07 extension", () => {
     expect(await page.evaluate(() => NostrBridge.getAuthState())).toEqual({ loggedIn: false, pubkey: null });
     expect(await page.evaluate(() => NostrBridge.getSavedSession())).toBeNull();
     await expect(page.locator("#nostr-signer-container")).toHaveCSS("width", "220px");
+    // With shared sign-in, Web3Auth can't load here (no network), and the
+    // error names that cause instead.
     await expect(
       page.evaluate(() => window.nostr.signEvent({ kind: 1, created_at: 1, tags: [], content: "" })),
-    ).rejects.toThrow(/not logged in/);
+    ).rejects.toThrow(SHARED_SIGN_IN ? /WEB3AUTH_INIT_FAILED/ : /not logged in/);
 
-    // login() → signer OPEN_LOGIN → its Sign in (no clientId) → OPEN_NOSTR_SIGNER → extension.
+    // login() → signer OPEN_LOGIN → its Sign in (no Web3Auth) → OPEN_NOSTR_SIGNER → extension.
     const signedIn = waitForAuth(page, true);
     await page.evaluate(() => NostrBridge.login());
     expect(await signedIn).toEqual({ loggedIn: true, pubkey: PUBKEY });
@@ -119,11 +121,11 @@ test.describe("script tag attributes", () => {
 
 test.describe("without any sign-in method", () => {
   test("reports NO_SIGN_IN_METHOD and rejects window.nostr calls with it", async ({ page, pages }) => {
-    // No extension, and window.nostr.js can't load (the CDN is offline).
+    // Nostr-only, no extension, and window.nostr.js can't load (the CDN is offline).
     await collectSignerErrors(page);
     pages.set("/", bridgePage);
     await page.goto(APP + "/");
-    await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin }), BUNKER);
+    await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin, nostrOnly: true }), BUNKER);
 
     await expect.poll(() => page.evaluate(() => window.signerErrors.map((e) => e.code))).toEqual([
       "NO_SIGN_IN_METHOD",
@@ -172,5 +174,86 @@ test.describe("protocol handshake", () => {
     await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin }), BUNKER);
     await expect(page.locator("#nostr-signer-container")).toHaveCSS("width", "48px");
     expect(warnings.filter((w) => /protocol/i.test(w))).toEqual([]);
+  });
+});
+
+test.describe("shared sign-in", () => {
+  test.withExtension();
+
+  test.beforeEach(async ({ page, pages }) => {
+    await collectSignerHellos(page);
+    pages.set("/", bridgePage);
+  });
+
+  test("without a clientId, the signer says whether the page gets the shared project", async ({ page }) => {
+    const logs = [];
+    page.on("console", (m) => logs.push(m.type() + ": " + m.text()));
+    await page.goto(APP + "/");
+    await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin }), BUNKER);
+
+    const src = new URL(await page.locator("#nostr-signer-iframe").getAttribute("src"));
+    expect(src.searchParams.get("clientId")).toBeNull();
+    expect(src.searchParams.get("nostrOnly")).toBeNull();
+    await expect.poll(() => page.evaluate(() => window.signerHellos.map((h) => h.oauth))).toEqual([
+      SHARED_SIGN_IN ? "shared" : "none",
+    ]);
+    // The bridge tells the developer which one, once the signer has said so.
+    await expect
+      .poll(() => logs.join("\n"))
+      .toMatch(
+        SHARED_SIGN_IN
+          ? /info: nostr-bridge: no clientId, so Google\/Apple\/X sign-in goes through the signer's shared project/
+          : /warning: nostr-bridge: no clientId, so Google\/Apple\/X sign-in is off/,
+      );
+  });
+
+  test("nostrOnly turns it off, also with a clientId", async ({ page }) => {
+    const logs = [];
+    page.on("console", (m) => logs.push(m.type() + ": " + m.text()));
+    await page.goto(APP + "/");
+    await page.evaluate(
+      (bunkerOrigin) => NostrBridge.init({ bunkerOrigin, clientId: "some-client-id", nostrOnly: true }),
+      BUNKER,
+    );
+
+    const src = new URL(await page.locator("#nostr-signer-iframe").getAttribute("src"));
+    expect(src.searchParams.get("nostrOnly")).toBe("1");
+    expect(src.searchParams.get("clientId")).toBeNull();
+    await expect.poll(() => page.evaluate(() => window.signerHellos.map((h) => h.oauth))).toEqual(["none"]);
+    expect(await waitForAuth(page, true)).toEqual({ loggedIn: true, pubkey: PUBKEY });
+    const text = logs.join("\n");
+    expect(text).toMatch(/nostrOnly turns Google\/Apple\/X sign-in off; ignoring clientId/);
+    // A deliberate choice, so no "no clientId" notice.
+    expect(text).not.toMatch(/no clientId/);
+  });
+
+  test("data-nostr-only on the script tag", async ({ page, pages }) => {
+    pages.set("/", `<!doctype html><html><head>
+<script src="${BUNKER}/nostr-bridge.js" data-bunker-origin="${BUNKER}" data-nostr-only="true"></script>
+</head><body></body></html>`);
+    await page.goto(APP + "/");
+    await page.evaluate(() => NostrBridge.ready);
+    const src = new URL(await page.locator("#nostr-signer-iframe").getAttribute("src"));
+    expect(src.searchParams.get("nostrOnly")).toBe("1");
+  });
+});
+
+test.describe("a saved Google/Apple/X session", () => {
+  test("is dropped at once when the signer has no Web3Auth for the page", async ({ page, pages }) => {
+    test.skip(SHARED_SIGN_IN, "this signer offers shared sign-in to pages without a clientId");
+    pages.set("/", bridgePage);
+    await page.goto(APP + "/");
+    await page.evaluate((pubkey) => {
+      localStorage.setItem("nostr-bridge:session", JSON.stringify({ pubkey, mode: "iframe" }));
+    }, PUBKEY);
+    await page.reload();
+    const started = Date.now();
+    // No clientId: the bridge keeps the session until the signer's hello says
+    // it has no shared sign-in.
+    await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin }), BUNKER);
+    expect(await waitForAuth(page, false)).toEqual({ loggedIn: false, pubkey: null });
+    expect(await page.evaluate(() => NostrBridge.getSavedSession())).toBeNull();
+    // Not after the 10 s wait for a session that is still coming back.
+    expect(Date.now() - started).toBeLessThan(5000);
   });
 });

@@ -2,10 +2,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Web3Auth } from '@web3auth/modal';
 
 import type { ViewName, UserProfile, KeyInfo, PendingConfirmation, EvolustrPrompt, EvolustrAnswer } from './types';
-import { validateEmbedding, isLocalhostOrigin } from './lib/origin';
+import { validateEmbedding, isLocalhostOrigin, isNestedFrame } from './lib/origin';
+import { openConfirmPopup, askInPopup } from './lib/confirmPopup';
+import { needsTopLevelPrompt } from './lib/approval';
+import { bytesToHex } from './lib/hex';
+import { ReviewInPopupView } from './components/ReviewInPopupView';
 import { checkAuthorization } from './lib/registry';
 import type { Authorization } from './lib/registry';
 import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
+import { isOriginBlocked, sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
+import { fetchSharedBlocklist } from './lib/blocklist';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
@@ -60,11 +66,23 @@ interface AppProps {
         nostrSigner: 'bunker' | 'extension' | null;
         protocol: number;
         poweredBy: boolean;
+        nostrOnly: boolean;
     };
 }
 
 export function App({ parentOrigin, urlParams }: AppProps) {
-    const { clientId, nostrSigner, protocol, poweredBy } = urlParams;
+    const { nostrSigner, protocol, poweredBy, nostrOnly } = urlParams;
+    // Shared mode: no clientId from the page, so the signer's own project is
+    // used (src/lib/shared.ts). Nostr-only pages get no Web3Auth at all.
+    const sharedClientId = sharedClientIdFor(urlParams.clientId, nostrOnly, parentOrigin);
+    // On the built-in block list: the page would get shared sign-in otherwise (#65).
+    const blockedBuiltIn = !sharedClientId && wantsSharedSignIn(urlParams.clientId, nostrOnly);
+    const shared = !!sharedClientId;
+    const clientId = shared ? sharedClientId : nostrOnly ? '' : urlParams.clientId;
+    // Sensitive prompts in a popup the page can't cover (#62): in shared mode any
+    // site may embed the signer; self-hosters can turn it on everywhere.
+    const popupPrompts = shared || import.meta.env.VITE_POPUP_CONFIRM === 'always';
+    const [popupError, setPopupError] = useState('');
 
     // ── View routing ──────────────────────────────────────────────────────────
     const [view, setView] = useState<ViewName>('loading');
@@ -109,6 +127,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // Where to go back to once the queue is empty (the settings, when a passkey
     // step started there).
     const afterConfirmViewRef = useRef<ViewName>('avatar');
+    const promptSeqRef = useRef(0);
 
     // ── Evolustr Signer API (src/lib/evolustr.ts) ─────────────────────────────
     const evolustrRef = useRef<EvolustrSigner | null>(null);
@@ -195,7 +214,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             setView(v => (v === 'confirm' ? afterConfirmViewRef.current : v));
             return;
         }
-        setPendingConf({ method: queue[0].method, params: queue[0].params, evolustr: queue[0].evolustr, waiting: queue.length - 1 });
+        promptSeqRef.current += 1;
+        setPopupError('');
+        setPendingConf({ method: queue[0].method, params: queue[0].params, evolustr: queue[0].evolustr, waiting: queue.length - 1, seq: promptSeqRef.current });
         setView('confirm');
     }, []);
 
@@ -521,6 +542,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Unauthorized context', 'This signer must be embedded in an authorized page.', 'NOT_EMBEDDED');
                 return;
             }
+            // Only the direct parent's origin is known: a third site framing it
+            // would control what the user sees around the signer (#62).
+            if (isNestedFrame()) {
+                showError('Unsupported embedding', 'The page using this signer must not be inside another frame.', 'NESTED_FRAME');
+                return;
+            }
 
             // 2. Protocol handshake: refuse a bridge this signer can't talk to
             // instead of misreading its messages.
@@ -528,10 +555,35 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Version mismatch', `nostr-bridge.js speaks protocol ${protocol}; this signer supports ${SUPPORTED_PROTOCOLS.join(', ')}.`, 'PROTOCOL_UNSUPPORTED');
                 return;
             }
-            postToParent({ type: 'SIGNER_HELLO', protocol });
+            // Web3Auth init shows no UI and exposes nothing until a session is
+            // resolved below, so it runs while the domain (or, in shared mode,
+            // the block list) is being checked.
+            const startInit = () => initWeb3Auth(clientId).then(
+                w3a => ({ w3a, err: null as unknown }),
+                (err: unknown) => ({ w3a: null, err }),
+            );
+            let earlyInit: ReturnType<typeof startInit> | null = null;
+            // Shared mode: the operator's signed block list (#65), so a site can
+            // be blocked without a deploy. On failure, the built-in list only.
+            let blocked = blockedBuiltIn;
+            if (shared) {
+                earlyInit = startInit();
+                if (ROOT_PUBKEY_VALID) {
+                    const list = await fetchSharedBlocklist(ROOT_PUBKEY_HEX, REGISTRY_RELAYS).catch(() => []);
+                    if (cancelled) return;
+                    if (isOriginBlocked(parentOrigin, list)) blocked = true;
+                }
+            }
+            // Blocked: no Google/Apple/X, also when the page passed the shared clientId itself.
+            const pageClientId = blocked ? '' : clientId;
+
+            // oauth tells the bridge which Google/Apple/X sign-in the page gets:
+            // its own clientId, the shared project, or none.
+            postToParent({ type: 'SIGNER_HELLO', protocol, oauth: !pageClientId ? 'none' : shared ? 'shared' : 'own' });
+            if (blocked) warnParent('SHARED_BLOCKED', "Shared sign-in isn't available for this site. Use your own clientId.");
 
             // 3. No clientId: no Web3Auth, the Sign in button opens the Nostr signer.
-            if (!clientId) {
+            if (!pageClientId) {
                 if (!nostrSigner) {
                     showError('No sign-in method', 'No clientId was given and no Nostr signer is available on the page.', 'NO_SIGN_IN_METHOD');
                     return;
@@ -541,62 +593,65 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            // Web3Auth init shows no UI and exposes nothing until a session is
-            // resolved below, so run it while the domain is being checked.
-            const w3aInit = initWeb3Auth(clientId).then(
-                w3a => ({ w3a, err: null }),
-                (err: unknown) => ({ w3a: null, err }),
-            );
+            const w3aInit = earlyInit ?? startInit();
             console.log('[signer] initWeb3Auth: start');
 
-            // 4. The Web3Auth allowlist or the NIP-33 registry (under the root
-            // key built into this signer) must list the origin.
-            const allowlist = await fetchAllowlist(clientId);
-            if (cancelled) return;
-
-            const rootPubkeyMissing = !ROOT_PUBKEY_VALID;
-            const checkRegistry = () => checkAuthorization(clientId, parentOrigin, ROOT_PUBKEY_HEX, REGISTRY_RELAYS);
-
-            // Local testing only: the registrar refuses localhost domains, so a build
-            // made with VITE_LOCAL_TEST=true (scripts/local.sh) skips the domain
-            // checks for localhost parents. Normal builds never set the flag.
-            const localTestBypass = import.meta.env.VITE_LOCAL_TEST === 'true' && isLocalhostOrigin(parentOrigin);
-            if (localTestBypass) console.warn('[signer] VITE_LOCAL_TEST: skipping domain checks for', parentOrigin);
-
-            // 5. Domain authorization: the NIP-33 registry or the Web3Auth
-            // allowlist must list the origin; a warning names the one that doesn't.
-            if (allowlist.status === 'not_found') {
-                failSetup('Unknown clientId', 'Web3Auth has no project with this clientId.', 'CLIENT_ID_NOT_FOUND');
-                return;
-            }
-            const allowlisted = allowlist.status === 'ok' && isAllowlisted(allowlist.origins, parentOrigin);
-            if (allowlist.status === 'unavailable') {
-                console.warn('[signer] Web3Auth allowlist unavailable (%s); using the NIP-33 registry only', allowlist.reason);
-            }
-
+            // 4–5. Domain authorization. Shared mode is open to every site, so
+            // there is nothing to check: the shared project's allowlist lists
+            // only the signer's origin, and a registry entry for its clientId
+            // (if anyone claimed one) says nothing about who may use it.
             let auth: Authorization;
-            if (localTestBypass) {
+            if (shared) {
                 auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
-            } else if (allowlisted) {
-                auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
-                if (rootPubkeyMissing) {
-                    warnParent('NOT_IN_REGISTRY', 'The NIP-33 registry could not be checked: no root registry public key.');
-                } else {
-                    checkRegistry().final.then(ok => {
-                        if (!ok && !cancelled) warnParent('NOT_IN_REGISTRY', `"${parentOrigin}" is not registered for this clientId in the NIP-33 registry.`);
-                    });
-                }
             } else {
-                // Fail closed if the signer was built without a root pubkey.
-                if (rootPubkeyMissing) {
-                    showError('Signer misconfiguration', 'Missing root registry public key. Build the signer with VITE_ROOT_PUBKEY_HEX.', 'MISSING_ROOT_PUBKEY');
+                // The Web3Auth allowlist or the NIP-33 registry (under the root
+                // key built into this signer) must list the origin.
+                const allowlist = await fetchAllowlist(clientId);
+                if (cancelled) return;
+
+                const rootPubkeyMissing = !ROOT_PUBKEY_VALID;
+                const checkRegistry = () => checkAuthorization(clientId, parentOrigin, ROOT_PUBKEY_HEX, REGISTRY_RELAYS);
+
+                // Local testing only: the registrar refuses localhost domains, so a build
+                // made with VITE_LOCAL_TEST=true (scripts/local.sh) skips the domain
+                // checks for localhost parents. Normal builds never set the flag.
+                const localTestBypass = import.meta.env.VITE_LOCAL_TEST === 'true' && isLocalhostOrigin(parentOrigin);
+                if (localTestBypass) console.warn('[signer] VITE_LOCAL_TEST: skipping domain checks for', parentOrigin);
+
+                // The NIP-33 registry or the Web3Auth allowlist must list the
+                // origin; a warning names the one that doesn't.
+                if (allowlist.status === 'not_found') {
+                    failSetup('Unknown clientId', 'Web3Auth has no project with this clientId.', 'CLIENT_ID_NOT_FOUND');
                     return;
                 }
-                auth = checkRegistry();
-                if (allowlist.status === 'ok') {
-                    auth.final.then(ok => {
-                        if (ok && !cancelled) warnParent('NOT_ALLOWLISTED', `"${parentOrigin}" is not in this clientId's Web3Auth allowlist.`);
-                    });
+                const allowlisted = allowlist.status === 'ok' && isAllowlisted(allowlist.origins, parentOrigin);
+                if (allowlist.status === 'unavailable') {
+                    console.warn('[signer] Web3Auth allowlist unavailable (%s); using the NIP-33 registry only', allowlist.reason);
+                }
+
+                if (localTestBypass) {
+                    auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
+                } else if (allowlisted) {
+                    auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
+                    if (rootPubkeyMissing) {
+                        warnParent('NOT_IN_REGISTRY', 'The NIP-33 registry could not be checked: no root registry public key.');
+                    } else {
+                        checkRegistry().final.then(ok => {
+                            if (!ok && !cancelled) warnParent('NOT_IN_REGISTRY', `"${parentOrigin}" is not registered for this clientId in the NIP-33 registry.`);
+                        });
+                    }
+                } else {
+                    // Fail closed if the signer was built without a root pubkey.
+                    if (rootPubkeyMissing) {
+                        showError('Signer misconfiguration', 'Missing root registry public key. Build the signer with VITE_ROOT_PUBKEY_HEX.', 'MISSING_ROOT_PUBKEY');
+                        return;
+                    }
+                    auth = checkRegistry();
+                    if (allowlist.status === 'ok') {
+                        auth.final.then(ok => {
+                            if (ok && !cancelled) warnParent('NOT_ALLOWLISTED', `"${parentOrigin}" is not in this clientId's Web3Auth allowlist.`);
+                        });
+                    }
                 }
             }
             authFinalRef.current = auth.final;
@@ -845,6 +900,29 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         showNextConfirmation();
     }, [showNextConfirmation]);
 
+    // Shared mode (#62): the prompt opens in a popup; its answer applies to the
+    // request it was opened for, even if the queue moved on meanwhile.
+    const handleReviewInPopup = useCallback(() => {
+        const head = confQueueRef.current[0];
+        if (!head) return;
+        openConfirmPopup(); // synchronously, in this click
+        setPopupError('');
+        const request = head.evolustr
+            ? { kind: 'evolustr' as const, origin: parentOrigin, prompt: head.evolustr }
+            : { kind: 'rpc' as const, origin: parentOrigin, method: head.method, params: head.params, ...(keyInfo ? { ownPubkey: keyInfo.publicKeyHex } : {}) };
+        askInPopup(request).then(answer => {
+            if (confQueueRef.current[0] !== head) return;
+            if (head.evolustr) handleEvolustrAnswer(answer === 'closed' || answer === 'approve' || answer === 'reject' || answer === 'done' ? 'deny' : answer);
+            else if (answer === 'approve') handleApprove();
+            else handleReject();
+        }, (e: Error) => setPopupError(e.message));
+    }, [parentOrigin, keyInfo, handleApprove, handleReject, handleEvolustrAnswer]);
+
+    const handleRejectHead = useCallback(() => {
+        if (confQueueRef.current[0]?.evolustr) handleEvolustrAnswer('deny');
+        else handleReject();
+    }, [handleEvolustrAnswer, handleReject]);
+
     const handleForgetApp = useCallback((appId: string) => {
         if (!keyInfo) return;
         const next = loadAllowedApps(keyInfo.publicKeyHex).filter(a => a !== appId);
@@ -943,6 +1021,20 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         recordBackup(pk, keyInfo.publicKeyHex, method, publishRelays);
     }, [keyInfo, publishRelays]);
 
+    // Shared mode: the key is shown in the popup, not in the iframe (#62).
+    const handleExportKey = useCallback(() => {
+        const pk = privateKeyRef.current;
+        if (!popupPrompts || !pk || !keyInfo) {
+            setView('export');
+            return;
+        }
+        openConfirmPopup();
+        askInPopup(
+            { kind: 'export', nsecStr: keyInfo.nsecStr, npubStr: keyInfo.npubStr, privateKeyHex: bytesToHex(pk), shared },
+            e => handleBackedUp(e.backedUp),
+        ).catch(() => setView('export'));
+    }, [popupPrompts, keyInfo, shared, handleBackedUp]);
+
     const handleBackupLater = useCallback(() => {
         if (keyInfo) snoozeBackupPrompt(keyInfo.publicKeyHex);
         setBackupAsk(false);
@@ -976,9 +1068,24 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             : null;
     }
 
+    if (view === 'confirm' && pendingConf && popupPrompts &&
+        (pendingConf.evolustr ? pendingConf.evolustr.kind === 'appKey' : needsTopLevelPrompt(pendingConf.method, pendingConf.params))) {
+        return (
+            <ReviewInPopupView
+                key={pendingConf.seq}
+                origin={parentOrigin}
+                waiting={pendingConf.waiting}
+                onReview={handleReviewInPopup}
+                onReject={handleRejectHead}
+                error={popupError}
+            />
+        );
+    }
+
     if (view === 'confirm' && pendingConf?.evolustr) {
         return (
             <EvolustrPromptView
+                key={pendingConf.seq}
                 prompt={pendingConf.evolustr}
                 origin={parentOrigin}
                 waiting={pendingConf.waiting}
@@ -990,8 +1097,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     if (view === 'confirm' && pendingConf) {
         return (
             <ConfirmView
+                key={pendingConf.seq}
                 confirmation={pendingConf}
                 origin={parentOrigin}
+                {...(keyInfo ? { ownPubkey: keyInfo.publicKeyHex } : {})}
                 onApprove={handleApprove}
                 onReject={handleReject}
             />
@@ -1006,6 +1115,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 onEncrypt={handleEncryptBackup}
                 onBackedUp={handleBackedUp}
                 onBack={() => setView('profile')}
+                shared={shared}
             />
         );
     }
@@ -1019,10 +1129,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 autoApproveKinds={autoApproveKinds}
                 origin={parentOrigin}
                 isWnjMode={!!wnjPubkey}
+                shared={shared}
                 backupAsk={backupAsk}
                 onBackupLater={handleBackupLater}
                 onSaveProfile={handleSaveProfile}
-                onExportKey={() => setView('export')}
+                onExportKey={handleExportKey}
                 onLogout={handleLogout}
                 onRelaysChange={handleRelaysChange}
                 onAutoApproveChange={handleAutoApproveChange}
