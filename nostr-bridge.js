@@ -40,6 +40,7 @@
  *       buttonSize:     "standard",                   // "standard" | "large_social_grid"
  *       mountSelector:  "#nostr-btn",                 // only used when layout === "in-place"
  *       poweredBy:      true,                         // false hides the library link on the sign-in sheet
+ *       locale:         "es",                         // the widget's language, if the signer has it
  *     });
  *   </script>
  *
@@ -319,6 +320,9 @@
     // Only sent to turn the link off, so signers default to showing it.
     if (config.poweredBy === false) url.searchParams.set("poweredBy", "0");
     if (config.nostrOnly) url.searchParams.set("nostrOnly", "1");
+    // A language code only: the signer shows it if it has that language.
+    if (typeof config.locale === "string" && /^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$/.test(config.locale))
+      url.searchParams.set("locale", config.locale);
     // Tells the signer to offer a Nostr signer in its sign-in chooser; picking
     // it posts OPEN_NOSTR_SIGNER back so we open window.nostr.js or ask the
     // extension. "extension" changes the option's label.
@@ -1585,7 +1589,7 @@
   // option) initializes itself; an explicit init() afterwards gets the same promise.
   function autoInit() {
     var ds = currentScript && currentScript.dataset;
-    var keys = ["clientId", "bunkerOrigin", "layout", "buttonSize", "mountSelector"];
+    var keys = ["clientId", "bunkerOrigin", "layout", "buttonSize", "mountSelector", "locale"];
     var flags = ["forceIframe", "poweredBy", "nostrOnly"];
     if (!ds || !keys.concat(flags).some(function (key) { return ds[key] !== undefined; }))
       return;

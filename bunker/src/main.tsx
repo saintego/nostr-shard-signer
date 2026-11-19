@@ -6,6 +6,10 @@ import { POPUP_PARAM } from './lib/passkeyPopup';
 import { PasskeyPopupView } from './components/PasskeyPopupView';
 import { CONFIRM_PARAM } from './lib/confirmPopup';
 import { ConfirmPopupView } from './components/ConfirmPopupView';
+import { resolveLocale } from './lib/i18n';
+import { LocaleContext } from './lib/useMessages';
+import './vendor/nostr-post-ui/ui.css';
+import './theme.css';
 import './styles.css';
 
 const parentOrigin = deriveParentOrigin();
@@ -34,8 +38,15 @@ const isPasskeyPopup = searchParams.get(POPUP_PARAM) === '1';
 const isConfirmPopup = !isPasskeyPopup && searchParams.get(CONFIRM_PARAM) === '1';
 if (isPasskeyPopup || isConfirmPopup) document.body.classList.add('popup-page');
 
+// The page may ask for a language; the signer uses it only if it has that
+// language's text (lib/i18n.ts). Popups get the same parameter.
+const locale = resolveLocale(searchParams.get('locale'), navigator.languages ?? [navigator.language]);
+document.documentElement.lang = locale;
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-        {isPasskeyPopup ? <PasskeyPopupView /> : isConfirmPopup ? <ConfirmPopupView /> : <App parentOrigin={parentOrigin} urlParams={urlParams} />}
+        <LocaleContext.Provider value={locale}>
+            {isPasskeyPopup ? <PasskeyPopupView /> : isConfirmPopup ? <ConfirmPopupView /> : <App parentOrigin={parentOrigin} urlParams={urlParams} />}
+        </LocaleContext.Provider>
     </React.StrictMode>,
 );

@@ -41,7 +41,9 @@ export function openConfirmPopup(): void {
         return;
     }
     const url = new URL(location.href);
+    const locale = url.searchParams.get('locale');
     url.search = `?${CONFIRM_PARAM}=1`;
+    if (locale) url.searchParams.set('locale', locale); // the same language as the widget
     url.hash = '';
     readyPopup = null;
     // Unnamed (#77): the page that embeds the signer could find a named

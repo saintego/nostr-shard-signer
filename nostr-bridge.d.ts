@@ -158,6 +158,12 @@ declare global {
     mountSelector?: string;
     /** Show the "Powered by nostr-shard-signer" link on the sign-in sheet. Default true. */
     poweredBy?: boolean;
+    /**
+     * The widget's language as a language code ("es", "pt-BR"). Used only if the
+     * signer has text in that language; otherwise the browser's language, then
+     * English. Pages can't supply the signer's text.
+     */
+    locale?: string;
   }
 
   interface NostrBridgeAuthState {

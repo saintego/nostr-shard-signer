@@ -641,6 +641,7 @@ For a self-hosted signer, pass `bunkerOrigin`. Without it, the bridge uses the h
     buttonSize: "standard", // or "large_social_grid"
     forceIframe: false, // true = skip native extension check
     poweredBy: true, // false = hide the "Powered by nostr-shard-signer" link on the sign-in sheet
+    locale: "es", // the widget's language, if the signer has it (default: the browser's, then English)
   });
 </script>
 ```
@@ -911,6 +912,7 @@ Changes to `nostr-bridge.js` and the signer reach every page that loads them fro
 **Added:**
 
 - `nostrOnly` option and `data-nostr-only` attribute (npm types in 0.2.0).
+- `locale` option and `data-locale` attribute: the widget's language, if the signer has it. The signer's text is bundled with it; pages can't change it.
 - `SIGNER_HELLO` carries `oauth: "own" | "shared" | "none"`.
 - Prompts can't be clicked through by the host page: approve buttons react after a short delay, and, in Chromium, only while nothing covers them. In shared sign-in, sensitive requests (decrypts, profile, follow-list and relay-list replacements, deletions, Evolustr app keys, key export) are confirmed in a popup on the signer's origin. Self-hosters can turn that on for every page (`POPUP_CONFIRM=always`).
 - The operator can block a single site from shared sign-in, with a list signed by the registry root key (`scripts/publish-blocklist.mjs`) or built into the signer. A blocked page gets the `SHARED_BLOCKED` warning and keeps extension and bunker sign-in.

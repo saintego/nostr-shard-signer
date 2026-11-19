@@ -1,5 +1,8 @@
 import type { ReactNode } from 'react';
 import type { EvolustrAnswer, EvolustrPrompt } from '../types';
+import { format } from '../lib/i18n';
+import { useMessages } from '../lib/useMessages';
+import { evolustrPromptMessages } from './EvolustrPromptMessages';
 import { GuardedButton } from './GuardedButton';
 
 interface Props {
@@ -15,26 +18,27 @@ const hostOf = (s: string) => {
 };
 
 /** The app id as the user knows it: a host for web origins, the npub for nsites. */
-const appLabel = (appId: string) => (appId.startsWith('nsite:') ? `the nsite ${appId.slice(6, 22)}…` : hostOf(appId));
+const appLabel = (appId: string, nsiteLabel: string) =>
+    appId.startsWith('nsite:') ? format(nsiteLabel, { id: appId.slice(6, 22) }) : hostOf(appId);
 
 export function EvolustrPromptView({ prompt, origin, waiting = 0, onAnswer }: Props) {
+    const m = useMessages(evolustrPromptMessages);
     const site = hostOf(origin);
+    const siteAsks = <p className="confirm-site">{format(m.siteAsks, { site })}</p>;
     let body: ReactNode;
 
     if (prompt.kind === 'gesture') {
         const unlock = prompt.reason === 'unlock';
         body = (
             <>
-                <h3>{unlock ? 'Unlock your app keys' : 'Create a passkey'}</h3>
+                <h3>{unlock ? m.unlockTitle : m.createTitle}</h3>
                 <p className="confirm-summary">
-                    {unlock
-                        ? 'Use your passkey to unlock the keys that protect your app data.'
-                        : 'Your device will ask you to create a passkey for this signer.'}
+                    {unlock ? m.unlockSummary : m.createSummary}
                 </p>
                 <div className="confirm-actions">
-                    <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Cancel</button>
+                    <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>{m.cancelButton}</button>
                     <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow')}>
-                        {unlock ? 'Unlock' : 'Continue'}
+                        {unlock ? m.unlockButton : m.continueButton}
                     </GuardedButton>
                 </div>
             </>
@@ -42,65 +46,54 @@ export function EvolustrPromptView({ prompt, origin, waiting = 0, onAnswer }: Pr
     } else if (prompt.kind === 'enrollPasskey') {
         body = (
             <>
-                <p className="confirm-site">{site} asks:</p>
-                <h3>Add a passkey for your app keys?</h3>
-                <p className="confirm-summary">
-                    A passkey lets this signer unlock the keys that protect your app data on your
-                    other devices too.
-                </p>
+                {siteAsks}
+                <h3>{m.enrollTitle}</h3>
+                <p className="confirm-summary">{m.enrollSummary}</p>
                 <div className="confirm-actions">
-                    <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Cancel</button>
-                    <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow')}>Continue</GuardedButton>
+                    <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>{m.cancelButton}</button>
+                    <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow')}>{m.continueButton}</GuardedButton>
                 </div>
             </>
         );
     } else {
-        const app = appLabel(prompt.appId);
+        const app = appLabel(prompt.appId, m.nsiteLabel);
         body = (
             <>
-                <p className="confirm-site">{site} asks:</p>
-                <h3>Give {app} its own key for your data?</h3>
-                <p className="confirm-summary">
-                    {app} will encrypt its data with a key only it gets. Other apps can't read that
-                    data, even with permission to sign or decrypt.
-                </p>
+                {siteAsks}
+                <h3>{format(m.appKeyTitle, { app })}</h3>
+                <p className="confirm-summary">{format(m.appKeySummary, { app })}</p>
                 {prompt.setup === 'choose' && (
                     <>
-                        <p className="confirm-summary">How should this signer protect your app keys?</p>
+                        <p className="confirm-summary">{m.chooseQuestion}</p>
                         <p className="confirm-warning">
-                            ⚠️&ensp;With your Google, Apple or X login, whoever runs this site's
-                            Web3Auth project could also recover these keys. A passkey keeps them
-                            with you alone.
+                            ⚠️&ensp;{m.chooseWarning}
                         </p>
                         <div className="confirm-actions">
                             <GuardedButton className="action-btn btn-secondary" onClick={() => onAnswer('allow-sk')}>
-                                With my login
+                                {m.withLogin}
                             </GuardedButton>
                             <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow-passkey')}>
-                                With a passkey
+                                {m.withPasskey}
                             </GuardedButton>
                         </div>
-                        <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Don't allow</button>
+                        <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>{m.dontAllow}</button>
                     </>
                 )}
                 {prompt.setup === 'passkey' && (
                     <>
-                        <p className="confirm-summary">
-                            First, create a passkey for this signer: it keeps your app keys safe and
-                            unlocks them on your other devices.
-                        </p>
+                        <p className="confirm-summary">{m.passkeyFirst}</p>
                         <div className="confirm-actions">
-                            <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Don't allow</button>
+                            <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>{m.dontAllow}</button>
                             <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow-passkey')}>
-                                Create passkey
+                                {m.createPasskeyButton}
                             </GuardedButton>
                         </div>
                     </>
                 )}
                 {prompt.setup === 'none' && (
                     <div className="confirm-actions">
-                        <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>Don't allow</button>
-                        <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow')}>Allow</GuardedButton>
+                        <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>{m.dontAllow}</button>
+                        <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow')}>{m.allow}</GuardedButton>
                     </div>
                 )}
             </>
@@ -111,7 +104,7 @@ export function EvolustrPromptView({ prompt, origin, waiting = 0, onAnswer }: Pr
         <div id="view-confirm" className="view active">
             {body}
             {waiting > 0 && (
-                <p className="confirm-waiting">{waiting} more {waiting === 1 ? 'request' : 'requests'} waiting</p>
+                <p className="confirm-waiting">{format(waiting === 1 ? m.waitingOne : m.waitingMany, { count: waiting })}</p>
             )}
         </div>
     );

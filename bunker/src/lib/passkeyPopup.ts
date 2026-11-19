@@ -32,7 +32,9 @@ export function openPasskeyPopup(): void {
         return;
     }
     const url = new URL(location.href);
+    const locale = url.searchParams.get('locale');
     url.search = `?${POPUP_PARAM}=1`;
+    if (locale) url.searchParams.set('locale', locale); // the same language as the widget
     url.hash = '';
     // Unnamed (#77): the page that embeds the signer could find a named
     // popup with window.open('', name) and navigate it. We keep `popup`.
