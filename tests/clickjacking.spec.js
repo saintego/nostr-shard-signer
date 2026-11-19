@@ -101,6 +101,24 @@ test.describe("prompts", () => {
       expect(answer).toMatch(/relay/);
     });
 
+    test("the embedding page can't reach the popup by its old name (#77)", async ({ page, context }) => {
+      const review = signer(page).locator("#review-request");
+      await expect(review).toBeEnabled({ timeout: 3000 });
+      const popupOpened = page.waitForEvent("popup");
+      await review.click();
+      const popup = await popupOpened;
+      await popup.getByRole("button", { name: "Don't allow" }).waitFor();
+      // The page tries to grab the window by the name it used to have.
+      const grabbed = context.waitForEvent("page");
+      await page.evaluate(() => { window.grabbed = window.open("", "nostr-signer-confirm"); });
+      const other = await grabbed;
+      expect(other).not.toBe(popup);
+      expect(other.url()).toBe("about:blank");
+      // The signer's popup is untouched and still answers.
+      await popup.getByRole("button", { name: "Don't allow" }).click();
+      expect(await page.evaluate(() => window.keyAnswer)).toMatch(/didn't allow/);
+    });
+
     test("closing the popup rejects", async ({ page }) => {
       const review = signer(page).locator("#review-request");
       await expect(review).toBeEnabled({ timeout: 3000 });
