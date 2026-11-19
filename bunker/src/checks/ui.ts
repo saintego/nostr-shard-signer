@@ -120,7 +120,8 @@ export function age(ms: number): string {
 export function crossFrame(check: string, origin: string, allow = ''): HTMLIFrameElement {
     return h('iframe', {
         src: pageUrl(origin, { c: check, role: 'frame' }),
-        allow,
+        // clipboard-write: so "Copy report" works inside the iframe too.
+        allow: ['clipboard-write *', allow].filter(Boolean).join('; '),
         style: 'width:100%;height:420px;border:2px dashed #888;border-radius:6px',
     });
 }
