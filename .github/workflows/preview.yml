@@ -92,13 +92,30 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # The same build under a second fixed alias, so the v1 check kit (#73,
+      # #75) has two stable origins for its cross-site checks. pages.dev is a
+      # public suffix, so preview.* and checks.* are different sites.
+      - name: Deploy the second origin for checks
+        id: checks
+        run: |
+          npx wrangler pages deploy _preview --project-name="$PAGES_PROJECT" \
+            --branch=checks --commit-dirty=true | tee deploy-checks.log
+          host=$(grep -oE 'https://[a-z0-9-]+\.[a-z0-9-]+\.pages\.dev' deploy-checks.log | head -1 |
+            sed -E 's#https://[a-z0-9-]+\.#https://checks.#')
+          echo "url=$host" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Comment preview URL on the PR
         uses: actions/github-script@v7
         env:
           PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+          CHECKS_URL: ${{ steps.checks.outputs.url }}
         with:
           script: |
             const url = process.env.PREVIEW_URL;
+            const checks = process.env.CHECKS_URL;
             const marker = "<!-- pr-preview -->";
             const body = [
               marker,
@@ -107,8 +124,9 @@ jobs:
               `- Portal: ${url}/nostr-shard-signer/portal/`,
               `- Bridge: ${url}/nostr-shard-signer/nostr-bridge.js (use \`bunkerOrigin: "${url}/nostr-shard-signer"\`)`,
               `- Example: ${url}/nostr-shard-signer/examples/minimal.html`,
+              `- v1 checks (#75): ${url}/nostr-shard-signer/checks.html (cross-site partner: ${checks})`,
               "",
-              `The origin \`${url}\` must be added to the clientId (portal Register tab, which adds to the list) and to the Web3Auth Allowlist URLs. All PRs share this URL; the latest push wins.`,
+              `The origin \`${url}\` must be added to the clientId (portal Register tab, which adds to the list) and to the Web3Auth Allowlist URLs; for the Web3Auth lab also \`${checks}\`. All PRs share these URLs; the latest push wins.`,
             ].join("\n");
             const { owner, repo } = context.repo;
             const issue_number = context.issue.number;

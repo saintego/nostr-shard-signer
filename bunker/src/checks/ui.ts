@@ -30,9 +30,11 @@ export function otherOrigin(): string {
         const saved = localStorage.getItem('checks_other_origin');
         if (saved) return saved;
     } catch (_) { /* storage blocked */ }
-    return location.hostname === 'saintego.github.io'
-        ? 'https://preview.nostr-shard-signer.pages.dev'
-        : 'https://saintego.github.io';
+    // Two fixed Cloudflare aliases of the same PR build (preview.yml), so a PR
+    // can be checked without merging; GitHub Pages pairs with the preview.
+    return location.hostname === 'preview.nostr-shard-signer.pages.dev'
+        ? 'https://checks.nostr-shard-signer.pages.dev'
+        : 'https://preview.nostr-shard-signer.pages.dev';
 }
 
 export function setOtherOrigin(origin: string): void {
