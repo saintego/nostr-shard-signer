@@ -47,14 +47,23 @@ async function getOnce(): Promise<Uint8Array | null> {
     return first ? new Uint8Array(first) : null;
 }
 
-async function getTwice(r: Report) {
+// One WebAuthn call per click: Safari refuses a second call from the same click
+// ("The document is not focused"), so each use is its own button press.
+let firstOutput: string | null = null;
+
+async function useOnce(r: Report) {
     try {
-        const a = await getOnce();
-        if (!a) return r.fail('get: no PRF output');
-        const b = await getOnce();
-        if (!b) return r.fail('second get: no PRF output');
-        const same = hex(a) === hex(b);
-        r[same ? 'pass' : 'fail'](`get ×2: PRF output ${a.length} bytes, ${same ? 'identical' : 'DIFFERENT'} both times`);
+        const out = await getOnce();
+        if (!out) return r.fail('get: no PRF output');
+        // Kept as a SHA-256 fingerprint only.
+        const fp = hex(new Uint8Array(await crypto.subtle.digest('SHA-256', out as BufferSource)));
+        if (firstOutput === null) {
+            firstOutput = fp;
+            r.pass(`get 1: PRF output ${out.length} bytes. Click "Use it again" to compare.`);
+        } else {
+            const same = fp === firstOutput;
+            r[same ? 'pass' : 'fail'](`get 2: PRF output ${same ? 'identical to' : 'DIFFERENT from'} the first`);
+        }
     } catch (e) { r.fail(`get: ${(e as Error).name}: ${(e as Error).message}`); }
 }
 
@@ -62,7 +71,8 @@ export function viewPrf(r: Report): HTMLElement {
     r.info(`${window.top === window ? 'Top level' : 'Iframe'} on ${location.origin}; WebAuthn ${typeof PublicKeyCredential === 'undefined' ? 'missing' : 'available'}`);
     return h('p', {},
         button('1. Create a test passkey', () => create(r)), ' ',
-        button('2. Use it twice', () => getTwice(r)),
+        button('2. Use it', () => useOnce(r)), ' ',
+        button('3. Use it again', () => useOnce(r)),
     );
 }
 
@@ -72,7 +82,7 @@ export function hostPrf(r: Report): HTMLElement {
         'publickey-credentials-get *; publickey-credentials-create *'));
     mount();
     return h('div', {},
-        h('p', {}, 'Run 1 and 2 here (top level), then inside the dashed iframe (cross-site). Delete the test passkeys afterwards in your passkey manager ("Nostr Shard Signer checks").'),
+        h('p', {}, 'Run 1, 2 and 3 here (top level), then 2 and 3 inside the dashed iframe (cross-site); Safari can't create in the iframe. Delete the test passkeys afterwards in your passkey manager ("Nostr Shard Signer checks").'),
         viewPrf(r),
         originPicker(mount),
         box,
