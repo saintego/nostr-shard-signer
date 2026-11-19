@@ -31,3 +31,28 @@ test("pages on the signer's origin don't build script URLs at runtime", () => {
   }
   expect(offenders, "review these lines, then mark them // static-src-ok").toEqual([]);
 });
+
+// Signer popups must be unnamed (#77): the page that embeds the signer counts
+// as "familiar with" a window the signer's iframe opened, so it could find a
+// named popup with window.open("", name) and navigate it to a look-alike page.
+test("the signer opens its windows without a name", () => {
+  const files = ["nostr-bridge.js"];
+  const walk = (dir) => {
+    for (const e of readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      const rel = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "vendor") walk(rel); }
+      else if (/\.(ts|tsx|js)$/.test(e.name)) files.push(rel);
+    }
+  };
+  walk("bunker/src");
+  const offenders = [];
+  for (const file of files) {
+    readFileSync(path.join(root, file), "utf8").split("\n").forEach((line, i) => {
+      if (line.trim().startsWith("//")) return;
+      const m = line.match(/window\.open\(([^,)]*)(?:,\s*([^,)]*))?/);
+      if (m && m[2] !== undefined && m[2].trim() !== "'_blank'" && m[2].trim() !== '"_blank"')
+        offenders.push(`${file}:${i + 1}: ${line.trim()}`);
+    });
+  }
+  expect(offenders).toEqual([]);
+});
