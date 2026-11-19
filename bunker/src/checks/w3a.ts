@@ -144,7 +144,29 @@ class Instance {
             } : {}),
         } as ConstructorParameters<typeof Web3Auth>[0]);
         await this.w3a.init();
-        return `${this.settings()}; connected after init: ${this.w3a.connected} (a restored session if true)`;
+        // Web3Auth restores a cached session in the background after init()
+        // returns, and reports the outcome with an event (see App.tsx).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const w: any = this.w3a;
+        let restore = 'no cached session';
+        if (this.w3a.connected) restore = 'restored at once';
+        else if (w.cachedConnector || w.connectedConnectorName) {
+            restore = await new Promise<string>(resolve => {
+                const done = (what: string) => () => {
+                    clearTimeout(t);
+                    for (const [ev, f] of handlers) w.removeListener?.(ev, f);
+                    resolve(what);
+                };
+                const handlers: [string, () => void][] = [
+                    ['connected', done('restored (after the connected event)')],
+                    ['rehydration_error', done('NOT restored (rehydration_error)')],
+                    ['errored', done('NOT restored (errored)')],
+                ];
+                for (const [ev, f] of handlers) w.on?.(ev, f);
+                const t = setTimeout(done('no answer within 20 s'), 20_000);
+            });
+        }
+        return `${this.settings()}; session: ${restore}`;
     });
 
     login = () => this.step('login with Google', async () => {
