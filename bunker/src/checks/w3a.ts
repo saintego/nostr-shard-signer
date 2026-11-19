@@ -13,11 +13,17 @@ type Mode = 'default' | 'local-ns' | 'session-ns';
 
 interface Adapter { get(k: string): Promise<string | null>; set(k: string, v: string): Promise<void>; remove(k: string): Promise<void> }
 
-const adapter = (store: Storage, prefix: string): Adapter => ({
-    get: async k => store.getItem(prefix + k),
-    set: async (k, v) => store.setItem(prefix + k, v),
-    remove: async k => store.removeItem(prefix + k),
-});
+// A class with only plain own fields: Web3Auth posts its connector settings
+// (storage included) to the sign-in popup, and closures or a Storage object
+// can't be cloned ("could not be cloned"). Methods on the prototype are fine.
+class PrefixedStorage implements Adapter {
+    constructor(readonly prefix: string, readonly session: boolean) { }
+    private get store(): Storage { return this.session ? sessionStorage : localStorage; }
+    async get(k: string) { return this.store.getItem(this.prefix + k); }
+    async set(k: string, v: string) { this.store.setItem(this.prefix + k, v); }
+    async remove(k: string) { this.store.removeItem(this.prefix + k); }
+}
+const adapter = (store: Storage, prefix: string): Adapter => new PrefixedStorage(prefix, store === sessionStorage);
 
 function storageConfig(mode: Mode, name: string) {
     if (mode === 'default') return undefined;
