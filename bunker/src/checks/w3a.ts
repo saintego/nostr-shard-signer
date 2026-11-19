@@ -85,6 +85,13 @@ class Instance {
         this.sessionTime.value = params.get(`sessionTime${name}`) ?? saved('sessionTime') ?? '';
     }
 
+    /** What the report needs to be read without guessing: never the full client ID. */
+    private settings(): string {
+        const id = this.clientId.value.trim();
+        return `client ID ${id.slice(0, 6)}…${id.slice(-4)}, ${this.network.value}, ${this.mode.value} storage` +
+            (this.sessionTime.value ? `, sessionTime ${this.sessionTime.value}` : '');
+    }
+
     private save() {
         try {
             localStorage.setItem(`checks_w3a_${this.name}_clientId`, this.clientId.value);
@@ -100,7 +107,9 @@ class Instance {
             const extra = await f();
             this.r.pass(`${this.name}: ${what} (${Math.round(performance.now() - t0)} ms)${extra ? ': ' + extra : ''}`);
         } catch (e) {
-            this.r.fail(`${this.name}: ${what} failed: ${(e as Error).message ?? e}`);
+            const err = e as Error & { cause?: unknown; code?: unknown };
+            const cause = err?.cause ? `; cause: ${(err.cause as Error)?.message ?? String(err.cause)}` : '';
+            this.r.fail(`${this.name}: ${what} failed (${this.settings()}): ${err?.message ?? e}${err?.code ? ` [code ${err.code}]` : ''}${cause}`);
         }
         await this.snap();
     }
@@ -116,7 +125,7 @@ class Instance {
             ...(storageConfig(this.mode.value as Mode, this.name) ? { storage: storageConfig(this.mode.value as Mode, this.name) } : {}),
         } as ConstructorParameters<typeof Web3Auth>[0]);
         await this.w3a.init();
-        return `connected after init: ${this.w3a.connected} (a restored session if true), mode ${this.mode.value}`;
+        return `${this.settings()}; connected after init: ${this.w3a.connected} (a restored session if true)`;
     });
 
     login = () => this.step('login with Google', async () => {
