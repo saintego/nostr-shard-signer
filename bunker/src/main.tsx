@@ -7,6 +7,7 @@ import { PasskeyPopupView } from './components/PasskeyPopupView';
 import { CONFIRM_PARAM } from './lib/confirmPopup';
 import { ConfirmPopupView } from './components/ConfirmPopupView';
 import { resolveLocale } from './lib/i18n';
+import { sweepGlobalSession } from './lib/web3authSession';
 import { LocaleContext } from './lib/useMessages';
 import './vendor/nostr-post-ui/ui.css';
 import './theme.css';
@@ -37,6 +38,9 @@ const isPasskeyPopup = searchParams.get(POPUP_PARAM) === '1';
 // The confirmation popup for sensitive prompts in shared mode (src/lib/confirmPopup.ts).
 const isConfirmPopup = !isPasskeyPopup && searchParams.get(CONFIRM_PARAM) === '1';
 if (isPasskeyPopup || isConfirmPopup) document.body.classList.add('popup-page');
+// Signer popups run on the signer's own top-level storage, where a global
+// sign-in leaves its tokens if its popup closes or crashes (#73 D23, #79).
+if (isPasskeyPopup || isConfirmPopup) void sweepGlobalSession();
 
 // The page may ask for a language; the signer uses it only if it has that
 // language's text (lib/i18n.ts). Popups get the same parameter.

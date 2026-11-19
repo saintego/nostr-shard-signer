@@ -14,6 +14,7 @@ import { isOriginBlocked, sharedClientIdFor, wantsSharedSignIn } from './lib/sha
 import { fetchSharedBlocklist } from './lib/blocklist';
 import { initWeb3Auth, extractKey as extractLoginKey, getProvider } from './lib/web3auth';
 import { sharedIdentity } from './lib/identity';
+import { endSession, SITE_SESSION } from './lib/web3authSession';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { processRpc } from './lib/crypto';
@@ -987,7 +988,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         }
         rejectAllConfirmations('Logged out');
         lockEvolustr();
-        try { await web3authRef.current?.logout(); } catch (_) { }
+        // Web3Auth's logout, then its keys deleted either way: a session it can't
+        // log out (code 5113) would otherwise stay in storage (#79).
+        const w3a = web3authRef.current;
+        await endSession(w3a ? () => w3a.logout() : null, SITE_SESSION);
         // Zero the key material before dropping the reference
         privateKeyRef.current?.fill(0);
         privateKeyRef.current = null;
