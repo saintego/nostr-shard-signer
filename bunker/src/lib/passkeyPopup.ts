@@ -34,7 +34,9 @@ export function openPasskeyPopup(): void {
     const url = new URL(location.href);
     url.search = `?${POPUP_PARAM}=1`;
     url.hash = '';
-    popup = window.open(url.toString(), 'evolustr-passkey', 'popup,width=440,height=560');
+    // Unnamed (#77): the page that embeds the signer could find a named
+    // popup with window.open('', name) and navigate it. We keep `popup`.
+    popup = window.open(url.toString(), '_blank', 'popup,width=440,height=560');
 }
 
 function run<T>(request: Op): Promise<T> {
