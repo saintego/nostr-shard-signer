@@ -76,5 +76,9 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
+    rollupOptions: {
+      // The signer, and the v1 check kit (#73), served as checks.html.
+      input: { main: "index.html", checks: "checks.html" },
+    },
   },
 });
