@@ -92,18 +92,21 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # The same build under a second fixed alias, so the v1 check kit (#73,
-      # #75) has two stable origins for its cross-site checks. pages.dev is a
-      # public suffix, so preview.* and checks.* are different sites.
-      - name: Deploy the second origin for checks
+      # The same build in a second Pages project, so the v1 check kit (#73,
+      # #75) has a second *site* for its cross-site checks. pages.dev is a
+      # public suffix, so <project>.pages.dev is the registrable domain:
+      # aliases of one project (preview.*, checks.*) are the same site, while
+      # another project is a different one, like a real site and the signer.
+      - name: Deploy the second site for checks
         id: checks
         run: |
-          npx wrangler pages deploy _preview --project-name="$PAGES_PROJECT" \
-            --branch=checks --commit-dirty=true | tee deploy-checks.log
-          host=$(grep -oE 'https://[a-z0-9-]+\.[a-z0-9-]+\.pages\.dev' deploy-checks.log | head -1 |
-            sed -E 's#https://[a-z0-9-]+\.#https://checks.#')
-          echo "url=$host" >> "$GITHUB_OUTPUT"
+          npx wrangler pages project list | grep -q " $CHECKS_PROJECT " ||
+            npx wrangler pages project create "$CHECKS_PROJECT" --production-branch=main
+          npx wrangler pages deploy _preview --project-name="$CHECKS_PROJECT" \
+            --branch=main --commit-dirty=true | tee deploy-checks.log
+          echo "url=https://$CHECKS_PROJECT.pages.dev" >> "$GITHUB_OUTPUT"
         env:
+          CHECKS_PROJECT: nostr-shard-checks
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 

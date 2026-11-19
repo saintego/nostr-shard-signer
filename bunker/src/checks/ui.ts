@@ -30,10 +30,10 @@ export function otherOrigin(): string {
         const saved = localStorage.getItem('checks_other_origin');
         if (saved) return saved;
     } catch (_) { /* storage blocked */ }
-    // Two fixed Cloudflare aliases of the same PR build (preview.yml), so a PR
-    // can be checked without merging; GitHub Pages pairs with the preview.
+    // Two Cloudflare Pages projects with the same PR build (preview.yml):
+    // different registrable domains, so really cross-site.
     return location.hostname === 'preview.nostr-shard-signer.pages.dev'
-        ? 'https://checks.nostr-shard-signer.pages.dev'
+        ? 'https://nostr-shard-checks.pages.dev'
         : 'https://preview.nostr-shard-signer.pages.dev';
 }
 
