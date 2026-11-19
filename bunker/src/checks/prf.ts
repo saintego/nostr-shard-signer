@@ -82,7 +82,7 @@ export function hostPrf(r: Report): HTMLElement {
         'publickey-credentials-get *; publickey-credentials-create *'));
     mount();
     return h('div', {},
-        h('p', {}, 'Run 1, 2 and 3 here (top level), then 2 and 3 inside the dashed iframe (cross-site); Safari can't create in the iframe. Delete the test passkeys afterwards in your passkey manager ("Nostr Shard Signer checks").'),
+        h('p', {}, 'Run 1, 2 and 3 here (top level), then 2 and 3 inside the dashed iframe (cross-site); Safari cannot create in the iframe. Delete the test passkeys afterwards in your passkey manager ("Nostr Shard Signer checks").'),
         viewPrf(r),
         originPicker(mount),
         box,
