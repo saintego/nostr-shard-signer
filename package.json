@@ -16,9 +16,14 @@
     "local": "./scripts/local.sh",
     "test": "npm run build && npm run test:types && playwright test",
     "test:e2e": "playwright test",
-    "test:types": "npm run sync-files --workspace=npm && tsc -p tests/types"
+    "test:types": "npm run sync-files --workspace=npm && tsc -p tests/types",
+    "lint": "biome lint .",
+    "lint:changed": "biome lint --changed --since=origin/shared-mode",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --write ."
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.8",
     "@playwright/test": "^1.64.0",
     "serve": "^14.2.6"
   },
