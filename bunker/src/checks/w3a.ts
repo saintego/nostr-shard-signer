@@ -184,9 +184,26 @@ export function viewW3A(r: Report): HTMLElement {
         r.info(hits.length ? `Leftover-looking keys: ${hits.join('; ')}` : 'No leftover-looking keys');
     });
     const reload = button('Reload page (keeps settings)', () => location.reload());
+    // D23: when Web3Auth can't log out a session it restored (code 5113), the
+    // signer must remove the session's keys itself. This tries exactly that.
+    const wipe = button('Remove Web3Auth session keys (without Web3Auth)', async () => {
+        const removed: string[] = [];
+        for (const st of [localStorage, sessionStorage]) {
+            for (const k of Object.keys(st)) if (/^auth_store:|^w3a_[AB]_|^Web3Auth-state$/.test(k)) { st.removeItem(k); removed.push(k); }
+        }
+        for (const c of document.cookie.split(';').map(x => x.trim().split('=')[0]).filter(n => /^auth_store:/.test(n))) {
+            for (const path of ['/', location.pathname.replace(/[^/]*$/, '')])
+                document.cookie = `${c}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path}`;
+            removed.push(`cookie ${c}`);
+        }
+        r.info(removed.length ? `Removed without Web3Auth: ${removed.join(', ')}` : 'No Web3Auth session keys to remove');
+        await doSnap();
+        const left = [...(await snapshot()).keys()].filter(k => /auth_store/.test(k));
+        r[left.length ? 'fail' : 'pass'](left.length ? `Still there: ${left.join('; ')}` : 'No auth_store keys left');
+    });
     return h('div', {},
         a.view(), b.view(),
-        h('p', {}, button('Snapshot storage', doSnap), ' ', detect, ' ', reload),
+        h('p', {}, button('Snapshot storage', doSnap), ' ', detect, ' ', wipe, ' ', reload),
         h('details', {}, h('summary', { textContent: 'Current storage (names and sizes only)' }), snapEl),
     );
 }
