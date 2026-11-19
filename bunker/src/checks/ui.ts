@@ -64,14 +64,15 @@ const ICON: Record<Status, string> = { pass: '✅', fail: '❌', info: 'ℹ️',
 
 /** A result log for one check, with a "Copy report" button for the results issue. */
 export class Report {
-    readonly lines: { status: Status; text: string }[] = [];
+    readonly lines: { status: Status; text: string; at: string }[] = [];
     readonly el = h('ul', { className: 'log' });
 
     constructor(readonly check: string, readonly where: string = role) { }
 
     add(status: Status, text: string): void {
-        this.lines.push({ status, text });
-        this.el.append(h('li', { className: status }, `${ICON[status]} ${text}`));
+        const at = new Date().toTimeString().slice(0, 8);
+        this.lines.push({ status, text, at });
+        this.el.append(h('li', { className: status }, `${at} ${ICON[status]} ${text}`));
         console.log(`[${this.check}] ${status}: ${text}`);
     }
     pass(t: string) { this.add('pass', t); }
@@ -81,7 +82,7 @@ export class Report {
 
     markdown(): string {
         const head = `**${this.check}** — ${browserName()} — ${this.where} on \`${location.origin}\` — ${new Date().toISOString()}`;
-        return [head, '', ...this.lines.map(l => `- ${ICON[l.status]} ${l.text}`)].join('\n');
+        return [head, '', ...this.lines.map(l => `- ${l.at} ${ICON[l.status]} ${l.text}`)].join('\n');
     }
 
     /** The log plus Copy/Clear buttons. */
