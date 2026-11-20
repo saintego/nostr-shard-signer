@@ -17,13 +17,14 @@ import { useSharedSignIn } from './useSharedSignIn';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { processRpc } from './lib/crypto';
-import { requiresConfirmation, loadAutoApproveKinds, saveAutoApproveKinds } from './lib/approval';
+import { decideRequest } from './lib/trustCheck'; // the trust rule (#85)
+import { loadAutoApproveKinds, saveAutoApproveKinds } from './lib/approval';
 import { countSignedEvent, shouldAskForBackup, snoozeBackupPrompt, encryptKeyBackup, recordBackup, syncBackupMarker } from './lib/backup';
 import type { BackupMethod } from './lib/backup';
 import { npubEncode } from 'nostr-tools/nip19';
 import { finalizeEvent } from 'nostr-tools/pure';
 import {
-    createHostSigner, isEvolustrMethod, signerPasskeys, signThroughBridge,
+    answerEvolustr, createHostSigner, isEvolustrMethod, signerPasskeys, signThroughBridge,
     loadCustody, saveCustody, loadAllowedApps, saveAllowedApps,
 } from './lib/evolustr';
 import type { Custody, EvolustrSigner, ConfirmRequest, SignerPasskeys } from './lib/evolustr';
@@ -345,17 +346,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             // bunker. The caller is event.origin, never anything in params.
             if (isEvolustrMethod(method)) {
                 const evolustr = evolustrRef.current ?? await waitForEvolustr();
-                if (!evolustr) {
-                    postToParent({ id, error: 'Not authenticated', result: null });
-                    return;
-                }
-                try {
-                    const r = await evolustr.handle(method, Array.isArray(params) ? params : [], { identity: 'verified', origin: event.origin });
-                    postToParent(r.ok ? { id, result: r.value ?? null, error: null } : { id, result: null, error: r.error.message });
-                } catch (e) {
-                    postToParent({ id, result: null, error: (e as Error).message || 'Evolustr request failed' });
-                }
-                return;
+                return postToParent({ id, ...await answerEvolustr(evolustr, method, params, event.origin) });
             }
 
             if (!pk || !ki) {
@@ -363,11 +354,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            // methods that don't need confirmation
-            if (!requiresConfirmation(method, params, autoApproveKinds)) {
+            // The trust rule (#73 D13, #85): sign, ask, or refuse.
+            const { decision, record } = await decideRequest(method, params, { autoApproveKinds, pubkey: ki.publicKeyHex, secretKey: pk, relays: publishRelays });
+            if (decision.action === 'refuse') return postToParent({ id, result: null, error: 'Refused: the event is dated in the future' });
+            if (decision.action === 'sign') {
                 try {
                     const result = await processRpc(method, params, pk, ki.publicKeyHex);
                     postToParent({ id, result, error: null });
+                    record?.(result);
                     if (method === 'sign_event') noteSignedEvent(ki.publicKeyHex);
                 } catch (e) {
                     postToParent({ id, result: null, error: (e as Error).message });
@@ -392,6 +386,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 });
                 const rpcResult = await processRpc(method, params, pk, ki.publicKeyHex);
                 postToParent({ id, result: rpcResult, error: null });
+                record?.(rpcResult);
                 if (method === 'sign_event') noteSignedEvent(ki.publicKeyHex);
             } catch (e) {
                 postToParent({ id, result: null, error: (e as Error).message });

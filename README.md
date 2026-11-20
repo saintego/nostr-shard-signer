@@ -150,7 +150,7 @@ The hosted signer and registrar are free to use, and there is no server of your 
 No. The key only exists in the signer iframe on another origin, which the browser keeps apart from your page. Your page only receives the pubkey and signed events. The risks are the signer host itself (see the warning at the top) and the owner of the Web3Auth project, who can obtain users' keys (see "Is this a custodial login?").
 
 **Which signing requests need confirmation?**
-With OAuth login, ordinary public content is signed without asking: notes, reactions, comments, wiki articles, bookmarks, calendar events, app data (kind 30078) and media uploads to nostr.build. Users can turn each of these off per site in Settings. Profile, follow list and relay list changes, deletions, other kinds such as zaps, `nip04.encrypt` and every decrypt show a confirmation in the widget. Extensions and bunkers apply their own rules.
+With OAuth login, ordinary public content is signed without asking: notes, reactions, comments, wiki articles, bookmarks, calendar events, app data (kind 30078) and media uploads to nostr.build. Users can turn each of these off per site in Settings. Lists, bookmarks and app data are replaced without asking only if this site wrote what's there, or only adds to it ([Auto-approve policy](#auto-approve-policy)). Profile, follow list and relay list changes, deletions, other kinds such as zaps, `nip04.encrypt` and every decrypt show a confirmation in the widget. Extensions and bunkers apply their own rules.
 
 **Does it work with React, Vue, Svelte or Next.js?**
 Yes. Use the [`nostr-shard-signer`](https://www.npmjs.com/package/nostr-shard-signer) npm package's `loadNostrBridge()` client-side, or the script tag in your HTML shell. [`llms-full.txt`](llms-full.txt) has framework notes.
@@ -777,6 +777,15 @@ Approval settings are stored per host site. Confirmations are queued and shown o
 | Kind 30078 with a `d` tag starting `evolustr:` (Evolustr data keys)                                      | Always a confirmation modal               |
 | Other kinds (zaps, DMs, unknown kinds), `nip04_encrypt`, any decrypt                                     | Confirmation modal                        |
 | `get_public_key`, `nip44_encrypt`                                                                        | No confirmation                           |
+| Kind 22242 (relay auth), 24242 (Blossom auth), 62 (request to vanish, with its own warning)              | Always a confirmation modal               |
+| Any event dated more than 5 minutes in the future                                                        | Refused                                   |
+
+**Replaceable and addressable data** (lists, bookmarks, app data, kinds 10000–19999 and 30000–39999) is signed without asking only when the site may replace what's there ([#61](https://github.com/saintego/nostr-shard-signer/issues/61)):
+
+- nothing exists yet at that address, or the event now on the relays (the signer's and the user's NIP-65 write relays) is the one this site signed last; if the relays don't answer, it asks;
+- lists (NIP-51) may only add entries, or remove entries this site added itself (an entry already in the list doesn't count); private entries are decrypted and compared, and it asks if they can't be;
+- mute lists, block lists and follow sets, and any `expiration` tag, always ask;
+- bookmarks that keep the same content and only add tags are fine.
 
 ---
 

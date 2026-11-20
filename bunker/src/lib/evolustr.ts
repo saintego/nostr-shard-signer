@@ -37,6 +37,19 @@ export const KNOWN_NSITE_GATEWAYS = ['nsite.lol'];
 export const isEvolustrMethod = (method: unknown): method is string =>
     typeof method === 'string' && method.startsWith('evolustr_');
 
+/** The reply to an evolustr_* request, for the parent page. The caller is `origin`, never anything in params. */
+export async function answerEvolustr(
+    evolustr: EvolustrSigner | null, method: string, params: unknown, origin: string,
+): Promise<{ result: unknown; error: string | null }> {
+    if (!evolustr) return { result: null, error: 'Not authenticated' };
+    try {
+        const r = await evolustr.handle(method, Array.isArray(params) ? params : [], { identity: 'verified', origin });
+        return r.ok ? { result: r.value ?? null, error: null } : { result: null, error: r.error.message };
+    } catch (e) {
+        return { result: null, error: (e as Error).message || 'Evolustr request failed' };
+    }
+}
+
 // ── Device-local storage ──────────────────────────────────────────────────────
 // localStorage in this iframe is partitioned per host site in most browsers, so
 // anything here is a per-site, per-device hint. The signer vault on the relays
