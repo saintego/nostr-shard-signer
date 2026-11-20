@@ -5,7 +5,14 @@
 export type TrustDecision =
   | { readonly action: 'sign' }
   | { readonly action: 'ask'; readonly reason: AskReason }
-  | { readonly action: 'refuse'; readonly reason: 'future' };
+  | { readonly action: 'refuse'; readonly reason: RefuseReason };
+
+/**
+ * future: dated too far ahead. protected-delete: a deletion (kind 5) aimed at
+ * a vault event, or at an address of another key such as a marker or the
+ * counter event (#73 D7; such a deletion can't be valid anyway, NIP-09).
+ */
+export type RefuseReason = 'future' | 'protected-delete';
 
 export type AskReason =
   | 'not-allowlisted'
@@ -47,6 +54,10 @@ export interface CurrentEvent {
 }
 
 export interface TrustContext {
+  /** The identity asked to sign (for deletions aimed at other keys). */
+  readonly pubkey?: string;
+  /** Whether a `30078` `d` tag is an Evolustr vault's (protected). */
+  readonly isProtectedD?: (d: string) => boolean;
   /** Kinds the user lets this site sign without asking (Settings). */
   readonly autoApproveKinds: ReadonlySet<number>;
   /** Evolustr vault events and other protected events (always ask). */
@@ -123,9 +134,21 @@ function listDecision(evt: SignRequest, ctx: TrustContext): TrustDecision {
   return { action: 'sign' };
 }
 
+/** A kind-5 `a` target the signer never lets a site delete (D7, #82). */
+function deletesProtected(evt: SignRequest, ctx: TrustContext): boolean {
+  if (evt.kind !== 5) return false;
+  return evt.tags.some((t) => {
+    if (t[0] !== 'a') return false;
+    const [kind, pubkey, ...rest] = (t[1] ?? '').split(':');
+    if (ctx.pubkey !== undefined && pubkey !== ctx.pubkey) return true;
+    return kind === '30078' && (ctx.isProtectedD?.(rest.join(':')) ?? false);
+  });
+}
+
 /** Requests that ask or are refused whatever the records say. */
 function fixedDecision(evt: SignRequest, ctx: TrustContext): TrustDecision | null {
   if (evt.created_at > ctx.now + FUTURE_SKEW_S) return { action: 'refuse', reason: 'future' };
+  if (deletesProtected(evt, ctx)) return { action: 'refuse', reason: 'protected-delete' };
   if (evt.kind === VANISH_KIND) return { action: 'ask', reason: 'vanish' };
   if (ALWAYS_ASK.has(evt.kind)) return { action: 'ask', reason: 'always' };
   if (ctx.isProtected) return { action: 'ask', reason: 'protected' };

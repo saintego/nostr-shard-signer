@@ -88,3 +88,16 @@ test('scenario 24: the kind 62 prompt warns about everything, Evolustr data incl
   expect(d.title).toBe('Ask relays to delete everything you published?');
   expect(d.warning).toContain('Evolustr');
 });
+
+test('#82: a site can\'t delete vaults, markers or the counter event', () => {
+  const me = 'a'.repeat(64);
+  const other = 'b'.repeat(64);
+  const c = ctx({ pubkey: me, isProtectedD: (d) => d.startsWith('evolustr:') });
+  const del = (a: string) => evt(5, [['a', a]]);
+  expect(trustDecision(del(`30078:${me}:evolustr:vault`), c)).toEqual({ action: 'refuse', reason: 'protected-delete' });
+  // Markers and the counter are signed by other keys (marker key, counter key).
+  expect(trustDecision(del(`30078:${other}:${'c'.repeat(64)}`), c)).toEqual({ action: 'refuse', reason: 'protected-delete' });
+  // The identity's own app data: a deletion still asks, as always.
+  expect(trustDecision(del(`30078:${me}:some-app`), c)).toEqual({ action: 'ask', reason: 'always' });
+  expect(trustDecision(evt(5, [['e', 'f'.repeat(64)]]), c)).toEqual({ action: 'ask', reason: 'always' });
+});

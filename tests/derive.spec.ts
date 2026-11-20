@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { getPublicKey } from "nostr-tools/pure";
 import {
   canonicalOrigin, deriveBackupKey, deriveConfigKey, deriveCounterKey, deriveIdentity,
-  deriveMarkerKey, deriveRoot, deriveSettingsKey, deriveStoreKey,
+  deriveMarkerAddress, deriveMarkerKey, deriveRoot, deriveSettingsKey, deriveStoreKey,
 } from "../bunker/src/lib/derive.ts";
 import { sharedIdentity } from "../bunker/src/lib/identity.ts";
 
@@ -27,6 +27,7 @@ test("derivation matches the frozen vectors", async () => {
       expect(canonicalOrigin(s.input)).toBe(s.canonical);
       expect(hex(await deriveMarkerKey(root, s.input))).toBe(s.markerKey.secret);
       expect(hex(await deriveStoreKey(root, s.input))).toBe(s.storeKey);
+      expect(await deriveMarkerAddress(bytes(s.markerAddress.siteLoginKey), s.input)).toBe(s.markerAddress.d);
     }
     expect(hex(await deriveCounterKey(root))).toBe(v.counterKey.secret);
     expect(hex(await deriveConfigKey(root))).toBe(v.configKey.secret);

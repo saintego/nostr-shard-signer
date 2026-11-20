@@ -17,6 +17,7 @@ import {
   isList,
   isReplaceable,
   type SignRequest,
+  type RefuseReason,
   type TrustDecision,
   trustDecision,
 } from './trustRule';
@@ -113,6 +114,12 @@ function isAllowedUpload(tags: readonly (readonly string[])[]): boolean {
   }
 }
 
+/** The error the page gets for a refused request (to the app, not the user). */
+export const refusalMessage = (reason: RefuseReason) =>
+  reason === 'future'
+    ? 'Refused: the event is dated in the future'
+    : 'Refused: the signer never deletes its own records or vaults for a site';
+
 export interface Decision {
   readonly decision: TrustDecision;
   /** Call with the signed event (JSON) once it was signed, silently or after a prompt. */
@@ -179,6 +186,8 @@ export async function decideRequest(method: string, params: string[], deps: Deci
   const current = replaceable && deps.autoApproveKinds.has(evt.kind) ? await currentAt(evt, deps.pubkey, deps.relays) : null;
   const priv = privateChange(evt, current, deps);
   const decision = trustDecision(evt, {
+    pubkey: deps.pubkey,
+    isProtectedD: (d) => isProtectedEvent({ kind: 30078, tags: [['d', d]] }),
     autoApproveKinds: deps.autoApproveKinds,
     isProtected: isProtectedEvent({ kind: evt.kind, tags: evt.tags as string[][] }),
     isAllowedUpload: isAllowedUpload(evt.tags),

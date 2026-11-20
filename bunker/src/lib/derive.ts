@@ -6,6 +6,7 @@
 //   marker key    = HKDF(root, "nostr-shard-signer/v1/site-marker/" + canonical origin)
 //   store key     = HKDF(root, "nostr-shard-signer/v1/site-store/" + canonical origin)
 //   counter, config, backup keys: HKDF(root, "nostr-shard-signer/v1/<name>")
+//   marker address = HKDF(site login key, "nostr-shard-signer/v1/marker-address/" + canonical origin)  (D7)
 //   settings key  = HKDF(Evolustr master secret M, "nostr-shard-signer/v1/settings")  (D20)
 //
 // HKDF is HKDF-SHA256 (RFC 5869) with an empty salt, the label as `info` and 32
@@ -39,6 +40,7 @@ export const labels = {
     },
     siteMarker: (origin: string) => LABEL_PREFIX + 'site-marker/' + canonicalOrigin(origin),
     siteStore: (origin: string) => LABEL_PREFIX + 'site-store/' + canonicalOrigin(origin),
+    markerAddress: (origin: string) => LABEL_PREFIX + 'marker-address/' + canonicalOrigin(origin),
     counter: LABEL_PREFIX + 'counter',
     config: LABEL_PREFIX + 'config',
     backup: LABEL_PREFIX + 'backup',
@@ -77,6 +79,13 @@ export const deriveRoot = (globalLoginKey: Uint8Array) => deriveSecretKey(global
 export const deriveIdentity = (root: Uint8Array, i: number) => deriveSecretKey(root, labels.identity(i));
 export const deriveMarkerKey = (root: Uint8Array, origin: string) => deriveSecretKey(root, labels.siteMarker(origin));
 export const deriveStoreKey = (root: Uint8Array, origin: string) => hkdf(root, labels.siteStore(origin));
+/**
+ * The `d` tag of a site's marker (D7), from that site's *own* login key (sites
+ * with their own `clientId`): the site's sign-in finds the marker without the
+ * global account, and nobody else can tell which login it belongs to.
+ */
+export const deriveMarkerAddress = async (siteLoginKey: Uint8Array, origin: string) =>
+    Array.from(await hkdf(siteLoginKey, labels.markerAddress(origin)), (x) => x.toString(16).padStart(2, '0')).join('');
 export const deriveCounterKey = (root: Uint8Array) => deriveSecretKey(root, labels.counter);
 export const deriveConfigKey = (root: Uint8Array) => deriveSecretKey(root, labels.config);
 export const deriveBackupKey = (root: Uint8Array) => hkdf(root, labels.backup);

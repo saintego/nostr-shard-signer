@@ -19,7 +19,7 @@ import type { GestureReason } from './lib/passkeyRules';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { processRpc } from './lib/crypto';
-import { decideRequest } from './lib/trustCheck'; // the trust rule (#85)
+import { decideRequest, refusalMessage } from './lib/trustCheck'; // the trust rule (#85)
 import { loadAutoApproveKinds, saveAutoApproveKinds } from './lib/approval';
 import { countSignedEvent, shouldAskForBackup, snoozeBackupPrompt, encryptKeyBackup, recordBackup, syncBackupMarker } from './lib/backup';
 import type { BackupMethod } from './lib/backup';
@@ -359,7 +359,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
             // The trust rule (#73 D13, #85): sign, ask, or refuse.
             const { decision, record } = await decideRequest(method, params, { autoApproveKinds, pubkey: ki.publicKeyHex, secretKey: pk, relays: publishRelays });
-            if (decision.action === 'refuse') return postToParent({ id, result: null, error: 'Refused: the event is dated in the future' });
+            if (decision.action === 'refuse') return postToParent({ id, result: null, error: refusalMessage(decision.reason) });
             if (decision.action === 'sign') {
                 try {
                     const result = await processRpc(method, params, pk, ki.publicKeyHex);

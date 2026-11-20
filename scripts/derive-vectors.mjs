@@ -37,6 +37,9 @@ const LOGIN_KEYS = [
   "f3a1c5d2e4b6978899aabbccddeeff00112233445566778899aabbccddeeff01",
 ];
 
+// A site's own login key (a site with its own clientId), for the marker address (D7).
+const SITE_LOGIN_KEY = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a";
+
 const vectors = LOGIN_KEYS.map((loginHex) => {
   const login = Buffer.from(loginHex, "hex");
   const root = secret(login, P + "root");
@@ -49,6 +52,7 @@ const vectors = LOGIN_KEYS.map((loginHex) => {
       canonical,
       markerKey: withPub(secret(root, P + "site-marker/" + canonical)),
       storeKey: hex(hkdf(root, P + "site-store/" + canonical)),
+      markerAddress: { siteLoginKey: SITE_LOGIN_KEY, d: hex(hkdf(Buffer.from(SITE_LOGIN_KEY, "hex"), P + "marker-address/" + canonical)) },
     })),
     counterKey: withPub(secret(root, P + "counter")),
     configKey: withPub(secret(root, P + "config")),

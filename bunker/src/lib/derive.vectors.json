@@ -38,7 +38,11 @@
             "secret": "78c09dba83761eb92fdb1e9e35290941b0ead90c020badd5d04804f41bce6a5f",
             "pubkey": "797b6cae642bf5f49e662f89604642b148bb455df7373a531565ebb76dec658c"
           },
-          "storeKey": "6ada4f2de8165c375b81f038b3128c98ff5dd3f3324b80bd40982bd493c5d379"
+          "storeKey": "6ada4f2de8165c375b81f038b3128c98ff5dd3f3324b80bd40982bd493c5d379",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "b2c38aba72630c0c7e122cc7f635f89ca62b48b202015ec09dd73324732fa2e2"
+          }
         },
         {
           "input": "HTTPS://Example.COM:443/some/path?q=1#x",
@@ -47,7 +51,11 @@
             "secret": "78c09dba83761eb92fdb1e9e35290941b0ead90c020badd5d04804f41bce6a5f",
             "pubkey": "797b6cae642bf5f49e662f89604642b148bb455df7373a531565ebb76dec658c"
           },
-          "storeKey": "6ada4f2de8165c375b81f038b3128c98ff5dd3f3324b80bd40982bd493c5d379"
+          "storeKey": "6ada4f2de8165c375b81f038b3128c98ff5dd3f3324b80bd40982bd493c5d379",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "b2c38aba72630c0c7e122cc7f635f89ca62b48b202015ec09dd73324732fa2e2"
+          }
         },
         {
           "input": "https://example.com:8443",
@@ -56,7 +64,11 @@
             "secret": "1243e170bbebf723af8c05ce66df8a9e381071066dd5e5eac2ece78263b6cb48",
             "pubkey": "7f9577af8fd6833f6842b17977ed3233c304f9c6252f72ae4b0b24066097b1e1"
           },
-          "storeKey": "59bea34dccb0a698a255ad477c947a7315f878cc96a48501f01b45fae6941cca"
+          "storeKey": "59bea34dccb0a698a255ad477c947a7315f878cc96a48501f01b45fae6941cca",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "d724ce4c862bb4078fd768f4abaf02c0ff2f0a16a79d0c7b87aae5a3c3ce5970"
+          }
         },
         {
           "input": "http://localhost:8080/",
@@ -65,7 +77,11 @@
             "secret": "301d197a4f19ba4c9f41d2da950057474de9cfb4600473ee8c975213dfd5e383",
             "pubkey": "41de078375bffaa37bcac0ea92804040bb6b1ae516ad09b629551fc5a1630151"
           },
-          "storeKey": "a1c860e5e3ee82b88c66267f18f54efa51dec2bae629f48c8b56f9c42b1f7c80"
+          "storeKey": "a1c860e5e3ee82b88c66267f18f54efa51dec2bae629f48c8b56f9c42b1f7c80",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "a532f4069b4385f5d65f0fcc97d4db9020de7651312d7b5b47c54138e3c1879e"
+          }
         },
         {
           "input": "https://bücher.example",
@@ -74,7 +90,11 @@
             "secret": "84968684bced577016a5be1d5e771e135702f1ed7133e6445b54343e13ca9eeb",
             "pubkey": "be1a8fa151f960cc42b10d27688a68dafe95e9f435fe69a48100ef405e52ade3"
           },
-          "storeKey": "e60d92a99ce6a1bfaac09eea2dec66bcc2fb3f1f9723dc6944c8d62dbb727a8a"
+          "storeKey": "e60d92a99ce6a1bfaac09eea2dec66bcc2fb3f1f9723dc6944c8d62dbb727a8a",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "5b5eadcd31e4ac66c95db0898f44a38de926f59c21022400e1c67284d52bc84a"
+          }
         },
         {
           "input": "https://saintego.github.io/nostr-shard-signer/",
@@ -83,7 +103,11 @@
             "secret": "f27c55844e91221b44a340125f23e218a18af698adbd7a31ae9a365e7c1e3a34",
             "pubkey": "9501cea00535ddb11683af0ce8e77e0098367186b24e739f25c48381fd6fc725"
           },
-          "storeKey": "357e4fd81d6bf453ee3e0fd91fcf4d7d84da79bda4e311b672fd7d7d18c8cdb7"
+          "storeKey": "357e4fd81d6bf453ee3e0fd91fcf4d7d84da79bda4e311b672fd7d7d18c8cdb7",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "2c7516ff67e7dfc373044a80a8d8a992b7fd011f6d4ccd857c6395798c3d218a"
+          }
         }
       ],
       "counterKey": {
@@ -136,7 +160,11 @@
             "secret": "01b78f70bf6aeb10346db0d955cdcd512ffa6230a4da996bee64692adb2b1d95",
             "pubkey": "a7b30a19a67fc52b612a40e9454aab8210cf744a064211ee9e80c10fa9f4a106"
           },
-          "storeKey": "74a2ff9340076130e7352a59ff0b94ae5f74de249e729fd33308cf0975be66cf"
+          "storeKey": "74a2ff9340076130e7352a59ff0b94ae5f74de249e729fd33308cf0975be66cf",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "b2c38aba72630c0c7e122cc7f635f89ca62b48b202015ec09dd73324732fa2e2"
+          }
         },
         {
           "input": "HTTPS://Example.COM:443/some/path?q=1#x",
@@ -145,7 +173,11 @@
             "secret": "01b78f70bf6aeb10346db0d955cdcd512ffa6230a4da996bee64692adb2b1d95",
             "pubkey": "a7b30a19a67fc52b612a40e9454aab8210cf744a064211ee9e80c10fa9f4a106"
           },
-          "storeKey": "74a2ff9340076130e7352a59ff0b94ae5f74de249e729fd33308cf0975be66cf"
+          "storeKey": "74a2ff9340076130e7352a59ff0b94ae5f74de249e729fd33308cf0975be66cf",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "b2c38aba72630c0c7e122cc7f635f89ca62b48b202015ec09dd73324732fa2e2"
+          }
         },
         {
           "input": "https://example.com:8443",
@@ -154,7 +186,11 @@
             "secret": "e7caa822f915be7a469989d5c0ab936ae3482dd8c85784ed6e4e08d92ddb59ea",
             "pubkey": "a26403005a8fe4f7f22d3c6f0d2926b93a93f7a20d929c7352c30267a8a811bf"
           },
-          "storeKey": "9fad2057bb38dbea7397e793f47609a1d1fec2b5bcbd9f05800d17b07aaff783"
+          "storeKey": "9fad2057bb38dbea7397e793f47609a1d1fec2b5bcbd9f05800d17b07aaff783",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "d724ce4c862bb4078fd768f4abaf02c0ff2f0a16a79d0c7b87aae5a3c3ce5970"
+          }
         },
         {
           "input": "http://localhost:8080/",
@@ -163,7 +199,11 @@
             "secret": "cc574cb9ef44a3a19b89278473a4c6d701111a5c896966caed56a305e47f8851",
             "pubkey": "17d602469f0c02f228143ecddfaf8bb38094d59428da3108a6fd8802e52a9254"
           },
-          "storeKey": "d9bf0982401e38530c2b22c4cd4aa322e3028e8942546f19130f4a1613cfd522"
+          "storeKey": "d9bf0982401e38530c2b22c4cd4aa322e3028e8942546f19130f4a1613cfd522",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "a532f4069b4385f5d65f0fcc97d4db9020de7651312d7b5b47c54138e3c1879e"
+          }
         },
         {
           "input": "https://bücher.example",
@@ -172,7 +212,11 @@
             "secret": "4fc637debd168681f7de5ec530fa18b4e62b18987ae31065564944852c181ade",
             "pubkey": "f008e1b966d643dfe8b21aedbf34b2e47372eea2fa58ebbd0cf0d6561b26efa2"
           },
-          "storeKey": "9fe46a33996c804291bfad54409e14ec35a6ba355e058dd6ce24c762337ff6e2"
+          "storeKey": "9fe46a33996c804291bfad54409e14ec35a6ba355e058dd6ce24c762337ff6e2",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "5b5eadcd31e4ac66c95db0898f44a38de926f59c21022400e1c67284d52bc84a"
+          }
         },
         {
           "input": "https://saintego.github.io/nostr-shard-signer/",
@@ -181,7 +225,11 @@
             "secret": "aa6eb0ba1807d6b47df20b1b8c66f6ae7981639ea43c39abf86cd557a195f122",
             "pubkey": "3aca602a07110a4b144b219aafee1369e0031fb0cb6108255e1d12308be8eac9"
           },
-          "storeKey": "23bc89474c5489a8e62acf203d9df75d793b8554af80267a78ad24cd37522ccc"
+          "storeKey": "23bc89474c5489a8e62acf203d9df75d793b8554af80267a78ad24cd37522ccc",
+          "markerAddress": {
+            "siteLoginKey": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "d": "2c7516ff67e7dfc373044a80a8d8a992b7fd011f6d4ccd857c6395798c3d218a"
+          }
         }
       ],
       "counterKey": {
