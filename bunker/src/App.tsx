@@ -14,6 +14,8 @@ import { sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
 import { isBlockedBySignedList, signOutOnThisSite } from './lib/sharedSignIn';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import { useSharedSignIn } from './useSharedSignIn';
+import { useSignerTab } from './useSignerTab';
+import type { GestureReason } from './lib/passkeyRules';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { processRpc } from './lib/crypto';
@@ -209,6 +211,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setView('avatar');
     }, [postToParent, publishRelays]);  // publish relays, not the registry relays
     // Shared sign-in (#80): the widget's cache, or the global sign-in popup.
+    const signerTab = useSignerTab(parentOrigin); // the signer in its own tab (#90)
     const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError });
 
     const showNextConfirmation = useCallback(() => {
@@ -411,9 +414,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         const oauth = holdsNsec;
         custodyRef.current = oauth ? loadCustody(pubkey) : 'passkey';
         setEvolustrApps(loadAllowedApps(pubkey));
-        const passkeys = signerPasskeys('Nostr Shard Signer', async reason => {
-            if ((await askEvolustr({ kind: 'gesture', reason })) === 'deny') throw new Error('Cancelled');
-        });
+        const askGesture = async (reason: GestureReason | 'unlock' | 'enrollPasskey') => { if ((await askEvolustr({ kind: 'gesture', reason })) === 'deny') throw new Error('Cancelled'); };
+        const passkeys = signerPasskeys('Nostr Shard Signer', askGesture);
         passkeysRef.current = passkeys;
 
         let evolustr: EvolustrSigner;
@@ -489,9 +491,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             custody: () => custodyRef.current,
             passkeys: passkeys.passkeys,
             confirm,
-            requestGesture: async reason => {
-                if ((await askEvolustr({ kind: 'gesture', reason })) === 'deny') throw new Error('Cancelled');
-            },
+            requestGesture: askGesture,
         });
         evolustrRef.current = evolustr;
         for (const w of evolustrWaitersRef.current.splice(0)) w(evolustr);
@@ -914,6 +914,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         }, (e: Error) => setPopupError(e.message));
     }, [parentOrigin, keyInfo, handleApprove, handleReject, handleEvolustrAnswer]);
 
+    useEffect(() => { if (signerTab.connected && pendingConf) handleReviewInPopup(); }, [signerTab.connected, pendingConf?.seq]); // prompts to the tab (#90)
+
     const handleRejectHead = useCallback(() => {
         if (confQueueRef.current[0]?.evolustr) handleEvolustrAnswer('deny');
         else handleReject();
@@ -1065,7 +1067,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             : null;
     }
 
-    if (view === 'confirm' && pendingConf && popupPrompts &&
+    if (view === 'confirm' && pendingConf && (popupPrompts || signerTab.connected) &&
         (pendingConf.evolustr ? pendingConf.evolustr.kind === 'appKey' : needsTopLevelPrompt(pendingConf.method, pendingConf.params))) {
         return (
             <ReviewInPopupView
@@ -1135,6 +1137,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 onRelaysChange={handleRelaysChange}
                 onAutoApproveChange={handleAutoApproveChange}
                 onClose={() => setView('avatar')}
+                onOpenTab={signerTab.open}
                 evolustrSection={
                     <EvolustrSettings
                         status={evolustrStatus}

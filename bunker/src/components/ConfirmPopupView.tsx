@@ -12,10 +12,11 @@ import { KeyExportView } from './KeyExportView';
  * mode (src/lib/confirmPopup.ts). No page can frame or style it, so its buttons
  * need no click guard.
  */
-export function ConfirmPopupView() {
+export function ConfirmPopupView({ keepOpen = false }: { keepOpen?: boolean } = {}) {
     const [served, setServed] = useState<ServedRequest | null | undefined>(undefined);
 
-    useEffect(() => serveConfirmPopup(setServed), []);
+    // keepOpen: the signer's tab (#90), which serves one request after another.
+    useEffect(() => serveConfirmPopup(r => setServed(r && keepOpen ? { ...r, answer: a => { r.answer(a); setServed(undefined); } } : r), keepOpen), [keepOpen]);
 
     let content;
     if (served === null) {

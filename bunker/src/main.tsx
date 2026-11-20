@@ -9,6 +9,9 @@ import { CONFIRM_PARAM } from './lib/confirmPopup';
 import { ConfirmPopupView } from './components/ConfirmPopupView';
 import { GLOBAL_PARAM } from './lib/globalPopup';
 import { GlobalSignInPopupView } from './components/GlobalSignInPopupView';
+import { TAB_PARAM } from './lib/signerTab';
+import { SignerTabView } from './components/SignerTabView';
+import './components/GlobalSignInPopup.css';
 import { resolveLocale } from './lib/i18n';
 import { sweepGlobalSession } from './lib/web3authSession';
 import { LocaleContext } from './lib/useMessages';
@@ -42,7 +45,9 @@ const isPasskeyPopup = searchParams.get(POPUP_PARAM) === '1';
 const isConfirmPopup = !isPasskeyPopup && searchParams.get(CONFIRM_PARAM) === '1';
 // The global sign-in popup (src/lib/globalPopup.ts, #80); it sweeps by itself.
 const isGlobalPopup = !isPasskeyPopup && !isConfirmPopup && searchParams.get(GLOBAL_PARAM) === '1';
-if (isPasskeyPopup || isConfirmPopup || isGlobalPopup) document.body.classList.add('popup-page');
+// The signer in its own tab (src/lib/signerTab.ts, #90).
+const isSignerTab = searchParams.get(TAB_PARAM) === '1';
+if (isPasskeyPopup || isConfirmPopup || isGlobalPopup || isSignerTab) document.body.classList.add('popup-page');
 // Signer popups run on the signer's own top-level storage, where a global
 // sign-in leaves its tokens if its popup closes or crashes (#73 D23, #79).
 if (isPasskeyPopup || isConfirmPopup) void sweepGlobalSession();
@@ -55,7 +60,7 @@ document.documentElement.lang = locale;
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
         <LocaleContext.Provider value={locale}>
-            {isPasskeyPopup ? <PasskeyPopupView /> : isConfirmPopup ? <ConfirmPopupView /> : isGlobalPopup ? <GlobalSignInPopupView /> : <App parentOrigin={parentOrigin} urlParams={urlParams} />}
+            {isPasskeyPopup ? <PasskeyPopupView /> : isConfirmPopup ? <ConfirmPopupView /> : isGlobalPopup ? <GlobalSignInPopupView /> : isSignerTab ? <SignerTabView /> : <App parentOrigin={parentOrigin} urlParams={urlParams} />}
         </LocaleContext.Provider>
     </React.StrictMode>,
 );
