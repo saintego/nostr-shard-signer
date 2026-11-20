@@ -17,13 +17,19 @@ import {
   createAppOwner,
   createEvolu,
   DateIso,
+  String as EvoluString,
   id,
+  type Name,
   NonEmptyTrimmedString100,
   NonNegativeInt,
   nullOr,
   OwnerSecret,
-  String as EvoluString,
 } from '@evolu/common';
+import {
+  type OwnerId,
+  type OwnerSyncStatus,
+  syncStateToOwnerSyncStatus,
+} from '@evolu/common/local-first';
 import { createEvoluDeps, createRun } from '@evolu/web';
 
 const IdentityId = id('Identity');
@@ -72,6 +78,32 @@ export const settingsSchema = {
 const deps = createEvoluDeps();
 const run = createRun(deps);
 
+/**
+ * Resolves when an owner's relay reports it reconciled ("Synced"), or with
+ * the last status after `timeoutMs` (offline, error, still syncing). The popup
+ * waits for this before reading the global list on a new device.
+ */
+export function waitForSync(
+  name: Name,
+  ownerId: OwnerId,
+  timeoutMs: number
+): Promise<OwnerSyncStatus['type']> {
+  return new Promise((resolve) => {
+    const status = () => syncStateToOwnerSyncStatus(deps.syncState.get(), name, ownerId).type;
+    if (status() === 'Synced') return resolve('Synced');
+    const timer = setTimeout(() => {
+      unsubscribe();
+      resolve(status());
+    }, timeoutMs);
+    const unsubscribe = deps.syncState.subscribe(() => {
+      if (status() !== 'Synced') return;
+      clearTimeout(timer);
+      unsubscribe();
+      resolve('Synced');
+    });
+  });
+}
+
 /** Evolu's own errors (database refused, worker failed), for the UI to show. */
 export const onEvoluError = (listener: (error: unknown) => void): (() => void) =>
   deps.evoluError.subscribe(() => {
@@ -82,6 +114,11 @@ export const onEvoluError = (listener: (error: unknown) => void): (() => void) =
 /** Options for every store. `sync: false` keeps it on this device (tests, until a relay is chosen). */
 export interface StoreOptions {
   readonly sync?: boolean;
+  /**
+   * Keep nothing on this device: the popup opens the global list this way, so
+   * the signer's top-level storage holds nothing long-lived (#73 D23).
+   */
+  readonly memoryOnly?: boolean;
 }
 
 const config = (name: string, ownerSecret: Uint8Array, options: StoreOptions) => ({
@@ -90,6 +127,7 @@ const config = (name: string, ownerSecret: Uint8Array, options: StoreOptions) =>
   // Don't reload the page when a database is deleted (Evolu's default).
   onDatabaseDeleted: () => {},
   ...(options.sync === false ? { transports: [] } : {}),
+  ...(options.memoryOnly ? { memoryOnly: true } : {}),
 });
 
 // `ownerSecret` is the 32-byte key derived for the store (see the top).

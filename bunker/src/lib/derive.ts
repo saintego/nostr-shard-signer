@@ -5,6 +5,7 @@
 //   identity i    = HKDF(root, "nostr-shard-signer/v1/identity/" + i)
 //   marker key    = HKDF(root, "nostr-shard-signer/v1/site-marker/" + canonical origin)
 //   store key     = HKDF(root, "nostr-shard-signer/v1/site-store/" + canonical origin)
+//   global store  = HKDF(root, "nostr-shard-signer/v1/global-store")  (the global list's Evolu owner, D11)
 //   counter, config, backup keys: HKDF(root, "nostr-shard-signer/v1/<name>")
 //   marker address = HKDF(site login key, "nostr-shard-signer/v1/marker-address/" + canonical origin)  (D7)
 //   settings key  = HKDF(Evolustr master secret M, "nostr-shard-signer/v1/settings")  (D20)
@@ -41,6 +42,7 @@ export const labels = {
     siteMarker: (origin: string) => LABEL_PREFIX + 'site-marker/' + canonicalOrigin(origin),
     siteStore: (origin: string) => LABEL_PREFIX + 'site-store/' + canonicalOrigin(origin),
     markerAddress: (origin: string) => LABEL_PREFIX + 'marker-address/' + canonicalOrigin(origin),
+    globalStore: LABEL_PREFIX + 'global-store',
     counter: LABEL_PREFIX + 'counter',
     config: LABEL_PREFIX + 'config',
     backup: LABEL_PREFIX + 'backup',
@@ -86,6 +88,7 @@ export const deriveStoreKey = (root: Uint8Array, origin: string) => hkdf(root, l
  */
 export const deriveMarkerAddress = async (siteLoginKey: Uint8Array, origin: string) =>
     Array.from(await hkdf(siteLoginKey, labels.markerAddress(origin)), (x) => x.toString(16).padStart(2, '0')).join('');
+export const deriveGlobalStoreKey = (root: Uint8Array) => hkdf(root, labels.globalStore);
 export const deriveCounterKey = (root: Uint8Array) => deriveSecretKey(root, labels.counter);
 export const deriveConfigKey = (root: Uint8Array) => deriveSecretKey(root, labels.config);
 export const deriveBackupKey = (root: Uint8Array) => hkdf(root, labels.backup);

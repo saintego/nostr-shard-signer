@@ -2,8 +2,15 @@
 // (AGENTS.md, Files): restore this site's identity from its cache, the sign-in
 // sheet, and the global popup opened from the user's click in it.
 import { createElement, useCallback, useState } from 'react';
+import { IdentitySwitcher } from './components/IdentitySwitcher';
 import { SharedSignInSheet } from './components/SharedSignInSheet';
-import { restoreSharedSession, signInGlobally } from './lib/sharedSignIn';
+import {
+  restoreSharedSession,
+  type SharedSession,
+  signInFailure,
+  signInGlobally,
+  switchSharedIdentity,
+} from './lib/sharedSignIn';
 import type { KeyMaterial } from './lib/web3auth';
 
 type View = 'login' | 'connecting';
@@ -20,10 +27,30 @@ interface Deps {
   setView: (view: View) => void;
   postToParent: (msg: ParentMessage) => void;
   onError: (title: string, message: string, code: string) => void;
+  /** Sign out on this site (the user unpaired every identity from it). */
+  onSignOut: () => void;
 }
 
-export function useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn, setView, postToParent, onError }: Deps) {
+export function useSharedSignIn({
+  parentOrigin,
+  nostrSigner,
+  poweredBy,
+  onSignedIn,
+  setView,
+  postToParent,
+  onError,
+  onSignOut,
+}: Deps) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  // What this site's cache holds: its identities and the active one (#84).
+  const [session, setSession] = useState<SharedSession | null>(null);
+  const signedIn = useCallback(
+    async (s: SharedSession) => {
+      setSession(s);
+      await onSignedIn(s.km);
+    },
+    [onSignedIn]
+  );
 
   const showButton = useCallback(() => {
     setSheetOpen(false);
@@ -34,15 +61,15 @@ export function useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSigned
   /** At load: this site's cache, or the Sign in button. */
   const restore = useCallback(
     async (isCancelled: () => boolean) => {
-      const km = await restoreSharedSession();
+      const restored = await restoreSharedSession();
       if (isCancelled()) return;
-      if (km) await onSignedIn(km);
+      if (restored) await signedIn(restored);
       else {
         setView('login');
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
       }
     },
-    [onSignedIn, setView, postToParent]
+    [signedIn, setView, postToParent]
   );
 
   /** Shows the sheet (the widget's Sign in, or the page's NostrBridge.login()). */
@@ -51,21 +78,36 @@ export function useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSigned
     postToParent({ type: 'RESIZE', state: 'modal' });
   }, [postToParent]);
 
-  /** "Continue with Google": runs in the click, so the popup may open. */
+  /**
+   * "Continue with Google", and "Add or manage identities": runs in the click,
+   * so the popup may open. A failed manage keeps the current session.
+   */
   const google = useCallback(async () => {
-    const signedIn = signInGlobally(parentOrigin);
+    const pending = signInGlobally(parentOrigin);
+    const managing = session !== null;
     setSheetOpen(false);
-    setView('connecting');
-    postToParent({ type: 'RESIZE', state: 'button' });
-    try {
-      await onSignedIn(await signedIn);
-    } catch (e) {
-      showButton();
-      const msg = (e as Error).message ?? '';
-      if (msg === 'POPUP_BLOCKED') onError('Popup blocked', 'Allow popups for this signer and try again.', 'POPUP_BLOCKED');
-      else if (!/closed|cancel/i.test(msg)) onError('Login failed', msg, 'LOGIN_FAILED');
+    if (!managing) {
+      setView('connecting');
+      postToParent({ type: 'RESIZE', state: 'button' });
     }
-  }, [parentOrigin, onSignedIn, setView, postToParent, showButton, onError]);
+    try {
+      await signedIn(await pending);
+    } catch (e) {
+      const failure = signInFailure((e as Error).message ?? '');
+      if (failure === 'sign-out') return onSignOut();
+      if (!managing) showButton();
+      if (failure !== 'quiet') onError(failure.title, failure.message, failure.code);
+    }
+  }, [parentOrigin, session, signedIn, setView, postToParent, showButton, onError, onSignOut]);
+
+  /** Another identity of this site (D14): the page sees it through onAuthChange. */
+  const switchTo = useCallback(
+    async (pubkey: string) => {
+      const next = await switchSharedIdentity(pubkey);
+      if (next) await signedIn(next);
+    },
+    [signedIn]
+  );
 
   const sheet = sheetOpen
     ? createElement(SharedSignInSheet, {
@@ -80,5 +122,17 @@ export function useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSigned
       })
     : null;
 
-  return { restore, openSheet, sheet };
+  const switcher = session
+    ? createElement(IdentitySwitcher, {
+        identities: session.cache.identities,
+        active: session.cache.active,
+        onSwitch: (pubkey: string) => void switchTo(pubkey),
+        onManage: () => void google(),
+      })
+    : null;
+
+  /** Signed out on this site: forget what the cache held. */
+  const forget = useCallback(() => setSession(null), []);
+
+  return { restore, openSheet, sheet, switcher, forget };
 }

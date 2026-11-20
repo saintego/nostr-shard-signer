@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
 import type { Web3Auth } from '@web3auth/modal';
+import { useEffect, useRef, useState } from 'react';
+import { type GlobalAccount, type NewProfile, openGlobalAccount } from '../lib/globalAccount';
+import { openGlobalList } from '../lib/globalList';
+import { type GlobalResult, serveGlobalPopup } from '../lib/globalPopup';
 import { format } from '../lib/i18n';
-import { useMessages } from '../lib/useMessages';
-import { serveGlobalPopup, type GlobalResult } from '../lib/globalPopup';
-import { grantForSite } from '../lib/identity';
+import { publishToSignerRelays, queryRelays } from '../lib/relayPublish';
 import { SHARED_CLIENT_ID } from '../lib/shared';
+import { useMessages } from '../lib/useMessages';
 import { extractKey, initWeb3Auth, loginWith } from '../lib/web3auth';
 import { endSession, GLOBAL_SESSION, sweepGlobalSession } from '../lib/web3authSession';
 import { globalSignInMessages } from './GlobalSignInMessages';
+import { WelcomeBackView } from './WelcomeBackView';
 import './GlobalSignInPopup.css';
 
 type Reply = (result: Omit<GlobalResult, 'type'>) => void;
@@ -19,6 +22,7 @@ type State =
   | { step: 'refused' }
   | { step: 'ready'; site: string }
   | { step: 'working'; site: string }
+  | { step: 'account'; site: string; account: GlobalAccount; profile: NewProfile | null }
   | { step: 'failed'; site: string; reason: string }
   | { step: 'done'; site: string };
 
@@ -40,12 +44,21 @@ export function GlobalSignInPopupView() {
   const [state, setState] = useState<State>({ step: 'waiting' });
   const replyRef = useRef<Reply | null>(null);
   const w3aRef = useRef<Promise<Web3Auth> | null>(null);
+  // The open account holds the root: wiped when finished or when the window goes.
+  const accountRef = useRef<GlobalAccount | null>(null);
+  useEffect(() => {
+    const wipe = () => void accountRef.current?.close();
+    window.addEventListener('pagehide', wipe);
+    return () => window.removeEventListener('pagehide', wipe);
+  }, []);
 
   useEffect(() => {
     if (!SHARED_CLIENT_ID) return;
     // A leftover global session first (#79), then a fresh instance, ready
     // before the click so Google's window opens from it.
-    w3aRef.current = sweepGlobalSession().then(() => initWeb3Auth(SHARED_CLIENT_ID, GLOBAL_SESSION));
+    w3aRef.current = sweepGlobalSession().then(() =>
+      initWeb3Auth(SHARED_CLIENT_ID, GLOBAL_SESSION)
+    );
     w3aRef.current.catch(() => {});
     return serveGlobalPopup(
       location.pathname,
@@ -57,25 +70,69 @@ export function GlobalSignInPopupView() {
     );
   }, []);
 
+  /** Hands the site its grant (or tells it no identity is left), then wipes the root. */
+  const finish = async (site: string, pubkey: string | 'none') => {
+    const account = accountRef.current;
+    if (!account) return;
+    try {
+      if (pubkey === 'none') replyRef.current?.({ error: 'NO_IDENTITY' });
+      else replyRef.current?.({ grant: await account.grant(pubkey) });
+      setState({ step: 'done', site });
+      setTimeout(() => window.close(), 1200);
+    } catch (e) {
+      setState({ step: 'failed', site, reason: (e as Error)?.message ?? String(e) });
+    } finally {
+      accountRef.current = null;
+      await account.close();
+    }
+  };
+
   const signIn = async (site: string, provider: Provider) => {
     setState({ step: 'working', site });
+    const previous = accountRef.current; // a retry after a failure
+    accountRef.current = null;
+    await previous?.close();
     let w3a: Web3Auth | null = null;
     try {
       const instance = await (w3aRef.current ?? Promise.reject(new Error('not set up')));
       w3a = instance;
       await loginWith(instance, provider);
       const login = await extractKey(instance);
-      const grant = await grantForSite(login.privateKeyBytes, site);
-      replyRef.current?.(grant);
-      setState({ step: 'done', site });
-      setTimeout(() => window.close(), 1200);
+      const info = await instance.getUserInfo().catch(() => null);
+      const profile = info
+        ? { name: info.name || undefined, picture: info.profileImage || undefined }
+        : null;
+      // The global session ends right after use (#73 D23); the root stays in this window's memory.
+      await endSession(() => instance.logout(), GLOBAL_SESSION);
+      w3a = null;
+      const account = await openGlobalAccount(login.privateKeyBytes, site, {
+        openList: (root) => openGlobalList(root),
+        query: (filter) => queryRelays(filter),
+        publish: publishToSignerRelays,
+      });
+      accountRef.current = account;
+      const first = account.list[0];
+      // A first sign-in: identity 0, straight away (D8: Welcome back only for an existing account).
+      if (account.isNew && first) {
+        await account.pair(first.pubkey);
+        return await finish(site, first.pubkey);
+      }
+      setState({ step: 'account', site, account, profile });
     } catch (e) {
       setState({ step: 'failed', site, reason: (e as Error)?.message ?? String(e) });
     } finally {
-      // The global session ends right after use, whatever happened (#73 D23).
+      // Whatever happened, no global session is left behind (#73 D23).
       const instance = w3a;
-      await endSession(instance ? () => instance.logout() : null, GLOBAL_SESSION);
+      if (instance) await endSession(() => instance.logout(), GLOBAL_SESSION);
     }
+  };
+
+  /** Closing with the account open still tells the site what's left (after unpairing). */
+  const close = () => {
+    const account = accountRef.current;
+    if (account && state.step === 'account')
+      return void finish(state.site, account.paired[0]?.pubkey ?? 'none');
+    window.close();
   };
 
   let body: React.ReactNode;
@@ -90,28 +147,55 @@ export function GlobalSignInPopupView() {
         <p className="global-explain">{format(m.explain, { site })}</p>
         {state.step === 'ready' && (
           <>
-            <button type="button" className="np-button np-filled" onClick={() => void signIn(state.site, 'google')}>
+            <button
+              type="button"
+              className="np-button np-filled"
+              onClick={() => void signIn(state.site, 'google')}
+            >
               {m.google}
             </button>
-            <button type="button" className="np-button np-outlined" onClick={() => void signIn(state.site, 'apple')}>
+            <button
+              type="button"
+              className="np-button np-outlined"
+              onClick={() => void signIn(state.site, 'apple')}
+            >
               {m.apple}
             </button>
-            <button type="button" className="np-button np-outlined" onClick={() => void signIn(state.site, 'twitter')}>
+            <button
+              type="button"
+              className="np-button np-outlined"
+              onClick={() => void signIn(state.site, 'twitter')}
+            >
               {m.x}
             </button>
             <p className="np-hint">{m.providerHint}</p>
           </>
         )}
         {state.step === 'working' && <p className="np-loading">{m.working}</p>}
+        {state.step === 'account' && (
+          <WelcomeBackView
+            site={state.site}
+            account={state.account}
+            signInProfile={state.profile}
+            onFinish={(pubkey) => void finish(state.site, pubkey)}
+            onError={(reason) => setState({ step: 'failed', site: state.site, reason })}
+          />
+        )}
         {state.step === 'failed' && (
           <>
             <p className="np-message np-error">{format(m.failed, { reason: state.reason })}</p>
-            <button type="button" className="np-button np-filled" onClick={() => setState({ step: 'ready', site: state.site })}>
+            <button
+              type="button"
+              className="np-button np-filled"
+              onClick={() => setState({ step: 'ready', site: state.site })}
+            >
               {m.retry}
             </button>
           </>
         )}
-        {state.step === 'done' && <p className="np-message np-success">{format(m.done, { site })}</p>}
+        {state.step === 'done' && (
+          <p className="np-message np-success">{format(m.done, { site })}</p>
+        )}
       </>
     );
   }
@@ -120,7 +204,7 @@ export function GlobalSignInPopupView() {
     <main className="global-popup np-app">
       <h1 className="np-title">{m.title}</h1>
       {body}
-      <button type="button" className="np-button np-text global-close" onClick={() => window.close()}>
+      <button type="button" className="np-button np-text global-close" onClick={close}>
         {m.close}
       </button>
     </main>

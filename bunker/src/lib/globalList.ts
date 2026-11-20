@@ -1,0 +1,114 @@
+// The global list (#73 D8, D9, D11; #84): the user's identities, where each
+// was created and which sites it's paired with. Readable only with the root,
+// so only in the global sign-in popup. The popup opens it in memory (nothing
+// kept on the signer's own origin, D23), waits for Evolu to sync, reads it,
+// writes the user's choice and waits for that to sync before closing.
+//
+// The model (pure) is in globalListModel.ts.
+
+import {
+  createQueryBuilder,
+  NonEmptyTrimmedString100,
+  NonNegativeInt,
+  sqliteTrue,
+} from '@evolu/common';
+import { canonicalOrigin, deriveGlobalStoreKey } from './derive';
+import { globalSchema, openGlobalStore, waitForSync } from './evoluStore';
+import { buildList, type GlobalList, type SyncResult } from './globalListModel';
+
+// ── Evolu ─────────────────────────────────────────────────────────────────────
+
+const query = createQueryBuilder(globalSchema);
+const identitiesQuery = query((db) =>
+  db
+    .selectFrom('identity')
+    .select(['id', 'pubkey', 'derivationIndex', 'label', 'createdOn', 'usedElsewhere'])
+    .where('isDeleted', 'is not', sqliteTrue)
+);
+const pairingsQuery = query((db) =>
+  db
+    .selectFrom('pairedSite')
+    .select(['id', 'origin', 'identityPubkey'])
+    .where('isDeleted', 'is not', sqliteTrue)
+);
+
+const SYNC_WAIT_MS = 6000;
+
+const done = (run: (onComplete: () => void) => void) =>
+  new Promise<void>((resolve) => run(resolve));
+
+/** Opens the global list for `root`, in memory, and waits for its first sync. */
+export async function openGlobalList(
+  root: Uint8Array,
+  options: { sync?: boolean } = {}
+): Promise<GlobalList> {
+  const ownerSecret = await deriveGlobalStoreKey(root);
+  const evolu = await openGlobalStore(ownerSecret, {
+    memoryOnly: true,
+    ...(options.sync === false ? { sync: false } : {}),
+  });
+  ownerSecret.fill(0);
+  const sync = (ms: number) =>
+    options.sync === false
+      ? Promise.resolve<SyncResult>('NoRelays')
+      : waitForSync(evolu.name, evolu.appOwner.id, ms);
+  const synced = await sync(SYNC_WAIT_MS);
+
+  const load = async () => {
+    const [ids, pairs] = await Promise.all([
+      evolu.loadQuery(identitiesQuery),
+      evolu.loadQuery(pairingsQuery),
+    ]);
+    return buildList(ids, pairs);
+  };
+
+  return {
+    synced,
+    load,
+    addDerived: (index, pubkey, createdOn, label) =>
+      done((onComplete) =>
+        evolu.insert(
+          'identity',
+          {
+            derivationIndex: NonNegativeInt.orThrow(index),
+            storedKey: null,
+            pubkey: NonEmptyTrimmedString100.orThrow(pubkey),
+            label,
+            createdOn: canonicalOrigin(createdOn),
+            usedElsewhere: null,
+          },
+          { onComplete }
+        )
+      ),
+    pair: async (pubkey, origin) => {
+      const o = canonicalOrigin(origin);
+      const pairs = await evolu.loadQuery(pairingsQuery);
+      if (pairs.some((p) => p.origin === o && p.identityPubkey === pubkey)) return;
+      await done((onComplete) =>
+        evolu.insert(
+          'pairedSite',
+          {
+            origin: NonEmptyTrimmedString100.orThrow(o),
+            identityPubkey: NonEmptyTrimmedString100.orThrow(pubkey),
+          },
+          { onComplete }
+        )
+      );
+    },
+    unpair: async (pubkey, origin) => {
+      const o = canonicalOrigin(origin);
+      const pairs = (await evolu.loadQuery(pairingsQuery)).filter(
+        (p) => p.origin === o && p.identityPubkey === pubkey
+      );
+      for (const p of pairs)
+        await done((onComplete) =>
+          evolu.update('pairedSite', { id: p.id, isDeleted: sqliteTrue }, { onComplete })
+        );
+    },
+    close: async (timeoutMs = SYNC_WAIT_MS) => {
+      const result = await sync(timeoutMs);
+      await evolu[Symbol.asyncDispose]();
+      return result;
+    },
+  };
+}

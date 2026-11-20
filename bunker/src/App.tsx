@@ -196,6 +196,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         privateKeyRef.current = km.privateKeyBytes;
         setKeyInfo({ publicKeyHex: km.publicKeyHex, nsecStr: km.nsecStr, npubStr: km.npubStr });
         postToParent({ type: 'AUTH_SUCCESS', pubkey: km.publicKeyHex });
+        setView('avatar'); // now, not after the profile: a late reset would close a panel the user opened
         setBackupAsk(shouldAskForBackup(km.publicKeyHex));
         // A backup made on another site or device counts here too.
         syncBackupMarker(km.privateKeyBytes, km.publicKeyHex, publishRelays)
@@ -206,13 +207,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         const mergedProfile = profile
             ? { ...profile, name: profile.name || w3aProfile?.name, picture: profile.picture || w3aProfile?.picture }
             : (w3aProfile?.name || w3aProfile?.picture ? w3aProfile : null);
-        if (mergedProfile) setUserProfile(mergedProfile);
-
-        setView('avatar');
+        setUserProfile(mergedProfile ?? {}); // another identity's profile must not stay (#84)
     }, [postToParent, publishRelays]);  // publish relays, not the registry relays
     // Shared sign-in (#80): the widget's cache, or the global sign-in popup.
     const signerTab = useSignerTab(parentOrigin); // the signer in its own tab (#90)
-    const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError });
+    const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError, onSignOut: () => bridgeActionsRef.current.logout() });
 
     const showNextConfirmation = useCallback(() => {
         const queue = confQueueRef.current;
@@ -774,7 +773,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             };
 
             // Defined with `let` so they are in scope for cleanup (hoisted).
-            // eslint-disable-next-line prefer-const
             let safetyTimer: ReturnType<typeof setTimeout>;
 
             const onConnected = async () => {
@@ -978,8 +976,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         rejectAllConfirmations('Logged out');
         lockEvolustr();
         await signOutOnThisSite(web3authRef.current, shared);
-        // Zero the key material before dropping the reference
-        privateKeyRef.current?.fill(0);
+        sharedSignIn.forget();
+        privateKeyRef.current?.fill(0); // zero the key material before dropping the reference
         privateKeyRef.current = null;
         setKeyInfo(null);
         setBackupAsk(false);
@@ -1138,6 +1136,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 onAutoApproveChange={handleAutoApproveChange}
                 onClose={() => setView('avatar')}
                 onOpenTab={signerTab.open}
+                identitySection={sharedSignIn.switcher}
                 evolustrSection={
                     <EvolustrSettings
                         status={evolustrStatus}

@@ -31,6 +31,8 @@ interface Props {
     evolustrSection?: ReactNode;
     /** Opens the signer in its own tab (#90); call from the click. */
     onOpenTab?: () => void;
+    /** This site's identities and switching (#84), shared sign-in only. */
+    identitySection?: ReactNode;
 }
 
 export function ProfileModal({
@@ -51,6 +53,7 @@ export function ProfileModal({
     onAutoApproveChange,
     onClose,
     evolustrSection,
+    identitySection,
 }: Props) {
     const [activeTab, setActiveTab] = useState<TabId>('profile');
 
@@ -206,6 +209,7 @@ export function ProfileModal({
                     {/* ── Profile tab ── */}
                     {activeTab === 'profile' && (
                         <div className="tab-content">
+                            {identitySection}
                             <div className="field-row">
                                 <label htmlFor="pm-name">Display name</label>
                                 <input

@@ -2,7 +2,9 @@
 // #73 D7, D12, D17; #82) to several relays, spaced out and retried on rate
 // limits: C13 (#75) saw damus refuse the third event of a quick burst.
 
+import { type Filter, SimplePool } from 'nostr-tools';
 import type { Event } from 'nostr-tools/pure';
+import { publishToRelay } from './nostr';
 
 /**
  * Relays for the signer's own events: the ones that kept markers, the counter
@@ -105,4 +107,32 @@ export const published = (results: readonly PublishResult[], eventId: string, at
     mine.length > 0 &&
     mine.filter((r) => r.status !== 'failed').length >= Math.min(atLeast, mine.length)
   );
+};
+
+const QUERY_WAIT_MS = 4000;
+
+/**
+ * Events matching `filter` on `relays`, or null when no relay answered (then
+ * the caller mustn't assume there are none, e.g. before publishing a counter).
+ */
+export async function queryRelays(
+  filter: Filter,
+  relays: readonly string[] = SIGNER_RELAYS
+): Promise<Event[] | null> {
+  const pool = new SimplePool();
+  try {
+    const events = await pool.querySync([...relays], filter, { maxWait: QUERY_WAIT_MS });
+    // A relay that timed out also ends the query: count only connected ones.
+    const connected = [...pool.listConnectionStatus().values()].some(Boolean);
+    return connected || events.length ? events : null;
+  } catch {
+    return null;
+  } finally {
+    pool.destroy();
+  }
+}
+
+/** Publishes the signer's own events to SIGNER_RELAYS, spaced out (never throws). */
+export const publishToSignerRelays = async (events: Event[]): Promise<void> => {
+  await publishSpaced(events, SIGNER_RELAYS, { publishOne: publishToRelay });
 };

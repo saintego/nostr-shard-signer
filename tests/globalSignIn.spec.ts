@@ -58,18 +58,27 @@ test('grantForSite: identity 0 and the site store key from the frozen vectors; t
   const site = v.sites[0];
   const login = bytes(v.globalLoginKey);
   const grant = await grantForSite(login, site.canonical);
-  expect(grant.identity.pubkey).toBe(v.identities[0].pubkey);
-  expect(grant.identity.secretKey).toBe(v.identities[0].secret);
+  const [identity] = grant.identities;
+  expect(grant.identities).toHaveLength(1);
+  expect(identity?.pubkey).toBe(v.identities[0].pubkey);
+  expect(identity?.secretKey).toBe(v.identities[0].secret);
+  expect(grant.active).toBe(v.identities[0].pubkey);
   expect(grant.storeKey).toBe(site.storeKey);
   expect(login.every((b) => b === 0)).toBe(true);
-  expect(getPublicKey(keyMaterialFromSecret(grant.identity.secretKey).privateKeyBytes)).toBe(grant.identity.pubkey);
+  expect(getPublicKey(keyMaterialFromSecret(identity?.secretKey ?? '').privateKeyBytes)).toBe(identity?.pubkey);
 });
 
 test('site cache: only well-formed caches are used, and they expire', () => {
-  const ok = { storeKey: 'a'.repeat(64), identity: { secretKey: 'b'.repeat(64), pubkey: 'c'.repeat(64) }, createdAt: 1000 };
+  const ok = {
+    storeKey: 'a'.repeat(64),
+    identities: [{ secretKey: 'b'.repeat(64), pubkey: 'c'.repeat(64), label: null }],
+    active: 'c'.repeat(64),
+    createdAt: 1000,
+  };
   expect(parseSiteCache(ok)).toEqual(ok);
   expect(parseSiteCache({ ...ok, storeKey: 'zz' })).toBeNull();
-  expect(parseSiteCache({ ...ok, identity: { secretKey: 'b'.repeat(64) } })).toBeNull();
+  expect(parseSiteCache({ ...ok, identities: [{ secretKey: 'b'.repeat(64) }] })).toBeNull();
+  expect(parseSiteCache({ ...ok, createdAt: undefined })).toBeNull();
   expect(parseSiteCache(null)).toBeNull();
   expect(isExpired(ok, 1000 + CACHE_LIFETIME_MS)).toBe(false);
   expect(isExpired(ok, 1001 + CACHE_LIFETIME_MS)).toBe(true);

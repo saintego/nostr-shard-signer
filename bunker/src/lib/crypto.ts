@@ -13,10 +13,12 @@ export async function processRpc(
 
     case "sign_event": {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const signed = finalizeEvent(
-        JSON.parse(params[0]) as any,
-        privateKeyBytes,
-      );
+      const template = JSON.parse(params[0]) as any;
+      // Each request is bound to the identity active when it arrived (#73 D14):
+      // an event for another identity is refused, an empty pubkey is fine.
+      if (template?.pubkey && template.pubkey !== publicKeyHex)
+        throw new Error("Refused: the event is for another identity");
+      const signed = finalizeEvent(template, privateKeyBytes);
       return JSON.stringify(signed);
     }
 

@@ -194,7 +194,8 @@ declare global {
     /** Resolves once init() has completed, however it was called. */
     readonly ready: Promise<void>;
     /**
-     * Calls `callback` on every login/logout. If the auth state is already known,
+     * Calls `callback` on every login/logout, and when the user switches to
+     * another identity on this site (same `loggedIn`, new `pubkey`). If the auth state is already known,
      * it is also called right away with the current state, so a session restored
      * before subscribing is not missed. Returns an unsubscribe function.
      * Same data as the "nostr-bridge:auth" window event.

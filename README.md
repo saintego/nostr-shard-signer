@@ -63,6 +63,7 @@ Know before you ship:
 A page that passes no `clientId` gets Google/Apple/X sign-in through the hosted signer's own Web3Auth project. No Web3Auth account, no allowlist and no registration in the portal: it works on any site.
 
 - **Sign-in happens in a small window on the signer's own address.** The widget's Sign in shows a sheet: "Continue with Google, Apple or X" opens that window (from the click, so popup blockers don't interfere), and the page's extension or bunker is offered next to it. The window ends its Web3Auth session as soon as the user's key is ready; the widget keeps this site's identity on the device, sealed with a key the browser won't hand out, until the user signs out here or 30 days pass. Signing out on one site leaves the others signed in. `NostrBridge.login()` opens the same sheet; the user then continues there.
+- **Several identities per site.** On a site the user already uses, the window shows "Welcome back": their identities, where each was created and which sites use it. They pick one for this site, pair another, create a new one (with their Google name and picture only if they tick it), or unpair one. In the widget's profile panel they switch between the identities paired with this site; the page sees each switch through `onAuthChange` with the new `pubkey`. A request is signed by the identity that was active when it arrived, and `signEvent` with another identity's `pubkey` is refused. The site can tell that identities used on it belong to the same person, and the widget says so.
 - **Google, Apple and X are separate accounts.** The identity is derived from the provider account's key, so the same person signing in with Google and with Apple gets two identities. Linking them is planned ([#73](https://github.com/saintego/nostr-shard-signer/issues/73)).
 
 - **One identity across sites.** A user gets the same npub on every site that uses shared sign-in. Sites with their own `clientId` give them other npubs.
@@ -779,6 +780,8 @@ Approval settings are stored per host site. Confirmations are queued and shown o
 | `get_public_key`, `nip44_encrypt`                                                                        | No confirmation                           |
 | Kind 22242 (relay auth), 24242 (Blossom auth), 62 (request to vanish, with its own warning)              | Always a confirmation modal               |
 | Any event dated more than 5 minutes in the future                                                        | Refused                                   |
+| Kind 5 aimed (`a` tag) at an Evolustr vault or at another key's address (the signer's own records)       | Refused                                   |
+| An event whose `pubkey` is another identity than the active one                                          | Refused                                   |
 
 **Replaceable and addressable data** (lists, bookmarks, app data, kinds 10000–19999 and 30000–39999) is signed without asking only when the site may replace what's there ([#61](https://github.com/saintego/nostr-shard-signer/issues/61)):
 

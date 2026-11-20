@@ -54,6 +54,7 @@ const vectors = LOGIN_KEYS.map((loginHex) => {
       storeKey: hex(hkdf(root, P + "site-store/" + canonical)),
       markerAddress: { siteLoginKey: SITE_LOGIN_KEY, d: hex(hkdf(Buffer.from(SITE_LOGIN_KEY, "hex"), P + "marker-address/" + canonical)) },
     })),
+    globalStoreKey: hex(hkdf(root, P + "global-store")),
     counterKey: withPub(secret(root, P + "counter")),
     configKey: withPub(secret(root, P + "config")),
     backupKey: hex(hkdf(root, P + "backup")),

@@ -8,9 +8,12 @@
 // What crosses (#73 update 2):
 //   widget → popup: the site's origin (the popup checks it against the widget's
 //                   own address where the browser shows it);
-//   popup → widget: the site's store key and the identity's key; the widget
+//   popup → widget: the site's store key and the keys of the identities paired
+//                   with it, and the active one (siteGrant.ts); the widget
 //                   seals them with its device secret.
 // Never: the login key or the root; they stay in the popup's memory.
+
+import { parseSiteGrant, type SiteGrant } from './siteGrant';
 
 export const GLOBAL_PARAM = 'global-signin';
 
@@ -22,8 +25,7 @@ export interface GlobalRequest {
 
 export interface GlobalResult {
   readonly type: 'NSS_GLOBAL_RESULT';
-  readonly storeKey?: string;
-  readonly identity?: { readonly secretKey: string; readonly pubkey: string };
+  readonly grant?: SiteGrant;
   readonly error?: string;
 }
 
@@ -44,22 +46,17 @@ export function openGlobalPopup(): Window | null {
   return window.open(url.toString(), '_blank', 'popup,width=440,height=640');
 }
 
-const hex64 = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
-
 /** The popup's answer, checked field by field. */
-function parseResult(d: Partial<Omit<GlobalResult, 'type'>>): { storeKey: string; identity: { secretKey: string; pubkey: string } } | Error {
+function parseResult(d: Partial<Omit<GlobalResult, 'type'>>): SiteGrant | Error {
   if (typeof d.error === 'string') return new Error(d.error);
-  const id = d.identity;
-  if (!hex64(d.storeKey) || !id || !hex64(id.secretKey) || !hex64(id.pubkey))
-    return new Error('The sign-in window sent an invalid answer');
-  return { storeKey: d.storeKey, identity: { secretKey: id.secretKey, pubkey: id.pubkey } };
+  return parseSiteGrant(d.grant) ?? new Error('The sign-in window sent an invalid answer');
 }
 
 /**
  * Talks to the popup: sends the site once it says it's ready, resolves with its
  * result. Rejects when the popup closes without one.
  */
-export function awaitGlobalResult(popup: Window, site: string): Promise<{ storeKey: string; identity: { secretKey: string; pubkey: string } }> {
+export function awaitGlobalResult(popup: Window, site: string): Promise<SiteGrant> {
   return new Promise((resolve, reject) => {
     const done = () => {
       clearInterval(closedPoll);
@@ -152,7 +149,9 @@ export function serveGlobalPopup(
     window.removeEventListener('message', listener);
     const check = checkOpener(opener, d.site, signerPath);
     if (!check.ok) return onRefused(check.reason ?? 'refused');
-    onRequest(d.site, (result) => opener.postMessage({ type: 'NSS_GLOBAL_RESULT', ...result }, location.origin));
+    onRequest(d.site, (result) =>
+      opener.postMessage({ type: 'NSS_GLOBAL_RESULT', ...result }, location.origin)
+    );
   };
   window.addEventListener('message', listener);
   opener.postMessage({ type: READY }, location.origin);

@@ -110,6 +110,7 @@
           }
         }
       ],
+      "globalStoreKey": "cbf47ca9632165e53ff02886f83afe57e10ac73ca5d9a363e99968b444043fc5",
       "counterKey": {
         "secret": "20f832f12d725a87fa042510d40967abaa3893b23904e28edb90009ae27f68c8",
         "pubkey": "0209f74adbab168afcb8b011651416083a2a239999815d5cab8b76b57e566645"
@@ -232,6 +233,7 @@
           }
         }
       ],
+      "globalStoreKey": "1294d0ed981e5ca4c92773a50d5b1d540d8788892cec52a6a9c3e5a43d3ad000",
       "counterKey": {
         "secret": "3325ac80f568cb8f01d54368178b925d9ee1508c14ea0865bd3c62ad58178858",
         "pubkey": "9a183ba93f0a8be2e64fcc4108eef4d5ed5d3e56ccc9d41ca5abb4dae8501588"

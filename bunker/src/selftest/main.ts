@@ -63,11 +63,33 @@ async function evolu(): Promise<Check> {
   return { name: 'evolu', ok, detail: `${rows.length} rows` };
 }
 
+/** The global list on Evolu, in memory (#84): add, pair, unpair, read back. */
+async function globalList(): Promise<Check> {
+  const { openGlobalList } = await import('../lib/globalList');
+  const root = crypto.getRandomValues(new Uint8Array(32));
+  const list = await openGlobalList(root, { sync: false });
+  const pubkey = 'ab'.repeat(32);
+  await list.addDerived(0, pubkey, 'https://example.com/x', 'Main');
+  await list.pair(pubkey, 'https://example.com');
+  await list.pair(pubkey, 'https://other.example');
+  await list.unpair(pubkey, 'https://other.example');
+  const rows = await list.load();
+  await list.close(0);
+  const ok =
+    list.synced === 'NoRelays' &&
+    rows.length === 1 &&
+    rows[0]?.label === 'Main' &&
+    rows[0]?.createdOn === 'https://example.com' &&
+    JSON.stringify(rows[0]?.sites) === '["https://example.com"]';
+  return { name: 'globalList', ok, detail: JSON.stringify(rows) };
+}
+
 async function siteCache(): Promise<Check> {
   const { saveSiteCache, loadSiteCache, deleteSiteCache } = await import('../lib/siteCache');
   const cache = {
     storeKey: 'a'.repeat(64),
-    identity: { secretKey: 'b'.repeat(64), pubkey: 'c'.repeat(64) },
+    identities: [{ secretKey: 'b'.repeat(64), pubkey: 'c'.repeat(64), label: null }],
+    active: 'c'.repeat(64),
     createdAt: Date.now(),
   };
   await saveSiteCache(cache);
@@ -87,7 +109,7 @@ async function siteCache(): Promise<Check> {
 
 async function main() {
   const results: Check[] = [];
-  for (const check of [derivation, async () => buffer(), evolu, siteCache]) {
+  for (const check of [derivation, async () => buffer(), evolu, globalList, siteCache]) {
     try {
       results.push(await check());
     } catch (e) {
