@@ -11,6 +11,8 @@ import { globalSignInMessages } from './GlobalSignInMessages';
 import './GlobalSignInPopup.css';
 
 type Reply = (result: Omit<GlobalResult, 'type'>) => void;
+/** Web3Auth's names for Google, Apple and X. */
+type Provider = 'google' | 'apple' | 'twitter';
 
 type State =
   | { step: 'waiting' }
@@ -55,13 +57,13 @@ export function GlobalSignInPopupView() {
     );
   }, []);
 
-  const signIn = async (site: string) => {
+  const signIn = async (site: string, provider: Provider) => {
     setState({ step: 'working', site });
     let w3a: Web3Auth | null = null;
     try {
       const instance = await (w3aRef.current ?? Promise.reject(new Error('not set up')));
       w3a = instance;
-      await loginWith(instance, 'google');
+      await loginWith(instance, provider);
       const login = await extractKey(instance);
       const grant = await grantForSite(login.privateKeyBytes, site);
       replyRef.current?.(grant);
@@ -87,15 +89,24 @@ export function GlobalSignInPopupView() {
         <p className="global-site np-badge np-primary">{format(m.forSite, { site })}</p>
         <p className="global-explain">{format(m.explain, { site })}</p>
         {state.step === 'ready' && (
-          <button type="button" className="np-button np-filled" onClick={() => void signIn(state.site)}>
-            {m.google}
-          </button>
+          <>
+            <button type="button" className="np-button np-filled" onClick={() => void signIn(state.site, 'google')}>
+              {m.google}
+            </button>
+            <button type="button" className="np-button np-outlined" onClick={() => void signIn(state.site, 'apple')}>
+              {m.apple}
+            </button>
+            <button type="button" className="np-button np-outlined" onClick={() => void signIn(state.site, 'twitter')}>
+              {m.x}
+            </button>
+            <p className="np-hint">{m.providerHint}</p>
+          </>
         )}
         {state.step === 'working' && <p className="np-loading">{m.working}</p>}
         {state.step === 'failed' && (
           <>
             <p className="np-message np-error">{format(m.failed, { reason: state.reason })}</p>
-            <button type="button" className="np-button np-filled" onClick={() => void signIn(state.site)}>
+            <button type="button" className="np-button np-filled" onClick={() => setState({ step: 'ready', site: state.site })}>
               {m.retry}
             </button>
           </>

@@ -8,6 +8,9 @@ export const globalSignInMessages = defineMessages('globalSignIn', {
   explain:
     'Your account works on every site that uses this sign-in. Whoever runs this sign-in service can access it; {site} can’t.',
   google: 'Continue with Google',
+  apple: 'Continue with Apple',
+  x: 'Continue with X',
+  providerHint: 'Use the same one every time: each gives you its own account.',
   waiting: 'Connecting to the site…',
   working: 'Signing in…',
   done: 'Done. You can go back to {site}.',

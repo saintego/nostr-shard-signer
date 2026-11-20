@@ -21,13 +21,13 @@
   });
 
   // Shows the "Sign in" button; after login, use window.nostr like any NIP-07 extension.
-  // Google sign-in goes through the shared sign-in (no setup); pass { clientId }
-  // for your own Web3Auth project (Google/Apple/X), or { nostrOnly: true } to turn it off.
+  // Google/Apple/X sign-in goes through the shared sign-in (no setup); pass
+  // { clientId } for your own Web3Auth project, or { nostrOnly: true } to turn it off.
   await NostrBridge.init();
 </script>
 ```
 
-That's all a page needs: Google sign-in works through the hosted signer's [shared sign-in](#shared-sign-in-no-clientid), which is free while donations cover it. For keys of your own project, get a Web3Auth `clientId` and register your domain for it, see [Getting Started](#getting-started-2-minutes). A complete page that also publishes a note is in [`examples/minimal.html`](examples/minimal.html).
+That's all a page needs: Google/Apple/X sign-in works through the hosted signer's [shared sign-in](#shared-sign-in-no-clientid), which is free while donations cover it. For keys of your own project, get a Web3Auth `clientId` and register your domain for it, see [Getting Started](#getting-started-2-minutes). A complete page that also publishes a note is in [`examples/minimal.html`](examples/minimal.html).
 
 > **Using an AI coding agent?** Point it at [`llms.txt`](https://saintego.github.io/nostr-shard-signer/llms.txt) (short) or [`llms-full.txt`](https://saintego.github.io/nostr-shard-signer/llms-full.txt) (complete reference). Types: [`nostr-bridge.d.ts`](nostr-bridge.d.ts). Working page: [`examples/minimal.html`](examples/minimal.html).
 
@@ -60,10 +60,10 @@ Know before you ship:
 
 ## Shared sign-in (no `clientId`)
 
-A page that passes no `clientId` gets Google sign-in through the hosted signer's own Web3Auth project. No Web3Auth account, no allowlist and no registration in the portal: it works on any site.
+A page that passes no `clientId` gets Google/Apple/X sign-in through the hosted signer's own Web3Auth project. No Web3Auth account, no allowlist and no registration in the portal: it works on any site.
 
-- **Sign-in happens in a small window on the signer's own address.** The widget's Sign in shows a sheet: "Continue with Google" opens that window (from the click, so popup blockers don't interfere), and the page's extension or bunker is offered next to it. The window ends its Web3Auth session as soon as the user's key is ready; the widget keeps this site's identity on the device, sealed with a key the browser won't hand out, until the user signs out here or 30 days pass. Signing out on one site leaves the others signed in. `NostrBridge.login()` opens the same sheet; the user then clicks Google there.
-- **Google only, for now.** The identity is derived from the Google account's key, so Apple or X would give the same person a second identity; more providers on one identity are planned ([#73](https://github.com/saintego/nostr-shard-signer/issues/73)). Sites with their own `clientId` keep Google/Apple/X.
+- **Sign-in happens in a small window on the signer's own address.** The widget's Sign in shows a sheet: "Continue with Google, Apple or X" opens that window (from the click, so popup blockers don't interfere), and the page's extension or bunker is offered next to it. The window ends its Web3Auth session as soon as the user's key is ready; the widget keeps this site's identity on the device, sealed with a key the browser won't hand out, until the user signs out here or 30 days pass. Signing out on one site leaves the others signed in. `NostrBridge.login()` opens the same sheet; the user then continues there.
+- **Google, Apple and X are separate accounts.** The identity is derived from the provider account's key, so the same person signing in with Google and with Apple gets two identities. Linking them is planned ([#73](https://github.com/saintego/nostr-shard-signer/issues/73)).
 
 - **One identity across sites.** A user gets the same npub on every site that uses shared sign-in. Sites with their own `clientId` give them other npubs.
 - **Free while donations cover it.** Web3Auth bills the shared project for every monthly active user, on every site. Donations pay for it: support it on Geyser <!-- TODO: Geyser project link -->. If they stop covering the bill, shared sign-in may get a free allowance per site with payment above it ([#32](https://github.com/saintego/nostr-shard-signer/issues/32)–[#35](https://github.com/saintego/nostr-shard-signer/issues/35)), or be turned off. Plan for that.
@@ -71,11 +71,11 @@ A page that passes no `clientId` gets Google sign-in through the hosted signer's
 - **Who can obtain the keys.** Whoever runs the hosted signer owns the shared project and can obtain shared-mode users' keys, as an app owner can with its own `clientId`. The project's Web3Auth allowlist lists only the signer's origin, never a site's, so no site can obtain other sites' users' keys.
 - **Sensitive requests open a small window.** Any site may embed the signer here and the identity is the same on every site, so decrypts, replacing the profile, follows or relays, deletions, Evolustr app keys and key export are confirmed in a popup on the signer's own origin, which no page can cover or restyle. The user clicks "Review this request" in the widget, then approves in the popup (it opens from that click, so popup blockers don't interfere).
 - **The operator can block a single site** (abuse, phishing, or more users than donations cover) without turning shared sign-in off for everyone. A blocked site's users keep extension and bunker sign-in; the console shows `SHARED_BLOCKED`. See [Blocking a site from shared sign-in](#blocking-a-site-from-shared-sign-in).
-- **If it is turned off**, shared-mode users can't sign in with Google until it is back, with the same keys. Their key backup still works. The widget asks every OAuth user to back up their key.
+- **If it is turned off**, shared-mode users can't sign in with Google/Apple/X until it is back, with the same keys. Their key backup still works. The widget asks every OAuth user to back up their key.
 
 To opt out, pass your own `clientId` (keys of your project, your Web3Auth bill), or `nostrOnly: true` (extension and bunker sign-in only). The console says which sign-in the page got.
 
-> **Existing pages without a `clientId`: this changes what they offer.** Before shared sign-in, `NostrBridge.init()` without a `clientId` meant extension and bunker sign-in only. Pages that load the hosted `nostr-bridge.js` get the new behaviour without a release on their side: once shared sign-in is live they offer Google too, with keys the signer's operator can obtain, one npub shared with every other shared-mode site, and users counted on the shared project's bill. To keep Nostr-only sign-in, add `nostrOnly: true` (or `data-nostr-only="true"` on the script tag). See the [Changelog](#changelog).
+> **Existing pages without a `clientId`: this changes what they offer.** Before shared sign-in, `NostrBridge.init()` without a `clientId` meant extension and bunker sign-in only. Pages that load the hosted `nostr-bridge.js` get the new behaviour without a release on their side: once shared sign-in is live they offer Google/Apple/X too, with keys the signer's operator can obtain, one npub shared with every other shared-mode site, and users counted on the shared project's bill. To keep Nostr-only sign-in, add `nostrOnly: true` (or `data-nostr-only="true"` on the script tag). See the [Changelog](#changelog).
 
 ## Why nostr-shard-signer
 
@@ -83,7 +83,7 @@ To opt out, pass your own `clientId` (keys of your project, your Web3Auth bill),
 - **Drop-in NIP-07.** Code written for Alby or nos2x works unchanged; there is no new signing API to learn.
 - **Every user in one button.** OAuth for newcomers, NIP-07 extensions and NIP-46 bunkers for existing users, all behind the same `window.nostr`.
 - **The key stays out of your page's code.** It lives only in a cross-origin iframe, so your app's code, its dependencies and an XSS bug can't read it. (The owner of the Web3Auth project still can obtain it; see [Security Model](#security-model).)
-- **No backend to run, no account to create.** Use the hosted signer; Google sign-in works out of the box through [shared sign-in](#shared-sign-in-no-clientid). A free Web3Auth `clientId` of your own is optional.
+- **No backend to run, no account to create.** Use the hosted signer; Google/Apple/X sign-in works out of the box through [shared sign-in](#shared-sign-in-no-clientid). A free Web3Auth `clientId` of your own is optional.
 - **Your quota stays yours.** A domain may only use your own `clientId` once it is in your Web3Auth allowlist or registered by you on Nostr.
 - **Sessions survive reloads**, and confirmations for sensitive actions (profile changes, DMs, zaps) are built in.
 - **Open source** (MIT) and self-hostable.
@@ -904,14 +904,14 @@ Changes to `nostr-bridge.js` and the signer reach every page that loads them fro
 
 **Changed behaviour, for pages that pass no `clientId`:**
 
-- `NostrBridge.init()` without a `clientId` now gets Google sign-in through the hosted signer's own Web3Auth project ([shared sign-in](#shared-sign-in-no-clientid)). Before, it meant extension and bunker sign-in only. For such a page this means:
+- `NostrBridge.init()` without a `clientId` now gets Google/Apple/X sign-in through the hosted signer's own Web3Auth project ([shared sign-in](#shared-sign-in-no-clientid)). Before, it meant extension and bunker sign-in only. For such a page this means:
   - it offers a sign-in whose keys the signer's operator can obtain;
   - its OAuth users get one npub shared with every other shared-mode site;
   - its users count on the shared project's bill, which donations cover for now; it may be limited, become paid or be turned off.
 - **To keep Nostr-only sign-in, add `nostrOnly: true`** (or `data-nostr-only="true"` on the script tag). Pages that loaded the hosted bridge for extension and bunker users only should do this before shared sign-in goes live.
 - The console says which sign-in a page got (`console.info` for shared sign-in).
 - A page that is itself inside another site's frame can't use the signer anymore (`NESTED_FRAME`): that site could hide or cover the signer's prompts.
-- Shared sign-in is Google only, in a small window on the signer's origin opened from the widget's sign-in sheet; `NostrBridge.login()` opens that sheet. The user's npub is derived from the login, not the login key itself, and each site keeps it on the device until the user signs out there.
+- Shared sign-in happens in a small window on the signer's origin opened from the widget's sign-in sheet; `NostrBridge.login()` opens that sheet. The user's npub is derived from the login, not the login key itself, and each site keeps it on the device until the user signs out there.
 
 **Added:**
 
