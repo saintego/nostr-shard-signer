@@ -6,10 +6,12 @@
 
 import type { Event, Filter } from 'nostr-tools';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
+import { buildBackupFile } from './backupFile';
 import { buildCounter, counterFilter, counterPubkey, nextIndex, readCounter } from './counter';
 import { canonicalOrigin, deriveIdentity, deriveRoot } from './derive';
 import { type GlobalList, type ListedIdentity, listNext, pairedWith } from './globalListModel';
 import { grantFromRoot } from './identity';
+import { exportMasterKey } from './masterKey';
 import type { SiteGrant } from './siteGrant';
 
 export interface AccountDeps {
@@ -41,6 +43,10 @@ export interface GlobalAccount {
   readonly create: (label: string | null, profile?: NewProfile) => Promise<ListedIdentity>;
   /** The site's grant with `activePubkey` active; the identity must be paired. */
   readonly grant: (activePubkey: string) => Promise<SiteGrant>;
+  /** The master key as text (D10): NIP-49 with a password, else nsec. */
+  readonly exportMasterKey: (password?: string) => string;
+  /** The encrypted backup file (D10), as JSON text. */
+  readonly backupFile: () => Promise<string>;
   /** Waits for the list to sync, then wipes the root. */
   readonly close: () => Promise<void>;
 }
@@ -169,6 +175,15 @@ export async function openGlobalAccount(
         activePubkey
       );
     },
+    exportMasterKey: (password) => exportMasterKey(root, password),
+    backupFile: () =>
+      buildBackupFile({
+        v: 1,
+        root: Array.from(root, (x) => x.toString(16).padStart(2, '0')).join(''),
+        counter: Math.max(relayCounter ?? 0, listNext(current) ?? 0, 1),
+        identities: current,
+        createdAt: new Date(now() * 1000).toISOString(),
+      }),
     close: async () => {
       try {
         await list.close();

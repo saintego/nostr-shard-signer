@@ -1,13 +1,15 @@
 import { npubEncode } from 'nostr-tools/nip19';
 import { useState } from 'react';
+import type { BackupMethod } from '../lib/backup';
 import type { GlobalAccount, NewProfile } from '../lib/globalAccount';
 import type { ListedIdentity } from '../lib/globalListModel';
 import { format } from '../lib/i18n';
 import { useMessages } from '../lib/useMessages';
+import { BackupView } from './BackupView';
 import { welcomeBackMessages } from './WelcomeBackMessages';
 import './WelcomeBack.css';
 
-type Mode = 'choose' | 'create' | 'manage';
+type Mode = 'choose' | 'create' | 'manage' | 'backup';
 
 interface Props {
   readonly site: string;
@@ -17,6 +19,12 @@ interface Props {
   /** The user picked `pubkey` (now paired); or no identity is left ('none'). */
   readonly onFinish: (pubkey: string | 'none') => void;
   readonly onError: (message: string) => void;
+  /** Where to start: the list, or Backup (the widget's "Back up now"). */
+  readonly initialMode?: 'choose' | 'backup';
+  /** `<signer origin>/restore/`, shown with the master key. */
+  readonly restoreAddress: string;
+  /** The user saved a backup (#87). */
+  readonly onBackedUp: (method: BackupMethod) => void;
 }
 
 const hostOf = (origin: string | null) => {
@@ -37,9 +45,18 @@ const shortNpub = (pubkey: string) => {
  * account's identities, where each was created and is used; pair one with the
  * site, create one, or unpair. The popup is top-level, so no click guard.
  */
-export function WelcomeBackView({ site, account, signInProfile, onFinish, onError }: Props) {
+export function WelcomeBackView({
+  site,
+  account,
+  signInProfile,
+  onFinish,
+  onError,
+  initialMode = 'choose',
+  restoreAddress,
+  onBackedUp,
+}: Props) {
   const m = useMessages(welcomeBackMessages);
-  const [mode, setMode] = useState<Mode>('choose');
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [busy, setBusy] = useState(false);
   const [, refresh] = useState(0);
   const host = hostOf(site);
@@ -59,6 +76,19 @@ export function WelcomeBackView({ site, account, signInProfile, onFinish, onErro
   const nameOf = (i: ListedIdentity, n: number) =>
     i.label ?? format(m.unnamed, { n: String((i.index ?? n) + 1) });
   const isPaired = (i: ListedIdentity) => account.paired.some((p) => p.pubkey === i.pubkey);
+
+  if (mode === 'backup')
+    return (
+      <BackupView
+        account={account}
+        restoreAddress={restoreAddress}
+        onDone={(method) => {
+          onBackedUp(method);
+          setMode('choose');
+        }}
+        onCancel={() => setMode('choose')}
+      />
+    );
 
   if (mode === 'create')
     return (
@@ -141,6 +171,14 @@ export function WelcomeBackView({ site, account, signInProfile, onFinish, onErro
           onClick={() => setMode('create')}
         >
           {m.create}
+        </button>
+        <button
+          type="button"
+          className="np-button np-text"
+          disabled={busy}
+          onClick={() => setMode('backup')}
+        >
+          {m.backUp}
         </button>
         {account.paired.length > 0 && (
           <button

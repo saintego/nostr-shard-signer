@@ -54,6 +54,9 @@ function fakeList(
         (p) => !(p.origin === origin && p.identityPubkey === pubkey)
       );
     },
+    markUsedElsewhere: async (pubkey) => {
+      state.identities = state.identities.map((r) => (r.pubkey === pubkey ? { ...r, usedElsewhere: 'x' } : r));
+    },
     close: async () => {
       state.closed = true;
       return synced;

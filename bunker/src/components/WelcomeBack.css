@@ -43,3 +43,11 @@
 .welcome-profile .np-hint {
   display: block;
 }
+.backup-key {
+  display: block;
+  word-break: break-all;
+  padding: var(--np-space-2);
+  border-radius: var(--np-radius-sm);
+  background: var(--np-color-surface-container);
+  font-size: var(--np-text-sm);
+}

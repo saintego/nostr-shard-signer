@@ -81,8 +81,9 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: false,
     rollupOptions: {
-      // The signer, and a self-test page built with the same setup (#86).
-      input: { main: "index.html", selftest: "selftest.html" },
+      // The signer, the /restore page (#87), and a self-test page built with
+      // the same setup (#86).
+      input: { main: "index.html", restore: "restore.html", selftest: "selftest.html" },
     },
   },
 });

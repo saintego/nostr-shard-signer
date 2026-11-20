@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- <signer origin>/restore (#73 D10, #87): deployed as restore/index.html. No Web3Auth here. -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none';
+                 script-src 'self' 'wasm-unsafe-eval';
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data:;
+                 connect-src 'self' https: wss:;
+                 worker-src 'self' blob:;
+                 font-src 'self';
+                 form-action 'none';
+                 base-uri 'none';" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Restore your Nostr account</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/restore/main.tsx"></script>
+</body>
+</html>

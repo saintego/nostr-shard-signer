@@ -91,6 +91,8 @@ export interface GlobalList {
   ) => Promise<void>;
   readonly pair: (pubkey: string, origin: string) => Promise<void>;
   readonly unpair: (pubkey: string, origin: string) => Promise<void>;
+  /** The identity's key was exported or brought in elsewhere (D9, D13): it asks more. */
+  readonly markUsedElsewhere: (pubkey: string, index: number | null) => Promise<void>;
   /** Waits for the writes to reach the relay, then closes the database. */
   readonly close: (timeoutMs?: number) => Promise<SyncResult>;
 }

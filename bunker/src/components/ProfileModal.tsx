@@ -24,6 +24,8 @@ interface Props {
     onBackupLater?: () => void;
     onSaveProfile: (profile: UserProfile) => Promise<void>;
     onExportKey: () => void;
+    /** Shared sign-in: "Back up now" backs up the whole account in the popup (#87). */
+    onBackUp?: () => void;
     onLogout: () => void;
     onRelaysChange: (relays: string[]) => void;
     onAutoApproveChange: (kinds: Set<number>) => void;
@@ -48,6 +50,7 @@ export function ProfileModal({
     onBackupLater,
     onSaveProfile,
     onExportKey,
+    onBackUp,
     onLogout,
     onOpenTab,
     onRelaysChange,
@@ -138,7 +141,7 @@ export function ProfileModal({
                 <div className="backup-banner">
                     <p>Back up your Nostr key, so you never lose this account.</p>
                     <div className="backup-banner-actions">
-                        <button className="action-btn btn-primary" onClick={onExportKey}>
+                        <button className="action-btn btn-primary" onClick={onBackUp ?? onExportKey}>
                             Back up now
                         </button>
                         <button className="action-btn btn-secondary" onClick={onBackupLater}>

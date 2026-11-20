@@ -4,6 +4,8 @@
 import { createElement, useCallback, useState } from 'react';
 import { IdentitySwitcher } from './components/IdentitySwitcher';
 import { SharedSignInSheet } from './components/SharedSignInSheet';
+import { recordBackup } from './lib/backup';
+import { keyMaterialFromSecret } from './lib/identity';
 import {
   restoreSharedSession,
   type SharedSession,
@@ -29,6 +31,10 @@ interface Deps {
   onError: (title: string, message: string, code: string) => void;
   /** Sign out on this site (the user unpaired every identity from it). */
   onSignOut: () => void;
+  /** Where the #37 backup marker is published. */
+  publishRelays: string[];
+  /** The user backed up their account in the popup (#87). */
+  onBackedUp: () => void;
 }
 
 export function useSharedSignIn({
@@ -40,6 +46,8 @@ export function useSharedSignIn({
   postToParent,
   onError,
   onSignOut,
+  publishRelays,
+  onBackedUp,
 }: Deps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   // What this site's cache holds: its identities and the active one (#84).
@@ -48,8 +56,15 @@ export function useSharedSignIn({
     async (s: SharedSession) => {
       setSession(s);
       await onSignedIn(s.km);
+      if (!s.backedUp) return;
+      // Every identity of this site counts as backed up (#37's marker, on every site).
+      for (const i of s.cache.identities) {
+        const key = keyMaterialFromSecret(i.secretKey).privateKeyBytes;
+        void recordBackup(key, i.pubkey, s.backedUp, publishRelays).finally(() => key.fill(0));
+      }
+      onBackedUp();
     },
-    [onSignedIn]
+    [onSignedIn, publishRelays, onBackedUp]
   );
 
   const showButton = useCallback(() => {
@@ -78,27 +93,37 @@ export function useSharedSignIn({
     postToParent({ type: 'RESIZE', state: 'modal' });
   }, [postToParent]);
 
+  /** A failed sign-in, backup or manage; a failed manage keeps the current session. */
+  const failed = useCallback(
+    (e: unknown, managing: boolean) => {
+      const failure = signInFailure((e as Error)?.message ?? '');
+      if (failure === 'sign-out') return onSignOut();
+      if (!managing) showButton();
+      if (failure !== 'quiet') onError(failure.title, failure.message, failure.code);
+    },
+    [onSignOut, showButton, onError]
+  );
+
   /**
    * "Continue with Google", and "Add or manage identities": runs in the click,
    * so the popup may open. A failed manage keeps the current session.
    */
-  const google = useCallback(async () => {
-    const pending = signInGlobally(parentOrigin);
-    const managing = session !== null;
-    setSheetOpen(false);
-    if (!managing) {
-      setView('connecting');
-      postToParent({ type: 'RESIZE', state: 'button' });
-    }
-    try {
-      await signedIn(await pending);
-    } catch (e) {
-      const failure = signInFailure((e as Error).message ?? '');
-      if (failure === 'sign-out') return onSignOut();
-      if (!managing) showButton();
-      if (failure !== 'quiet') onError(failure.title, failure.message, failure.code);
-    }
-  }, [parentOrigin, session, signedIn, setView, postToParent, showButton, onError, onSignOut]);
+  const google = useCallback(
+    async (intent: 'sign-in' | 'backup' = 'sign-in') => {
+      const pending = signInGlobally(
+        parentOrigin,
+        session ? { intent, active: session.cache.active } : { intent }
+      );
+      const managing = session !== null;
+      setSheetOpen(false);
+      if (!managing) {
+        setView('connecting');
+        postToParent({ type: 'RESIZE', state: 'button' });
+      }
+      await pending.then(signedIn).catch((e: unknown) => failed(e, managing));
+    },
+    [parentOrigin, session, signedIn, setView, postToParent, failed]
+  );
 
   /** Another identity of this site (D14): the page sees it through onAuthChange. */
   const switchTo = useCallback(
@@ -134,5 +159,8 @@ export function useSharedSignIn({
   /** Signed out on this site: forget what the cache held. */
   const forget = useCallback(() => setSession(null), []);
 
-  return { restore, openSheet, sheet, switcher, forget };
+  /** "Back up now" (#37, #87): the popup opens at Backup; call from the click. */
+  const backUp = useCallback(() => void google('backup'), [google]);
+
+  return { restore, openSheet, sheet, switcher, forget, backUp };
 }

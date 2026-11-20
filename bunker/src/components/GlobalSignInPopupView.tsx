@@ -1,9 +1,11 @@
 import type { Web3Auth } from '@web3auth/modal';
 import { useEffect, useRef, useState } from 'react';
+import type { BackupMethod } from '../lib/backup';
 import { type GlobalAccount, type NewProfile, openGlobalAccount } from '../lib/globalAccount';
 import { openGlobalList } from '../lib/globalList';
-import { type GlobalResult, serveGlobalPopup } from '../lib/globalPopup';
+import { type GlobalOptions, type GlobalResult, serveGlobalPopup } from '../lib/globalPopup';
 import { format } from '../lib/i18n';
+import { restoreUrl } from '../lib/masterKey';
 import { publishToSignerRelays, queryRelays } from '../lib/relayPublish';
 import { SHARED_CLIENT_ID } from '../lib/shared';
 import { useMessages } from '../lib/useMessages';
@@ -46,6 +48,10 @@ export function GlobalSignInPopupView() {
   const w3aRef = useRef<Promise<Web3Auth> | null>(null);
   // The open account holds the root: wiped when finished or when the window goes.
   const accountRef = useRef<GlobalAccount | null>(null);
+  // What the widget asked for (sign in or back up) and its active identity.
+  const optionsRef = useRef<GlobalOptions>({});
+  // Set when the user saved a backup here (#87), sent with the grant.
+  const backedUpRef = useRef<BackupMethod | undefined>(undefined);
   useEffect(() => {
     const wipe = () => void accountRef.current?.close();
     window.addEventListener('pagehide', wipe);
@@ -62,8 +68,9 @@ export function GlobalSignInPopupView() {
     w3aRef.current.catch(() => {});
     return serveGlobalPopup(
       location.pathname,
-      (site, reply) => {
+      (site, reply, options) => {
         replyRef.current = reply;
+        optionsRef.current = options;
         setState({ step: 'ready', site });
       },
       () => setState({ step: 'refused' })
@@ -76,7 +83,11 @@ export function GlobalSignInPopupView() {
     if (!account) return;
     try {
       if (pubkey === 'none') replyRef.current?.({ error: 'NO_IDENTITY' });
-      else replyRef.current?.({ grant: await account.grant(pubkey) });
+      else {
+        const grant = await account.grant(pubkey);
+        const backedUp = backedUpRef.current;
+        replyRef.current?.(backedUp ? { grant, backedUp } : { grant });
+      }
       setState({ step: 'done', site });
       setTimeout(() => window.close(), 1200);
     } catch (e) {
@@ -113,7 +124,7 @@ export function GlobalSignInPopupView() {
       accountRef.current = account;
       const first = account.list[0];
       // A first sign-in: identity 0, straight away (D8: Welcome back only for an existing account).
-      if (account.isNew && first) {
+      if (account.isNew && first && optionsRef.current.intent !== 'backup') {
         await account.pair(first.pubkey);
         return await finish(site, first.pubkey);
       }
@@ -177,6 +188,17 @@ export function GlobalSignInPopupView() {
             site={state.site}
             account={state.account}
             signInProfile={state.profile}
+            initialMode={optionsRef.current.intent === 'backup' ? 'backup' : 'choose'}
+            restoreAddress={restoreUrl(new URL('.', location.href).href)}
+            onBackedUp={(method) => {
+              backedUpRef.current = method;
+              // Asked from the widget's "Back up now": done, keep its identity.
+              const active = optionsRef.current.active;
+              const keep =
+                state.account.paired.find((i) => i.pubkey === active) ?? state.account.paired[0];
+              if (optionsRef.current.intent === 'backup' && keep)
+                void finish(state.site, keep.pubkey);
+            }}
             onFinish={(pubkey) => void finish(state.site, pubkey)}
             onError={(reason) => setState({ step: 'failed', site: state.site, reason })}
           />

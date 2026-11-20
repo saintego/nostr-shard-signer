@@ -13,6 +13,7 @@
 //                   seals them with its device secret.
 // Never: the login key or the root; they stay in the popup's memory.
 
+import type { BackupMethod } from './backup';
 import { parseSiteGrant, type SiteGrant } from './siteGrant';
 
 export const GLOBAL_PARAM = 'global-signin';
@@ -21,11 +22,31 @@ export interface GlobalRequest {
   readonly type: 'NSS_GLOBAL_REQUEST';
   /** The site's origin, as the widget verified it (its parent). */
   readonly site: string;
+  /** What the user asked for in the widget: sign in (default) or back up (#87). */
+  readonly intent?: GlobalIntent;
+  /** The identity the widget uses now, to keep it active after a backup. */
+  readonly active?: string;
+}
+
+export type GlobalIntent = 'sign-in' | 'backup';
+
+/** What the widget may pass along (choices, not data the popup trusts). */
+export interface GlobalOptions {
+  readonly intent?: GlobalIntent;
+  readonly active?: string;
+}
+
+/** What the widget gets back. */
+export interface GlobalAnswer {
+  readonly grant: SiteGrant;
+  /** The user saved a backup in the popup, and how (#37, #87). */
+  readonly backedUp?: BackupMethod;
 }
 
 export interface GlobalResult {
   readonly type: 'NSS_GLOBAL_RESULT';
   readonly grant?: SiteGrant;
+  readonly backedUp?: BackupMethod;
   readonly error?: string;
 }
 
@@ -47,16 +68,23 @@ export function openGlobalPopup(): Window | null {
 }
 
 /** The popup's answer, checked field by field. */
-function parseResult(d: Partial<Omit<GlobalResult, 'type'>>): SiteGrant | Error {
+function parseResult(d: Partial<Omit<GlobalResult, 'type'>>): GlobalAnswer | Error {
   if (typeof d.error === 'string') return new Error(d.error);
-  return parseSiteGrant(d.grant) ?? new Error('The sign-in window sent an invalid answer');
+  const grant = parseSiteGrant(d.grant);
+  if (!grant) return new Error('The sign-in window sent an invalid answer');
+  const backedUp = d.backedUp === 'nsec' || d.backedUp === 'ncryptsec' ? d.backedUp : undefined;
+  return backedUp ? { grant, backedUp } : { grant };
 }
 
 /**
  * Talks to the popup: sends the site once it says it's ready, resolves with its
  * result. Rejects when the popup closes without one.
  */
-export function awaitGlobalResult(popup: Window, site: string): Promise<SiteGrant> {
+export function awaitGlobalResult(
+  popup: Window,
+  site: string,
+  options: GlobalOptions = {}
+): Promise<GlobalAnswer> {
   return new Promise((resolve, reject) => {
     const done = () => {
       clearInterval(closedPoll);
@@ -66,7 +94,7 @@ export function awaitGlobalResult(popup: Window, site: string): Promise<SiteGran
       if (e.source !== popup || e.origin !== location.origin) return;
       const d = e.data as Partial<Omit<GlobalResult, 'type'>> & { type?: string };
       if (d?.type === READY) {
-        const request: GlobalRequest = { type: 'NSS_GLOBAL_REQUEST', site };
+        const request: GlobalRequest = { type: 'NSS_GLOBAL_REQUEST', site, ...options };
         popup.postMessage(request, location.origin);
         return;
       }
@@ -134,7 +162,11 @@ export function checkOpener(opener: Window | null, site: string, signerPath: str
  */
 export function serveGlobalPopup(
   signerPath: string,
-  onRequest: (site: string, reply: (result: Omit<GlobalResult, 'type'>) => void) => void,
+  onRequest: (
+    site: string,
+    reply: (result: Omit<GlobalResult, 'type'>) => void,
+    options: GlobalOptions
+  ) => void,
   onRefused: (reason: string) => void
 ): () => void {
   const opener = window.opener as Window | null;
@@ -149,8 +181,16 @@ export function serveGlobalPopup(
     window.removeEventListener('message', listener);
     const check = checkOpener(opener, d.site, signerPath);
     if (!check.ok) return onRefused(check.reason ?? 'refused');
-    onRequest(d.site, (result) =>
-      opener.postMessage({ type: 'NSS_GLOBAL_RESULT', ...result }, location.origin)
+    const options: GlobalOptions = {
+      ...(d.intent === 'backup' ? { intent: 'backup' as const } : {}),
+      ...(typeof d.active === 'string' && /^[0-9a-f]{64}$/.test(d.active)
+        ? { active: d.active }
+        : {}),
+    };
+    onRequest(
+      d.site,
+      (result) => opener.postMessage({ type: 'NSS_GLOBAL_RESULT', ...result }, location.origin),
+      options
     );
   };
   window.addEventListener('message', listener);

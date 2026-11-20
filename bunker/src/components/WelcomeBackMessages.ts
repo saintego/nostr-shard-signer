@@ -16,6 +16,7 @@ export const welcomeBackMessages = defineMessages('welcomeBack', {
   pairAndUse: 'Pair with {site}',
   create: 'Create a new identity',
   manage: 'Manage',
+  backUp: 'Back up your account',
   // Create (D15)
   createTitle: 'A new identity',
   createExplain:

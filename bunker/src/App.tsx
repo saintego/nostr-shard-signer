@@ -211,7 +211,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     }, [postToParent, publishRelays]);  // publish relays, not the registry relays
     // Shared sign-in (#80): the widget's cache, or the global sign-in popup.
     const signerTab = useSignerTab(parentOrigin); // the signer in its own tab (#90)
-    const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError, onSignOut: () => bridgeActionsRef.current.logout() });
+    const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError, onSignOut: () => bridgeActionsRef.current.logout(), publishRelays, onBackedUp: () => setBackupAsk(false) });
 
     const showNextConfirmation = useCallback(() => {
         const queue = confQueueRef.current;
@@ -1131,6 +1131,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 onBackupLater={handleBackupLater}
                 onSaveProfile={handleSaveProfile}
                 onExportKey={handleExportKey}
+                onBackUp={shared ? sharedSignIn.backUp : undefined}
                 onLogout={handleLogout}
                 onRelaysChange={handleRelaysChange}
                 onAutoApproveChange={handleAutoApproveChange}

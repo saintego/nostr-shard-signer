@@ -4,8 +4,9 @@
 // hands over in the cache.
 
 import type { Web3Auth } from '@web3auth/modal';
+import type { BackupMethod } from './backup';
 import { fetchSharedBlocklist } from './blocklist';
-import { awaitGlobalResult, openGlobalPopup } from './globalPopup';
+import { awaitGlobalResult, type GlobalOptions, openGlobalPopup } from './globalPopup';
 import { keyMaterialFromSecret } from './identity';
 import { isOriginBlocked } from './shared';
 import { deleteSiteCache, loadSiteCache, type SiteCache, saveSiteCache } from './siteCache';
@@ -17,6 +18,8 @@ import { endSession, SITE_SESSION } from './web3authSession';
 export interface SharedSession {
   readonly km: KeyMaterial;
   readonly cache: SiteCache;
+  /** Set when the user saved a backup in the popup (#87). */
+  readonly backedUp?: BackupMethod;
 }
 
 const session = (cache: SiteCache): SharedSession => ({
@@ -36,13 +39,13 @@ export async function restoreSharedSession(): Promise<SharedSession | null> {
  * after keeping it in this site's cache. Also "Add or manage identities": the
  * popup's Welcome back hands over the new list.
  */
-export function signInGlobally(site: string): Promise<SharedSession> {
+export function signInGlobally(site: string, options: GlobalOptions = {}): Promise<SharedSession> {
   const popup = openGlobalPopup();
   if (!popup) return Promise.reject(new Error('POPUP_BLOCKED'));
-  return awaitGlobalResult(popup, site).then(async (grant) => {
+  return awaitGlobalResult(popup, site, options).then(async ({ grant, backedUp }) => {
     const cache = { ...grant, createdAt: Date.now() };
     await saveSiteCache(cache);
-    return session(cache);
+    return backedUp ? { ...session(cache), backedUp } : session(cache);
   });
 }
 

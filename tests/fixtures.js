@@ -59,6 +59,7 @@ export const test = base.extend({
         if (pages.has("signer:" + p))
           return route.fulfill({ contentType: "text/html", body: pages.get("signer:" + p) });
         if (p === "/signer.html") return route.fulfill({ path: path.join(dist, "index.html") });
+        if (p === "/restore/") return route.fulfill({ path: path.join(dist, "restore.html") });
         if (p.startsWith("/assets/")) return route.fulfill({ path: path.join(dist, p) });
         if (p.startsWith("/examples/") || p === "/site-config.js")
           return route.fulfill({ path: path.join(root, p) });

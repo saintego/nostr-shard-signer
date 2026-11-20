@@ -8,6 +8,7 @@
 
 import {
   createQueryBuilder,
+  DateIso,
   NonEmptyTrimmedString100,
   NonNegativeInt,
   sqliteTrue,
@@ -103,6 +104,30 @@ export async function openGlobalList(
       for (const p of pairs)
         await done((onComplete) =>
           evolu.update('pairedSite', { id: p.id, isDeleted: sqliteTrue }, { onComplete })
+        );
+    },
+    markUsedElsewhere: async (pubkey, index) => {
+      const usedElsewhere = DateIso.orThrow(new Date().toISOString());
+      const rows = (await evolu.loadQuery(identitiesQuery)).filter((r) => r.pubkey === pubkey);
+      if (rows.length === 0 && index !== null) {
+        await done((onComplete) =>
+          evolu.insert(
+            'identity',
+            {
+              derivationIndex: NonNegativeInt.orThrow(index),
+              storedKey: null,
+              pubkey: NonEmptyTrimmedString100.orThrow(pubkey),
+              label: null,
+              createdOn: null,
+              usedElsewhere,
+            },
+            { onComplete }
+          )
+        );
+      }
+      for (const r of rows)
+        await done((onComplete) =>
+          evolu.update('identity', { id: r.id, usedElsewhere }, { onComplete })
         );
     },
     close: async (timeoutMs = SYNC_WAIT_MS) => {
