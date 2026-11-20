@@ -28,17 +28,20 @@ export function EvolustrPromptView({ prompt, origin, waiting = 0, onAnswer }: Pr
     let body: ReactNode;
 
     if (prompt.kind === 'gesture') {
-        const unlock = prompt.reason === 'unlock';
+        const text = {
+            unlock: [m.unlockTitle, m.unlockSummary, m.unlockButton],
+            enrollPasskey: [m.createTitle, m.createSummary, m.continueButton],
+            retry: [m.retryTitle, m.retrySummary, m.retryButton],
+            popup: [m.popupTitle, m.popupSummary, m.popupButton],
+        }[prompt.reason];
         body = (
             <>
-                <h3>{unlock ? m.unlockTitle : m.createTitle}</h3>
-                <p className="confirm-summary">
-                    {unlock ? m.unlockSummary : m.createSummary}
-                </p>
+                <h3>{text[0]}</h3>
+                <p className="confirm-summary">{text[1]}</p>
                 <div className="confirm-actions">
                     <button className="action-btn btn-secondary" onClick={() => onAnswer('deny')}>{m.cancelButton}</button>
                     <GuardedButton className="action-btn btn-primary" onClick={() => onAnswer('allow')}>
-                        {unlock ? m.unlockButton : m.continueButton}
+                        {text[2]}
                     </GuardedButton>
                 </div>
             </>

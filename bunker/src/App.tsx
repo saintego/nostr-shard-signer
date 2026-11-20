@@ -411,7 +411,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         const oauth = holdsNsec;
         custodyRef.current = oauth ? loadCustody(pubkey) : 'passkey';
         setEvolustrApps(loadAllowedApps(pubkey));
-        const passkeys = signerPasskeys('Nostr Shard Signer');
+        const passkeys = signerPasskeys('Nostr Shard Signer', async reason => {
+            if ((await askEvolustr({ kind: 'gesture', reason })) === 'deny') throw new Error('Cancelled');
+        });
         passkeysRef.current = passkeys;
 
         let evolustr: EvolustrSigner;

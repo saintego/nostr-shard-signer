@@ -26,6 +26,7 @@ import {
     type UnsignedEvent,
 } from '../vendor/evolustr/evolustr.js';
 import { openPasskeyPopup, popupPasskeys } from './passkeyPopup';
+import { type GestureReason, passkeyRules } from './passkeyRules';
 
 export { isProtectedEvent } from '../vendor/evolustr/evolustr.js';
 export type { EvolustrSigner, ConfirmRequest };
@@ -109,9 +110,10 @@ const cache = {
 };
 
 // ── Passkeys ──────────────────────────────────────────────────────────────────
-// Inside the iframe when the embedding page grants it (Chromium tells us via the
-// permissions policy); otherwise in a popup on this signer's own origin, opened
-// from the user's click inside the iframe (SPEC §5.5 rule 5).
+// The rules from the checks (passkeyRules.ts, #89): unlock in the iframe;
+// create in the iframe where the browser allows it, else in a popup on this
+// signer's own origin opened from a click (Safari; SPEC §5.5 rule 5); one
+// WebAuthn call per click; "Try again" after a refusal.
 
 interface FeaturePolicy { allowsFeature(feature: string): boolean }
 
@@ -126,11 +128,23 @@ export interface SignerPasskeys {
     readonly onGesture: () => void;
 }
 
-export const signerPasskeys = (rpName: string): SignerPasskeys => {
+export const signerPasskeys = (rpName: string, askGesture: (reason: GestureReason) => Promise<void>): SignerPasskeys => {
     const frame = webauthnPasskeys({ rpName });
-    const inFrame = frameAllows('publickey-credentials-get') && frameAllows('publickey-credentials-create');
-    const passkeys = inFrame ? frame : popupPasskeys(frame.rpId);
-    return { passkeys: withClearErrors(passkeys), onGesture: inFrame ? () => { } : openPasskeyPopup };
+    // Chromium's permissions policy says when the bridge didn't grant passkeys
+    // (an old bridge): then even unlocking can't run here.
+    const fp = (document as unknown as { featurePolicy?: FeaturePolicy }).featurePolicy;
+    const known = fp !== undefined;
+    const frameMayGet = !known || frameAllows('publickey-credentials-get');
+    const popup = popupPasskeys(frame.rpId);
+    const rules = passkeyRules({
+        frame: frameMayGet ? frame : popup,
+        popup,
+        openPopup: openPasskeyPopup,
+        askGesture,
+        frameMayCreate: known ? frameAllows('publickey-credentials-create') : undefined,
+    });
+    const onGesture = frameMayGet ? rules.onGesture : () => { rules.onGesture(); openPasskeyPopup(); };
+    return { passkeys: withClearErrors(rules.passkeys), onGesture };
 };
 
 /**
