@@ -111,3 +111,16 @@ test('/restore refuses to run in a frame or in a window another page opened', ()
   expect(restoreRefusal({ self, top: {}, opener: null })).toBe('framed');
   expect(restoreRefusal({ self, top: self, opener: {} })).toBe('opened');
 });
+
+test('#91 (C17): key export off gives a clear message, other errors pass through', async () => {
+  const { keyExportError } = await import('../bunker/src/lib/web3auth.ts').catch(() => ({
+    keyExportError: null,
+  }));
+  test.skip(!keyExportError, 'web3auth.ts needs the browser bundle');
+  if (!keyExportError) return;
+  const off = keyExportError(new Error('Key export is not enabled'));
+  expect(off.name).toBe('KEY_EXPORT_OFF');
+  expect(off.message).toContain("doesn't allow Nostr keys");
+  const other = keyExportError(new Error('boom'));
+  expect(other.message).toBe('boom');
+});

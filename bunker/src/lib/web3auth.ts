@@ -84,13 +84,27 @@ export function getProvider(web3auth: Web3Auth) {
 }
 
 /** Extract and validate the raw secp256k1 private key from the Web3Auth session. */
+/**
+ * Web3Auth's "Key export is not enabled" (C17, #91): the project's owner turned
+ * key export off, so no Nostr key can come from it. A clear message instead.
+ */
+export function keyExportError(e: unknown): Error {
+  const message = (e as Error)?.message ?? String(e);
+  if (!/key export is not enabled/i.test(message)) return e instanceof Error ? e : new Error(message);
+  const err = new Error("This site's sign-in setup doesn't allow Nostr keys (key export is off in its Web3Auth project)");
+  err.name = "KEY_EXPORT_OFF";
+  return err;
+}
+
 export async function extractKey(web3auth: Web3Auth): Promise<KeyMaterial> {
   const provider = getProvider(web3auth);
   if (!provider) throw new Error("No provider after login");
 
   // provider.request is typed for Ethereum methods; "private_key" is Web3Auth's own.
   const request = provider.request as (args: { method: string }) => Promise<unknown>;
-  const rawKey = await request({ method: "private_key" });
+  const rawKey = await request({ method: "private_key" }).catch((e: unknown) => {
+    throw keyExportError(e);
+  });
 
   if (!rawKey || typeof rawKey !== "string")
     throw new Error("Empty private key");

@@ -198,6 +198,8 @@ Skip this step to use [shared sign-in](#shared-sign-in-no-clientid) (call `Nostr
 
 The signer accepts an origin found in either the registry or the Web3Auth allowlist, and warns in the console when one of them is missing it.
 
+Keep key export on in the project's settings: without it Web3Auth can't give users their Nostr key, and the widget says "This site's sign-in setup doesn't allow Nostr keys" (`KEY_EXPORT_OFF` in the console).
+
 ### 2. Add one script tag to your app
 
 ```html

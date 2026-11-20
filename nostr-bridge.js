@@ -132,6 +132,10 @@
       "the Update Domains tab if the clientId is already registered, or add it to " +
       WEB3AUTH_ALLOWLIST + ". Either one authorizes it. The registry lookup is cached per tab, " +
       "so reload in a new tab afterwards.",
+    KEY_EXPORT_OFF:
+      "Your Web3Auth project has key export turned off, so it can't give users Nostr keys. Turn " +
+      "it on in the project's settings in the Web3Auth dashboard, or leave " +
+      "clientId out to use the hosted signer's shared sign-in. Extensions and bunkers still work.",
     NESTED_FRAME:
       "The page using the signer must be the top-level window. Inside another site's frame it " +
       "can't sign in, so that site can't hide or cover the signer's prompts. Open the app in its own tab.",
@@ -609,7 +613,8 @@
         "nostr-bridge: signer error " + code + ": " + message +
           (hint ? "\n→ " + hint : "") + "\nDocs: " + DOCS_URL,
       );
-      if (code !== "LOGIN_FAILED") {
+      // A failed login (or key export off) leaves extension and bunker sign-in working.
+      if (code !== "LOGIN_FAILED" && code !== "KEY_EXPORT_OFF") {
         signerError = "nostr-bridge: signer error " + code + ": " + message;
         // Setup failed before the iframe reported AUTH_STATE: fail queued calls
         // now with the real cause instead of after the AUTH_STATE timeout. Not

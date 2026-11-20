@@ -231,6 +231,7 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 | `NOT_EMBEDDED` | `signer.html` was opened directly | Only load it through `nostr-bridge.js` |
 | `PROTOCOL_UNSUPPORTED` | `nostr-bridge.js` and the signer at `bunkerOrigin` are different versions (e.g. a copied or CDN-pinned bridge with a newer or self-hosted signer) | Load `nostr-bridge.js` from `<bunkerOrigin>/nostr-bridge.js`, or use the npm package's `loadNostrBridge()`, which does that |
 | `LOGIN_FAILED` | The OAuth login failed (not cancelled) | Usually transient; the user can retry |
+| `KEY_EXPORT_OFF` | The page's own Web3Auth project has key export turned off, so it can't give Nostr keys | Turn key export on in the Web3Auth dashboard, or leave `clientId` out for shared sign-in |
 | "nostr-bridge: no clientId, so Google/Apple/X sign-in goes through the signer's shared project…" (info) | `init()` without `clientId` | Expected: shared sign-in. Pass a `clientId` for keys of your own project, or `nostrOnly: true` to turn it off |
 | "nostr-bridge: no clientId, so Google/Apple/X sign-in is off…" (warning) | `init()` without `clientId`, with a self-hosted signer that has no shared sign-in | Pass a `clientId` to add Google/Apple/X, or `nostrOnly: true` if that's intended |
 | "nostr-bridge: bunkerOrigin must be an absolute URL…" | Bad `bunkerOrigin` | Omit it, or pass a full https URL |

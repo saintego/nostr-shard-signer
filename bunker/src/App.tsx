@@ -859,7 +859,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             setView('login');
             const msg = (e as Error).message ?? '';
             if (!/cancel|close|dismiss/i.test(msg)) {
-                showError('Login failed', msg, 'LOGIN_FAILED');
+                showError('Login failed', msg, (e as Error).name === 'KEY_EXPORT_OFF' ? 'KEY_EXPORT_OFF' : 'LOGIN_FAILED');
             }
         }
     }, [postToParent, onLoginSuccess, showError, nostrSigner, shared, sharedSignIn]);
