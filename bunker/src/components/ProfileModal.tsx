@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import type { UserProfile, KeyInfo } from '../types';
 import { KIND_GROUPS } from '../lib/approval';
 import { SUPPORT_URL } from '../lib/shared';
+import { TrustSetting } from './TrustSetting';
 
 type TabId = 'profile' | 'keys' | 'settings';
 
@@ -352,6 +353,8 @@ export function ProfileModal({
                                     </label>
                                 ))}
                             </section>
+
+                            <TrustSetting key={keyInfo.publicKeyHex} pubkey={keyInfo.publicKeyHex} site={site} />
 
                             <section className="settings-section">
                                 <h4>Publish relays</h4>

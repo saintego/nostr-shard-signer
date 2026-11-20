@@ -16,8 +16,8 @@ import {
   isAddressable,
   isList,
   isReplaceable,
-  type SignRequest,
   type RefuseReason,
+  type SignRequest,
   type TrustDecision,
   trustDecision,
 } from './trustRule';
@@ -51,21 +51,40 @@ function saveRecords(pubkey: string, records: Records): void {
   }
 }
 
+/** Whether the user trusts this site with this identity's replaceable data (D13, "Trusted"). */
+export const isTrusted = (pubkey: string): boolean => loadRecords(pubkey).trusted === true;
+
+/** The user's choice for this identity on this site: Trusted, or Ask (the default). */
+export function setTrusted(pubkey: string, trusted: boolean): void {
+  const records = loadRecords(pubkey);
+  saveRecords(pubkey, { ...records, trusted });
+}
+
 const dTag = (tags: readonly (readonly string[])[]) => tags.find((t) => t[0] === 'd')?.[1] ?? '';
 
 /** The address of a replaceable or addressable event (NIP-01). */
-export const addressOf = (evt: { kind: number; tags: readonly (readonly string[])[] }, pubkey: string) =>
+export const addressOf = (
+  evt: { kind: number; tags: readonly (readonly string[])[] },
+  pubkey: string
+) =>
   isAddressable(evt.kind) ? `${evt.kind}:${pubkey}:${dTag(evt.tags)}` : `${evt.kind}:${pubkey}:`;
 
 const withTimeout = <T>(p: Promise<T>) =>
-  Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), QUERY_TIMEOUT_MS))]);
+  Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), QUERY_TIMEOUT_MS)),
+  ]);
 
 /** Where the identity publishes (its NIP-65 write relays), plus the signer's. */
 async function relaysFor(pool: SimplePool, pubkey: string, base: string[]): Promise<string[]> {
   try {
-    const list = await withTimeout(pool.querySync(base, { kinds: [10002], authors: [pubkey], limit: 1 }));
+    const list = await withTimeout(
+      pool.querySync(base, { kinds: [10002], authors: [pubkey], limit: 1 })
+    );
     const newest = list.sort((a, b) => b.created_at - a.created_at)[0];
-    const write = (newest?.tags ?? []).filter((t) => t[0] === 'r' && t[2] !== 'read').map((t) => t[1] ?? '');
+    const write = (newest?.tags ?? [])
+      .filter((t) => t[0] === 'r' && t[2] !== 'read')
+      .map((t) => t[1] ?? '');
     return [...new Set([...base, ...write.filter((u) => u.startsWith('wss://'))])];
   } catch {
     return base;
@@ -73,7 +92,11 @@ async function relaysFor(pool: SimplePool, pubkey: string, base: string[]): Prom
 }
 
 /** The newest event at the address; null if none; undefined if the relays didn't answer. */
-async function currentAt(evt: SignRequest, pubkey: string, relays: string[]): Promise<CurrentEvent | null | undefined> {
+async function currentAt(
+  evt: SignRequest,
+  pubkey: string,
+  relays: string[]
+): Promise<CurrentEvent | null | undefined> {
   const pool = new SimplePool();
   try {
     const all = await relaysFor(pool, pubkey, relays);
@@ -98,7 +121,9 @@ function privateEntries(content: string, secretKey: Uint8Array, pubkey: string):
       ? nip04.decrypt(secretKey, pubkey, content)
       : nip44.decrypt(content, nip44.getConversationKey(secretKey, pubkey));
     const tags = JSON.parse(plain) as unknown;
-    return Array.isArray(tags) ? tags.filter(Array.isArray).map((t) => entryKey(t as string[])) : null;
+    return Array.isArray(tags)
+      ? tags.filter(Array.isArray).map((t) => entryKey(t as string[]))
+      : null;
   } catch {
     return null;
   }
@@ -108,7 +133,10 @@ function isAllowedUpload(tags: readonly (readonly string[])[]): boolean {
   const u = tags.find((t) => t[0] === 'u')?.[1];
   try {
     const url = new URL(u ?? '');
-    return url.protocol === 'https:' && MEDIA_UPLOAD_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`));
+    return (
+      url.protocol === 'https:' &&
+      MEDIA_UPLOAD_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`))
+    );
   } catch {
     return false;
   }
@@ -139,22 +167,39 @@ function parseRequest(params: string[]): SignRequest | null {
   try {
     const raw = JSON.parse(params[0] ?? '') as Partial<SignRequest>;
     const tags = Array.isArray(raw.tags) ? raw.tags : [];
-    return { kind: Number(raw.kind), created_at: Number(raw.created_at), tags, content: String(raw.content ?? '') };
+    return {
+      kind: Number(raw.kind),
+      created_at: Number(raw.created_at),
+      tags,
+      content: String(raw.content ?? ''),
+    };
   } catch {
     return null;
   }
 }
 
 /** Private entries before and after, for lists that have any; null if unreadable. */
-function privateChange(evt: SignRequest, current: CurrentEvent | null | undefined, deps: DecideDeps) {
+function privateChange(
+  evt: SignRequest,
+  current: CurrentEvent | null | undefined,
+  deps: DecideDeps
+) {
   if (!isList(evt.kind) || !(current?.content || evt.content)) return undefined;
-  const before = current?.content ? privateEntries(current.content, deps.secretKey, deps.pubkey) : [];
+  const before = current?.content
+    ? privateEntries(current.content, deps.secretKey, deps.pubkey)
+    : [];
   const after = evt.content ? privateEntries(evt.content, deps.secretKey, deps.pubkey) : [];
   return before && after ? { before, after } : null;
 }
 
 /** Remembers what this site signed at the address, and which entries it added. */
-function recorder(deps: DecideDeps, address: string, current: CurrentEvent | null | undefined, evt: SignRequest, priv: ReturnType<typeof privateChange>) {
+function recorder(
+  deps: DecideDeps,
+  address: string,
+  current: CurrentEvent | null | undefined,
+  evt: SignRequest,
+  priv: ReturnType<typeof privateChange>
+) {
   return (signedJson: string) => {
     try {
       const signed = JSON.parse(signedJson) as { id: string };
@@ -173,7 +218,11 @@ function recorder(deps: DecideDeps, address: string, current: CurrentEvent | nul
 }
 
 /** Whether a request may run without asking, must ask, or is refused. */
-export async function decideRequest(method: string, params: string[], deps: DecideDeps): Promise<Decision> {
+export async function decideRequest(
+  method: string,
+  params: string[],
+  deps: DecideDeps
+): Promise<Decision> {
   if (method !== 'sign_event') {
     const ask = requiresConfirmation(method, params, deps.autoApproveKinds);
     return { decision: ask ? { action: 'ask', reason: 'always' } : { action: 'sign' } };
@@ -183,7 +232,10 @@ export async function decideRequest(method: string, params: string[], deps: Deci
   const replaceable = isReplaceable(evt.kind) || isAddressable(evt.kind);
   const records = loadRecords(deps.pubkey);
   const address = addressOf(evt, deps.pubkey);
-  const current = replaceable && deps.autoApproveKinds.has(evt.kind) ? await currentAt(evt, deps.pubkey, deps.relays) : null;
+  const current =
+    replaceable && deps.autoApproveKinds.has(evt.kind)
+      ? await currentAt(evt, deps.pubkey, deps.relays)
+      : null;
   const priv = privateChange(evt, current, deps);
   const decision = trustDecision(evt, {
     pubkey: deps.pubkey,
@@ -199,5 +251,7 @@ export async function decideRequest(method: string, params: string[], deps: Deci
     privateEntries: priv,
     now: Math.floor(Date.now() / 1000),
   });
-  return replaceable ? { decision, record: recorder(deps, address, current, evt, priv) } : { decision };
+  return replaceable
+    ? { decision, record: recorder(deps, address, current, evt, priv) }
+    : { decision };
 }

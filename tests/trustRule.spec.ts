@@ -101,3 +101,13 @@ test('#82: a site can\'t delete vaults, markers or the counter event', () => {
   expect(trustDecision(del(`30078:${me}:some-app`), c)).toEqual({ action: 'ask', reason: 'always' });
   expect(trustDecision(evt(5, [['e', 'f'.repeat(64)]]), c)).toEqual({ action: 'ask', reason: 'always' });
 });
+
+test('Trusted (D13) skips the last-writer check, but not list removals or "used elsewhere"', () => {
+  const current = { id: 'x'.repeat(64), tags: [['p', 'a'], ['p', 'b']], content: '' };
+  const removal = evt(10001, [['p', 'a']]);
+  expect(trustDecision(removal, ctx({ current, trusted: true }))).toEqual({ action: 'ask', reason: 'list-removal' });
+  expect(trustDecision(evt(30078, [['d', 'a']]), ctx({ current, trusted: true, usedElsewhere: true }))).toEqual({
+    action: 'ask',
+    reason: 'used-elsewhere',
+  });
+});
