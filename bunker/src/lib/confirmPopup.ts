@@ -34,6 +34,18 @@ window.addEventListener('message', e => {
         (e.data as { type?: string })?.type === 'CONFIRM_POPUP_READY') readyPopup = popup;
 });
 
+/**
+ * The signer's own tab (#90, D24), when open and connected: prompts go there
+ * instead of a popup. Its page serves requests like the popup, but stays open.
+ */
+export function adoptPromptWindow(w: Window | null): void {
+    popup = w;
+    readyPopup = w;
+}
+
+/** Whether the signer's tab (or a popup) is open to take prompts now. */
+export const promptWindowOpen = (): boolean => !!popup && !popup.closed && readyPopup === popup;
+
 /** Opens (or focuses) the popup. Call it synchronously from a click. */
 export function openConfirmPopup(): void {
     if (popup && !popup.closed) {
@@ -41,10 +53,14 @@ export function openConfirmPopup(): void {
         return;
     }
     const url = new URL(location.href);
+    const locale = url.searchParams.get('locale');
     url.search = `?${CONFIRM_PARAM}=1`;
+    if (locale) url.searchParams.set('locale', locale); // the same language as the widget
     url.hash = '';
     readyPopup = null;
-    popup = window.open(url.toString(), 'nostr-signer-confirm', 'popup,width=440,height=620');
+    // Unnamed (#77): the page that embeds the signer could find a named
+    // popup with window.open('', name) and navigate it. We keep `popup`.
+    popup = window.open(url.toString(), '_blank', 'popup,width=440,height=620');
 }
 
 /** Sends a request to the open popup and waits for the answer; closing it answers "closed". */
@@ -96,7 +112,7 @@ export interface ServedRequest {
 }
 
 /** Wires the popup page: calls `onRequest` with the opener's request, or null without an opener. */
-export function serveConfirmPopup(onRequest: (r: ServedRequest | null) => void): () => void {
+export function serveConfirmPopup(onRequest: (r: ServedRequest | null) => void, keepOpen = false): () => void {
     const opener = window.opener as Window | null;
     if (!opener) {
         onRequest(null);
@@ -111,7 +127,7 @@ export function serveConfirmPopup(onRequest: (r: ServedRequest | null) => void):
             request: d.request,
             answer: a => {
                 post({ type: 'CONFIRM_POPUP_ANSWER', answer: a });
-                window.close();
+                if (!keepOpen) window.close();
             },
             event: ev => post({ type: 'CONFIRM_POPUP_EVENT', event: ev }),
         });

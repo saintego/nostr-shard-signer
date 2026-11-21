@@ -1,0 +1,6 @@
+/* The signer's brand on the shared tokens (@nostr-post/ui): its purple as the
+   primary color, light and dark. Pages can't change these (AGENTS.md, Styling). */
+@layer np.tokens {
+  :root { --np-color-primary: #7c3aed; }
+  .dark { --np-color-primary: #c4b5fd; }
+}

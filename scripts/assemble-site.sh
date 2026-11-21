@@ -5,6 +5,7 @@
 #
 # Usage: scripts/assemble-site.sh <out-dir>
 #   <out-dir>/signer.html        → Vite-built React app (from bunker/dist/index.html)
+#   <out-dir>/restore/index.html → the /restore page (#87, from bunker/dist/restore.html)
 #   <out-dir>/assets/            → Vite-hashed JS/CSS chunks
 #   <out-dir>/nostr-bridge.js    → bridge script loaded by portal
 #   <out-dir>/site-config.js     → portal client ID and registrar URL (portal, examples)
@@ -18,6 +19,8 @@ mkdir -p "$out/portal"
 cp nostr-bridge.js "$out/nostr-bridge.js"
 cp site-config.js "$out/site-config.js"
 cp bunker/dist/index.html "$out/signer.html"
+mkdir -p "$out/restore"
+cp bunker/dist/restore.html "$out/restore/index.html"
 cp -r bunker/dist/assets "$out/assets"
 cp portal/index.html "$out/portal/index.html"
 cp portal/index.html "$out/index.html"

@@ -1,0 +1,26 @@
+/* GlobalSignInPopupView: layout only; the look comes from the np-* primitives
+   and --np-* tokens (AGENTS.md, Styling). */
+.global-popup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--np-space-4);
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: var(--np-space-6) var(--np-space-4);
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+.global-popup .np-button {
+  width: 100%;
+}
+.global-site {
+  align-self: flex-start;
+}
+.global-explain {
+  margin: 0;
+  color: var(--np-color-on-surface-variant);
+  font-size: var(--np-text-sm);
+}
+.global-close {
+  margin-top: auto;
+}

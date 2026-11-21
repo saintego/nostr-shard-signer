@@ -62,6 +62,11 @@ Know before you ship:
 
 A page that passes no `clientId` gets Google/Apple/X sign-in through the hosted signer's own Web3Auth project. No Web3Auth account, no allowlist and no registration in the portal: it works on any site.
 
+- **Sign-in happens in a small window on the signer's own address.** The widget's Sign in shows a sheet: "Continue with Google, Apple or X" opens that window (from the click, so popup blockers don't interfere), and the page's extension or bunker is offered next to it. The window ends its Web3Auth session as soon as the user's key is ready; the widget keeps this site's identity on the device, sealed with a key the browser won't hand out, until the user signs out here or 30 days pass. Signing out on one site leaves the others signed in. `NostrBridge.login()` opens the same sheet; the user then continues there.
+- **Several identities per site.** On a site the user already uses, the window shows "Welcome back": their identities, where each was created and which sites use it. They pick one for this site, pair another, create a new one (with their Google name and picture only if they tick it), or unpair one. In the widget's profile panel they switch between the identities paired with this site; the page sees each switch through `onAuthChange` with the new `pubkey`. A request is signed by the identity that was active when it arrived, and `signEvent` with another identity's `pubkey` is refused. The site can tell that identities used on it belong to the same person, and the widget says so.
+- **Backup and restore.** "Back up now" in the widget (after some use) opens the sign-in window at Backup: the account's master key (with a password, NIP-49, or plain) and an encrypted backup file with the identities' names and sites. Restoring happens only at `https://saintego.github.io/nostr-shard-signer/restore/`, typed in or bookmarked by the user (it refuses to run in a frame or a window another page opened): with the master key, or the backup file opened by the master key, a NIP-07 extension or a bunker (Amber) holding it. It lists the identities and exports their keys into another signer. No page can start an export or a restore.
+- **Google, Apple and X are separate accounts.** The identity is derived from the provider account's key, so the same person signing in with Google and with Apple gets two identities. Linking them is planned ([#73](https://github.com/saintego/nostr-shard-signer/issues/73)).
+
 - **One identity across sites.** A user gets the same npub on every site that uses shared sign-in. Sites with their own `clientId` give them other npubs.
 - **Free while donations cover it.** Web3Auth bills the shared project for every monthly active user, on every site. Donations pay for it: support it on Geyser <!-- TODO: Geyser project link -->. If they stop covering the bill, shared sign-in may get a free allowance per site with payment above it ([#32](https://github.com/saintego/nostr-shard-signer/issues/32)–[#35](https://github.com/saintego/nostr-shard-signer/issues/35)), or be turned off. Plan for that.
 - **Switching later costs your users their npub.** A site that later moves to its own `clientId` (to avoid paying, for example) gives its OAuth users new, empty npubs there. Users who backed up their key keep their identity and can sign in with it through an extension or bunker. If you expect to need your own project, start with it.
@@ -147,7 +152,7 @@ The hosted signer and registrar are free to use, and there is no server of your 
 No. The key only exists in the signer iframe on another origin, which the browser keeps apart from your page. Your page only receives the pubkey and signed events. The risks are the signer host itself (see the warning at the top) and the owner of the Web3Auth project, who can obtain users' keys (see "Is this a custodial login?").
 
 **Which signing requests need confirmation?**
-With OAuth login, ordinary public content is signed without asking: notes, reactions, comments, wiki articles, bookmarks, calendar events, app data (kind 30078) and media uploads to nostr.build. Users can turn each of these off per site in Settings. Profile, follow list and relay list changes, deletions, other kinds such as zaps, `nip04.encrypt` and every decrypt show a confirmation in the widget. Extensions and bunkers apply their own rules.
+With OAuth login, ordinary public content is signed without asking: notes, reactions, comments, wiki articles, bookmarks, calendar events, app data (kind 30078) and media uploads to nostr.build. Users can turn each of these off per site in Settings. Lists, bookmarks and app data are replaced without asking only if this site wrote what's there, or only adds to it ([Auto-approve policy](#auto-approve-policy)). Profile, follow list and relay list changes, deletions, other kinds such as zaps, `nip04.encrypt` and every decrypt show a confirmation in the widget. Extensions and bunkers apply their own rules.
 
 **Does it work with React, Vue, Svelte or Next.js?**
 Yes. Use the [`nostr-shard-signer`](https://www.npmjs.com/package/nostr-shard-signer) npm package's `loadNostrBridge()` client-side, or the script tag in your HTML shell. [`llms-full.txt`](llms-full.txt) has framework notes.
@@ -192,6 +197,10 @@ Skip this step to use [shared sign-in](#shared-sign-in-no-clientid) (call `Nostr
 3. In the [Developer Portal](https://saintego.github.io/nostr-shard-signer/portal/), connect your Nostr key, open the **Register clientId** tab, and register the `clientId` with your app's origin. The registrar only accepts origins that are in the Web3Auth allowlist.
 
 The signer accepts an origin found in either the registry or the Web3Auth allowlist, and warns in the console when one of them is missing it.
+
+**Sign up and Sign in on your site.** With your own `clientId` the widget shows two buttons. After the user signs in with your Google/Apple/X project, they choose **an account only for your site** (its key comes from your project, so you can obtain it) or **their global account** (the same identities on every site that uses this signer; the signer's operator can open it, you can't). Sign in never creates an account. The global account is a second step in a small window on the signer's address ("Continue with your global account"). On a returning device a global account opens for 7 days after the last sign-in with your project, then the widget asks for that sign-in again (one click); an account only for your site lasts as long as your project's Web3Auth session. A user with an account only for your site can later add it to their global account ("Use this account on other sites" in the profile panel): it then works on other sites too, and you keep the access you had. `globalLogin: "off"` offers only accounts for your site, `globalLogin: "require"` only the global account (`data-global-login` on the script tag).
+
+Keep key export on in the project's settings: without it Web3Auth can't give users their Nostr key, and the widget says "This site's sign-in setup doesn't allow Nostr keys" (`KEY_EXPORT_OFF` in the console).
 
 ### 2. Add one script tag to your app
 
@@ -641,6 +650,7 @@ For a self-hosted signer, pass `bunkerOrigin`. Without it, the bridge uses the h
     buttonSize: "standard", // or "large_social_grid"
     forceIframe: false, // true = skip native extension check
     poweredBy: true, // false = hide the "Powered by nostr-shard-signer" link on the sign-in sheet
+    locale: "es", // the widget's language, if the signer has it (default: the browser's, then English)
   });
 </script>
 ```
@@ -773,6 +783,17 @@ Approval settings are stored per host site. Confirmations are queued and shown o
 | Kind 30078 with a `d` tag starting `evolustr:` (Evolustr data keys)                                      | Always a confirmation modal               |
 | Other kinds (zaps, DMs, unknown kinds), `nip04_encrypt`, any decrypt                                     | Confirmation modal                        |
 | `get_public_key`, `nip44_encrypt`                                                                        | No confirmation                           |
+| Kind 22242 (relay auth), 24242 (Blossom auth), 62 (request to vanish, with its own warning)              | Always a confirmation modal               |
+| Any event dated more than 5 minutes in the future                                                        | Refused                                   |
+| Kind 5 aimed (`a` tag) at an Evolustr vault or at another key's address (the signer's own records)       | Refused                                   |
+| An event whose `pubkey` is another identity than the active one                                          | Refused                                   |
+
+**Replaceable and addressable data** (lists, bookmarks, app data, kinds 10000–19999 and 30000–39999) is signed without asking only when the site may replace what's there ([#61](https://github.com/saintego/nostr-shard-signer/issues/61)):
+
+- nothing exists yet at that address, or the event now on the relays (the signer's and the user's NIP-65 write relays) is the one this site signed last; if the relays don't answer, it asks;
+- lists (NIP-51) may only add entries, or remove entries this site added itself (an entry already in the list doesn't count); private entries are decrypted and compared, and it asks if they can't be;
+- mute lists, block lists and follow sets, and any `expiration` tag, always ask;
+- bookmarks that keep the same content and only add tags are fine.
 
 ---
 
@@ -907,10 +928,12 @@ Changes to `nostr-bridge.js` and the signer reach every page that loads them fro
 - **To keep Nostr-only sign-in, add `nostrOnly: true`** (or `data-nostr-only="true"` on the script tag). Pages that loaded the hosted bridge for extension and bunker users only should do this before shared sign-in goes live.
 - The console says which sign-in a page got (`console.info` for shared sign-in).
 - A page that is itself inside another site's frame can't use the signer anymore (`NESTED_FRAME`): that site could hide or cover the signer's prompts.
+- Shared sign-in happens in a small window on the signer's origin opened from the widget's sign-in sheet; `NostrBridge.login()` opens that sheet. The user's npub is derived from the login, not the login key itself, and each site keeps it on the device until the user signs out there.
 
 **Added:**
 
 - `nostrOnly` option and `data-nostr-only` attribute (npm types in 0.2.0).
+- `locale` option and `data-locale` attribute: the widget's language, if the signer has it. The signer's text is bundled with it; pages can't change it.
 - `SIGNER_HELLO` carries `oauth: "own" | "shared" | "none"`.
 - Prompts can't be clicked through by the host page: approve buttons react after a short delay, and, in Chromium, only while nothing covers them. In shared sign-in, sensitive requests (decrypts, profile, follow-list and relay-list replacements, deletions, Evolustr app keys, key export) are confirmed in a popup on the signer's origin. Self-hosters can turn that on for every page (`POPUP_CONFIRM=always`).
 - The operator can block a single site from shared sign-in, with a list signed by the registry root key (`scripts/publish-blocklist.mjs`) or built into the signer. A blocked page gets the `SHARED_BLOCKED` warning and keeps extension and bunker sign-in.

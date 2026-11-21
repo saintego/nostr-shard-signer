@@ -34,12 +34,14 @@
  *       // NIP-46 bunkers.
  *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // your own Web3Auth project for Google/Apple/X; allowlist your origin in Web3Auth
  *       nostrOnly:      false,                        // true: extension or bunker sign-in only, no Google/Apple/X
+ *       globalLogin:    "offer",                      // with clientId: "offer" | "off" | "require" the user's global account
  *       bunkerOrigin:   "https://yourdomain.com/path",// self-hosted signer; defaults to the hosted one
  *       forceIframe:    false,                        // skip native extensions if true
  *       layout:         "floating",                   // "floating" | "in-place"
  *       buttonSize:     "standard",                   // "standard" | "large_social_grid"
  *       mountSelector:  "#nostr-btn",                 // only used when layout === "in-place"
  *       poweredBy:      true,                         // false hides the library link on the sign-in sheet
+ *       locale:         "es",                         // the widget's language, if the signer has it
  *     });
  *   </script>
  *
@@ -131,6 +133,10 @@
       "the Update Domains tab if the clientId is already registered, or add it to " +
       WEB3AUTH_ALLOWLIST + ". Either one authorizes it. The registry lookup is cached per tab, " +
       "so reload in a new tab afterwards.",
+    KEY_EXPORT_OFF:
+      "Your Web3Auth project has key export turned off, so it can't give users Nostr keys. Turn " +
+      "it on in the project's settings in the Web3Auth dashboard, or leave " +
+      "clientId out to use the hosted signer's shared sign-in. Extensions and bunkers still work.",
     NESTED_FRAME:
       "The page using the signer must be the top-level window. Inside another site's frame it " +
       "can't sign in, so that site can't hide or cover the signer's prompts. Open the app in its own tab.",
@@ -319,6 +325,12 @@
     // Only sent to turn the link off, so signers default to showing it.
     if (config.poweredBy === false) url.searchParams.set("poweredBy", "0");
     if (config.nostrOnly) url.searchParams.set("nostrOnly", "1");
+    // Sites with their own clientId: whether users may use their global account.
+    if (config.globalLogin === "off" || config.globalLogin === "require")
+      url.searchParams.set("globalLogin", config.globalLogin);
+    // A language code only: the signer shows it if it has that language.
+    if (typeof config.locale === "string" && /^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$/.test(config.locale))
+      url.searchParams.set("locale", config.locale);
     // Tells the signer to offer a Nostr signer in its sign-in chooser; picking
     // it posts OPEN_NOSTR_SIGNER back so we open window.nostr.js or ask the
     // extension. "extension" changes the option's label.
@@ -605,7 +617,8 @@
         "nostr-bridge: signer error " + code + ": " + message +
           (hint ? "\n→ " + hint : "") + "\nDocs: " + DOCS_URL,
       );
-      if (code !== "LOGIN_FAILED") {
+      // A failed login (or key export off) leaves extension and bunker sign-in working.
+      if (code !== "LOGIN_FAILED" && code !== "KEY_EXPORT_OFF") {
         signerError = "nostr-bridge: signer error " + code + ": " + message;
         // Setup failed before the iframe reported AUTH_STATE: fail queued calls
         // now with the real cause instead of after the AUTH_STATE timeout. Not
@@ -1585,7 +1598,7 @@
   // option) initializes itself; an explicit init() afterwards gets the same promise.
   function autoInit() {
     var ds = currentScript && currentScript.dataset;
-    var keys = ["clientId", "bunkerOrigin", "layout", "buttonSize", "mountSelector"];
+    var keys = ["clientId", "bunkerOrigin", "layout", "buttonSize", "mountSelector", "locale", "globalLogin"];
     var flags = ["forceIframe", "poweredBy", "nostrOnly"];
     if (!ds || !keys.concat(flags).some(function (key) { return ds[key] !== undefined; }))
       return;

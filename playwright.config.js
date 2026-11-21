@@ -10,5 +10,17 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: { trace: "retain-on-failure" },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        // The test origins are http; production is https. WebCrypto (the
+        // device secret, #80) needs a secure context, so treat them as one.
+        launchOptions: {
+          args: ["--unsafely-treat-insecure-origin-as-secure=http://signer.test"],
+        },
+      },
+    },
+  ],
 });

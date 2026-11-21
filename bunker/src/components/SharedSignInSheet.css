@@ -1,0 +1,21 @@
+/* SharedSignInSheet: layout only; the look comes from np-* primitives and
+   --np-* tokens (AGENTS.md, Styling). */
+.shared-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--np-space-3);
+  padding: var(--np-space-4);
+  margin: var(--np-space-2);
+}
+.shared-sheet .np-button {
+  width: 100%;
+}
+.shared-sheet .np-title,
+.shared-sheet .np-hint {
+  margin: 0;
+}
+.shared-sheet-lib {
+  align-self: center;
+  font-size: var(--np-text-xs);
+  color: var(--np-color-on-surface-variant);
+}

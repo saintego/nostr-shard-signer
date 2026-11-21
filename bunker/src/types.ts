@@ -19,7 +19,7 @@ export interface KeyInfo {
 export type EvolustrPrompt =
   | { kind: "appKey"; appId: string; setup: "none" | "choose" | "passkey" }
   | { kind: "enrollPasskey" }
-  | { kind: "gesture"; reason: "unlock" | "enrollPasskey" };
+  | { kind: "gesture"; reason: "unlock" | "enrollPasskey" | "retry" | "popup" };
 
 /** The user's answer to an Evolustr prompt. */
 export type EvolustrAnswer = "allow" | "allow-sk" | "allow-passkey" | "deny";

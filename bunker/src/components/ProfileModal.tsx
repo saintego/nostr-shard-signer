@@ -1,8 +1,11 @@
+import { useMessages } from '../lib/useMessages';
+import { profileModalMessages } from './ProfileModalMessages';
 import { useState, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { UserProfile, KeyInfo } from '../types';
 import { KIND_GROUPS } from '../lib/approval';
 import { SUPPORT_URL } from '../lib/shared';
+import { TrustSetting } from './TrustSetting';
 
 type TabId = 'profile' | 'keys' | 'settings';
 
@@ -21,12 +24,18 @@ interface Props {
     onBackupLater?: () => void;
     onSaveProfile: (profile: UserProfile) => Promise<void>;
     onExportKey: () => void;
+    /** Shared sign-in: "Back up now" backs up the whole account in the popup (#87). */
+    onBackUp?: () => void;
     onLogout: () => void;
     onRelaysChange: (relays: string[]) => void;
     onAutoApproveChange: (kinds: Set<number>) => void;
     onClose: () => void;
     /** App data keys (Evolustr), shown in the settings. */
     evolustrSection?: ReactNode;
+    /** Opens the signer in its own tab (#90); call from the click. */
+    onOpenTab?: () => void;
+    /** This site's identities and switching (#84), shared sign-in only. */
+    identitySection?: ReactNode;
 }
 
 export function ProfileModal({
@@ -41,11 +50,14 @@ export function ProfileModal({
     onBackupLater,
     onSaveProfile,
     onExportKey,
+    onBackUp,
     onLogout,
+    onOpenTab,
     onRelaysChange,
     onAutoApproveChange,
     onClose,
     evolustrSection,
+    identitySection,
 }: Props) {
     const [activeTab, setActiveTab] = useState<TabId>('profile');
 
@@ -129,7 +141,7 @@ export function ProfileModal({
                 <div className="backup-banner">
                     <p>Back up your Nostr key, so you never lose this account.</p>
                     <div className="backup-banner-actions">
-                        <button className="action-btn btn-primary" onClick={onExportKey}>
+                        <button className="action-btn btn-primary" onClick={onBackUp ?? onExportKey}>
                             Back up now
                         </button>
                         <button className="action-btn btn-secondary" onClick={onBackupLater}>
@@ -177,6 +189,7 @@ export function ProfileModal({
                         Signing is handled by your connected extension or bunker.
                     </p>
                     {evolustrSection}
+                    <OpenInTab onOpenTab={onOpenTab} />
                     <div className="modal-actions">
                         <button className="action-btn btn-danger" onClick={onLogout}>
                             Log out
@@ -200,6 +213,7 @@ export function ProfileModal({
                     {/* ── Profile tab ── */}
                     {activeTab === 'profile' && (
                         <div className="tab-content">
+                            {identitySection}
                             <div className="field-row">
                                 <label htmlFor="pm-name">Display name</label>
                                 <input
@@ -240,6 +254,7 @@ export function ProfileModal({
                                     placeholder="user@wallet.example"
                                 />
                             </div>
+                            <OpenInTab onOpenTab={onOpenTab} />
                             <div className="modal-actions">
                                 {saveMsg && <span className="save-msg">{saveMsg}</span>}
                                 <button
@@ -342,6 +357,8 @@ export function ProfileModal({
                                 ))}
                             </section>
 
+                            <TrustSetting key={keyInfo.publicKeyHex} pubkey={keyInfo.publicKeyHex} site={site} />
+
                             <section className="settings-section">
                                 <h4>Publish relays</h4>
                                 <p className="settings-hint">Used when saving your profile.</p>
@@ -377,5 +394,17 @@ export function ProfileModal({
                 </>
             )}
         </div>
+    );
+}
+
+/** "Open in a new tab" (#90, #73 D24): an opt-in tool for careful users. */
+function OpenInTab({ onOpenTab }: { onOpenTab?: () => void }) {
+    const m = useMessages(profileModalMessages);
+    if (!onOpenTab) return null;
+    return (
+        <p className="settings-hint">
+            {m.openInTabHint}{' '}
+            <button type="button" className="np-button np-text np-small" onClick={onOpenTab}>{m.openInTab}</button>
+        </p>
     );
 }

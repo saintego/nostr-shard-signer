@@ -60,6 +60,8 @@ export default defineConfig({
   // fails. Resolve the trailing-slash form to the same shim file first.
   // (Production builds go through Rollup and are unaffected.)
   optimizeDeps: {
+    // Evolu's SQLite: served as is, with its wasm file.
+    exclude: ["@evolu/sqlite-wasm"],
     esbuildOptions: {
       plugins: [
         {
@@ -73,8 +75,15 @@ export default defineConfig({
       ],
     },
   },
+  // Evolu's database runs in ES module workers.
+  worker: { format: "es" },
   build: {
     outDir: "dist",
     sourcemap: false,
+    rollupOptions: {
+      // The signer, the /restore page (#87), and a self-test page built with
+      // the same setup (#86).
+      input: { main: "index.html", restore: "restore.html", selftest: "selftest.html" },
+    },
   },
 });

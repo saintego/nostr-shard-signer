@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Self-test of the production build setup (#86): not deployed; tests/selftest.spec.js loads it. -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none';
+                 script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://*.web3auth.io;
+                 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+                 img-src 'self' https: data:;
+                 connect-src 'self' https: wss: ws: https://*.web3auth.io wss://*.web3auth.io;
+                 frame-src https://*.web3auth.io;
+                 worker-src 'self' blob:;
+                 font-src 'self' https:;" />
+  <title>Signer self-test</title>
+</head>
+<body>
+  <pre id="root">running…</pre>
+  <!--
+    Polyfill process.nextTick before any ES module loads.
+    Web3Auth v10 bundles readable-stream which calls process.nextTick inside
+    pre-compiled chunks that run before Vite's module-level polyfill injection.
+    Setting it on the global object here guarantees it is always present.
+  -->
+  <script>
+    (function () {
+      var p = globalThis.process || (globalThis.process = {});
+      if (typeof p.nextTick !== 'function') {
+        p.nextTick = function nextTick(fn) {
+          var a = Array.prototype.slice.call(arguments, 1);
+          Promise.resolve().then(function () { fn.apply(null, a); });
+        };
+      }
+      p.env = p.env || {};
+      p.version = p.version || 'v18.0.0';
+      p.versions = p.versions || {};
+      p.platform = p.platform || 'browser';
+    }());
+  </script>
+  <script type="module" src="/src/selftest/main.ts"></script>
+</body>
+</html>

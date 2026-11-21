@@ -137,6 +137,14 @@ declare global {
      */
     nostrOnly?: boolean;
     /**
+     * With your own `clientId`: whether users may use their global account
+     * (the same identities on every site; the signer's operator can open it,
+     * you can't) next to an account only for your site. "offer" (default):
+     * Sign up asks; "off": accounts only for your site; "require": the global
+     * account only.
+     */
+    globalLogin?: "offer" | "off" | "require";
+    /**
      * Base URL where signer.html is hosted. Defaults to the hosted signer,
      * "https://saintego.github.io/nostr-shard-signer". Only set it when you
      * self-host the signer.
@@ -158,6 +166,12 @@ declare global {
     mountSelector?: string;
     /** Show the "Powered by nostr-shard-signer" link on the sign-in sheet. Default true. */
     poweredBy?: boolean;
+    /**
+     * The widget's language as a language code ("es", "pt-BR"). Used only if the
+     * signer has text in that language; otherwise the browser's language, then
+     * English. Pages can't supply the signer's text.
+     */
+    locale?: string;
   }
 
   interface NostrBridgeAuthState {
@@ -188,7 +202,8 @@ declare global {
     /** Resolves once init() has completed, however it was called. */
     readonly ready: Promise<void>;
     /**
-     * Calls `callback` on every login/logout. If the auth state is already known,
+     * Calls `callback` on every login/logout, and when the user switches to
+     * another identity on this site (same `loggedIn`, new `pubkey`). If the auth state is already known,
      * it is also called right away with the current state, so a session restored
      * before subscribing is not missed. Returns an unsubscribe function.
      * Same data as the "nostr-bridge:auth" window event.

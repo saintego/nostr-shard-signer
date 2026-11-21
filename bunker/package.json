@@ -9,7 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@evolu/common": "8.26.0",
+    "@evolu/web": "3.7.0",
     "@web3auth/modal": "^11.4.1",
+    "buffer": "6.0.3",
     "nostr-tools": "^2.25.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

@@ -44,7 +44,7 @@ useEffect(() => {
 }, []);
 ```
 
-`loadNostrBridge(config)` takes the same options as `NostrBridge.init(config)`: `clientId`, `nostrOnly`, `layout`, `buttonSize`, `mountSelector`, `forceIframe`, `poweredBy`, and `bunkerOrigin` for a self-hosted signer.
+`loadNostrBridge(config)` takes the same options as `NostrBridge.init(config)`: `clientId`, `nostrOnly`, `globalLogin`, `layout`, `buttonSize`, `mountSelector`, `forceIframe`, `poweredBy`, `locale`, and `bunkerOrigin` for a self-hosted signer.
 
 ## OAuth login on Nostr
 
@@ -53,6 +53,7 @@ The **Sign in** sheet offers Google, Apple and X, through your own Web3Auth `cli
 - The npub is a normal Nostr identity that works in every client. The widget's profile menu has an **Export key** button, so users can take their nsec to an extension or bunker at any time.
 - Keys belong to the Web3Auth project: the same Google account gets a different npub in an app with another `clientId` (shared sign-in is one more project). **Never change the `clientId` of a live app**, add one to an app that used shared sign-in, or remove it, or OAuth users get new, empty identities.
 - Google, Apple and X are separate identities with separate keys.
+- With shared sign-in, a user can have several identities on one site and switch between them in the widget; `onAuthChange` reports the new `pubkey`.
 - The signer keeps the key away from your page's code, not from the owner of the `clientId`: whoever owns the Web3Auth project decides which sites may use it, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. Users trust an app's owner with the identity they create in that app. With shared sign-in, that owner is whoever runs the hosted signer.
 
 Why use it: onboarding without a browser extension or nsec paste, drop-in NIP-07 (code written for Alby or nos2x works unchanged), extension and bunker users in the same button, the key out of reach of your page's code and XSS, and no backend to run. The [README](https://github.com/saintego/nostr-shard-signer#readme) compares it with other approaches and has a FAQ.

@@ -282,6 +282,14 @@ export function describeRequest(method: string, params: string[], ctx: RequestCo
         warning: "Relays that honour deletions remove them for good.",
       };
     }
+    case 62:
+      // NIP-62 request to vanish (#73 D13, scenario 24).
+      return {
+        title: "Ask relays to delete everything you published?",
+        summary: content ? `Reason: ${preview(content)}` : undefined,
+        warning:
+          "Relays that honour it delete everything this account published, including your app data stored with Evolustr, on every site that uses this account. It can't be undone.",
+      };
     case 27235: {
       const host = hostOf(tagValue(tags, "u"));
       return {
