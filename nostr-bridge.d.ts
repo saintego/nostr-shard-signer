@@ -137,6 +137,14 @@ declare global {
      */
     nostrOnly?: boolean;
     /**
+     * With your own `clientId`: whether users may use their global account
+     * (the same identities on every site; the signer's operator can open it,
+     * you can't) next to an account only for your site. "offer" (default):
+     * Sign up asks; "off": accounts only for your site; "require": the global
+     * account only.
+     */
+    globalLogin?: "offer" | "off" | "require";
+    /**
      * Base URL where signer.html is hosted. Defaults to the hosted signer,
      * "https://saintego.github.io/nostr-shard-signer". Only set it when you
      * self-host the signer.

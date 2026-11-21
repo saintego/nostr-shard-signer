@@ -34,6 +34,7 @@
  *       // NIP-46 bunkers.
  *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // your own Web3Auth project for Google/Apple/X; allowlist your origin in Web3Auth
  *       nostrOnly:      false,                        // true: extension or bunker sign-in only, no Google/Apple/X
+ *       globalLogin:    "offer",                      // with clientId: "offer" | "off" | "require" the user's global account
  *       bunkerOrigin:   "https://yourdomain.com/path",// self-hosted signer; defaults to the hosted one
  *       forceIframe:    false,                        // skip native extensions if true
  *       layout:         "floating",                   // "floating" | "in-place"
@@ -324,6 +325,9 @@
     // Only sent to turn the link off, so signers default to showing it.
     if (config.poweredBy === false) url.searchParams.set("poweredBy", "0");
     if (config.nostrOnly) url.searchParams.set("nostrOnly", "1");
+    // Sites with their own clientId: whether users may use their global account.
+    if (config.globalLogin === "off" || config.globalLogin === "require")
+      url.searchParams.set("globalLogin", config.globalLogin);
     // A language code only: the signer shows it if it has that language.
     if (typeof config.locale === "string" && /^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$/.test(config.locale))
       url.searchParams.set("locale", config.locale);
@@ -1594,7 +1598,7 @@
   // option) initializes itself; an explicit init() afterwards gets the same promise.
   function autoInit() {
     var ds = currentScript && currentScript.dataset;
-    var keys = ["clientId", "bunkerOrigin", "layout", "buttonSize", "mountSelector", "locale"];
+    var keys = ["clientId", "bunkerOrigin", "layout", "buttonSize", "mountSelector", "locale", "globalLogin"];
     var flags = ["forceIframe", "poweredBy", "nostrOnly"];
     if (!ds || !keys.concat(flags).some(function (key) { return ds[key] !== undefined; }))
       return;

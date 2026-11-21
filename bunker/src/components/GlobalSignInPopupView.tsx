@@ -1,7 +1,12 @@
 import type { Web3Auth } from '@web3auth/modal';
 import { useEffect, useRef, useState } from 'react';
 import type { BackupMethod } from '../lib/backup';
-import { type GlobalAccount, type NewProfile, openGlobalAccount } from '../lib/globalAccount';
+import {
+  type AccountDeps,
+  type GlobalAccount,
+  type NewProfile,
+  openGlobalAccount,
+} from '../lib/globalAccount';
 import { openGlobalList } from '../lib/globalList';
 import { type GlobalOptions, type GlobalResult, serveGlobalPopup } from '../lib/globalPopup';
 import { format } from '../lib/i18n';
@@ -27,6 +32,18 @@ type State =
   | { step: 'account'; site: string; account: GlobalAccount; profile: NewProfile | null }
   | { step: 'failed'; site: string; reason: string }
   | { step: 'done'; site: string };
+
+/** The sign-in account's name and picture, offered for new identities (D15). */
+const profileOf = (info: { name?: string; profileImage?: string } | null): NewProfile | null =>
+  info ? { name: info.name || undefined, picture: info.profileImage || undefined } : null;
+
+/** Where the account reads and writes (relays, Evolu), and this site login's marker address. */
+const accountDeps = (options: GlobalOptions): AccountDeps => ({
+  openList: (root) => openGlobalList(root),
+  query: (filter) => queryRelays(filter),
+  publish: publishToSignerRelays,
+  ...(options.markerAddress ? { markerAddress: options.markerAddress } : {}),
+});
 
 const hostOf = (origin: string) => {
   try {
@@ -82,11 +99,19 @@ export function GlobalSignInPopupView() {
     const account = accountRef.current;
     if (!account) return;
     try {
-      if (pubkey === 'none') replyRef.current?.({ error: 'NO_IDENTITY' });
-      else {
+      if (pubkey === 'none') {
+        // Leaving the global account on this site: "unpaired" on own-clientId sites (D7).
+        await account.leaveSite();
+        replyRef.current?.({ error: 'NO_IDENTITY' });
+      } else {
         const grant = await account.grant(pubkey);
         const backedUp = backedUpRef.current;
-        replyRef.current?.(backedUp ? { grant, backedUp } : { grant });
+        const marker = await account.siteMarker();
+        replyRef.current?.({
+          grant,
+          ...(backedUp ? { backedUp } : {}),
+          ...(marker ? { marker } : {}),
+        });
       }
       setState({ step: 'done', site });
       setTimeout(() => window.close(), 1200);
@@ -109,18 +134,15 @@ export function GlobalSignInPopupView() {
       w3a = instance;
       await loginWith(instance, provider);
       const login = await extractKey(instance);
-      const info = await instance.getUserInfo().catch(() => null);
-      const profile = info
-        ? { name: info.name || undefined, picture: info.profileImage || undefined }
-        : null;
+      const profile = profileOf(await instance.getUserInfo().catch(() => null));
       // The global session ends right after use (#73 D23); the root stays in this window's memory.
       await endSession(() => instance.logout(), GLOBAL_SESSION);
       w3a = null;
-      const account = await openGlobalAccount(login.privateKeyBytes, site, {
-        openList: (root) => openGlobalList(root),
-        query: (filter) => queryRelays(filter),
-        publish: publishToSignerRelays,
-      });
+      const account = await openGlobalAccount(
+        login.privateKeyBytes,
+        site,
+        accountDeps(optionsRef.current)
+      );
       accountRef.current = account;
       const first = account.list[0];
       // A first sign-in: identity 0, straight away (D8: Welcome back only for an existing account).

@@ -1,7 +1,13 @@
 // Translation readiness (AGENTS.md, User-facing text): text comes from
 // messages bundled with the signer; a page may only ask for a language.
 import { expect, test } from '@playwright/test';
-import { addTranslation, defineMessages, format, messagesFor, resolveLocale } from '../bunker/src/lib/i18n.ts';
+import {
+  addTranslation,
+  defineMessages,
+  format,
+  messagesFor,
+  resolveLocale,
+} from '../bunker/src/lib/i18n.ts';
 import { APP, BUNKER, bridgePage, test as bridgeTest } from './fixtures.js';
 
 test('resolveLocale: the page language if the signer has it, then the browser, then English', () => {
@@ -26,18 +32,38 @@ test('messagesFor: a translation overrides English, missing keys fall back', () 
   expect(format('{missing} stays', {})).toBe('{missing} stays');
 });
 
-bridgeTest('the bridge passes a language code to the signer, nothing else', async ({ page, pages }) => {
-  pages.set('/', bridgePage);
-  await page.goto(`${APP}/`);
-  await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin, locale: 'es' }), BUNKER);
-  const src = new URL(await page.locator('#nostr-signer-iframe').getAttribute('src'));
-  expect(src.searchParams.get('locale')).toBe('es');
-});
+bridgeTest(
+  'the bridge passes a language code to the signer, nothing else',
+  async ({ page, pages }) => {
+    pages.set('/', bridgePage);
+    await page.goto(`${APP}/`);
+    await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin, locale: 'es' }), BUNKER);
+    const src = new URL(await page.locator('#nostr-signer-iframe').getAttribute('src'));
+    expect(src.searchParams.get('locale')).toBe('es');
+  }
+);
 
 bridgeTest('the bridge drops a locale that is not a language code', async ({ page, pages }) => {
   pages.set('/', bridgePage);
   await page.goto(`${APP}/`);
-  await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin, locale: 'es&clientId=x' }), BUNKER);
+  await page.evaluate(
+    (bunkerOrigin) => NostrBridge.init({ bunkerOrigin, locale: 'es&clientId=x' }),
+    BUNKER
+  );
   const src = new URL(await page.locator('#nostr-signer-iframe').getAttribute('src'));
   expect(src.searchParams.get('locale')).toBeNull();
 });
+
+bridgeTest(
+  'the bridge passes globalLogin (off or require) to the signer (#83)',
+  async ({ page, pages }) => {
+    pages.set('/', bridgePage);
+    await page.goto(`${APP}/`);
+    await page.evaluate(
+      (bunkerOrigin) => NostrBridge.init({ bunkerOrigin, clientId: 'x', globalLogin: 'require' }),
+      BUNKER
+    );
+    const src = new URL(await page.locator('#nostr-signer-iframe').getAttribute('src'));
+    expect(src.searchParams.get('globalLogin')).toBe('require');
+  }
+);

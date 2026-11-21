@@ -4,6 +4,10 @@ import { defineMessages } from '../lib/i18n';
 
 export const welcomeBackMessages = defineMessages('welcomeBack', {
   title: 'Welcome back',
+  noteNotYours:
+    'This site’s note belongs to a different global account. Did you choose another sign-in? If so, close this and sign in with the one you used.',
+  noteUnpaired:
+    'You unpaired {site} from your global account earlier. Pairing an identity again links them again.',
   choose: 'Choose the identity to use on {site}.',
   incomplete:
     'Some names and paired sites couldn’t be loaded yet. Your identities are safe; try again later to see everything.',

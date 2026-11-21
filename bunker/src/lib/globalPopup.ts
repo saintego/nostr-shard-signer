@@ -26,6 +26,8 @@ export interface GlobalRequest {
   readonly intent?: GlobalIntent;
   /** The identity the widget uses now, to keep it active after a backup. */
   readonly active?: string;
+  /** Own-clientId sites: this site login's marker address (D7), derived in the iframe. */
+  readonly markerAddress?: string;
 }
 
 export type GlobalIntent = 'sign-in' | 'backup';
@@ -34,6 +36,8 @@ export type GlobalIntent = 'sign-in' | 'backup';
 export interface GlobalOptions {
   readonly intent?: GlobalIntent;
   readonly active?: string;
+  /** Own-clientId sites: the marker's `d` tag (never the site login key, update 2). */
+  readonly markerAddress?: string;
 }
 
 /** What the widget gets back. */
@@ -41,12 +45,15 @@ export interface GlobalAnswer {
   readonly grant: SiteGrant;
   /** The user saved a backup in the popup, and how (#37, #87). */
   readonly backedUp?: BackupMethod;
+  /** Own-clientId sites: this site's signed marker (JSON), to keep and re-send (D7). */
+  readonly marker?: string;
 }
 
 export interface GlobalResult {
   readonly type: 'NSS_GLOBAL_RESULT';
   readonly grant?: SiteGrant;
   readonly backedUp?: BackupMethod;
+  readonly marker?: string;
   readonly error?: string;
 }
 
@@ -73,7 +80,8 @@ function parseResult(d: Partial<Omit<GlobalResult, 'type'>>): GlobalAnswer | Err
   const grant = parseSiteGrant(d.grant);
   if (!grant) return new Error('The sign-in window sent an invalid answer');
   const backedUp = d.backedUp === 'nsec' || d.backedUp === 'ncryptsec' ? d.backedUp : undefined;
-  return backedUp ? { grant, backedUp } : { grant };
+  const marker = typeof d.marker === 'string' && d.marker.length < 4096 ? d.marker : undefined;
+  return { grant, ...(backedUp ? { backedUp } : {}), ...(marker ? { marker } : {}) };
 }
 
 /**
@@ -156,6 +164,17 @@ export function checkOpener(opener: Window | null, site: string, signerPath: str
   return { ok: true };
 }
 
+const isHex64 = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
+
+/** The widget's choices, checked field by field (anything else is dropped). */
+function parseOptions(d: Partial<GlobalRequest>): GlobalOptions {
+  return {
+    ...(d.intent === 'backup' ? { intent: 'backup' as const } : {}),
+    ...(isHex64(d.active) ? { active: d.active } : {}),
+    ...(isHex64(d.markerAddress) ? { markerAddress: d.markerAddress } : {}),
+  };
+}
+
 /**
  * Wires the popup page: tells the opener it's ready, and calls `onRequest`
  * with the site once the opener asks and passes `checkOpener`.
@@ -181,16 +200,10 @@ export function serveGlobalPopup(
     window.removeEventListener('message', listener);
     const check = checkOpener(opener, d.site, signerPath);
     if (!check.ok) return onRefused(check.reason ?? 'refused');
-    const options: GlobalOptions = {
-      ...(d.intent === 'backup' ? { intent: 'backup' as const } : {}),
-      ...(typeof d.active === 'string' && /^[0-9a-f]{64}$/.test(d.active)
-        ? { active: d.active }
-        : {}),
-    };
     onRequest(
       d.site,
       (result) => opener.postMessage({ type: 'NSS_GLOBAL_RESULT', ...result }, location.origin),
-      options
+      parseOptions(d)
     );
   };
   window.addEventListener('message', listener);

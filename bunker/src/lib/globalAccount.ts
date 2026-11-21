@@ -11,6 +11,7 @@ import { buildCounter, counterFilter, counterPubkey, nextIndex, readCounter } fr
 import { canonicalOrigin, deriveIdentity, deriveRoot } from './derive';
 import { type GlobalList, type ListedIdentity, listNext, pairedWith } from './globalListModel';
 import { grantFromRoot } from './identity';
+import { buildMarker, type MarkerReading, markerFilter, readMarker } from './marker';
 import { exportMasterKey } from './masterKey';
 import type { SiteGrant } from './siteGrant';
 
@@ -22,6 +23,8 @@ export interface AccountDeps {
   /** Publishes the signer's own events (relayPublish.ts). */
   readonly publish: (events: Event[]) => Promise<void>;
   readonly now?: () => number;
+  /** Own-clientId sites: this site login's marker address (D7), from the widget. */
+  readonly markerAddress?: string;
 }
 
 export interface GlobalAccount {
@@ -47,6 +50,20 @@ export interface GlobalAccount {
   readonly exportMasterKey: (password?: string) => string;
   /** The encrypted backup file (D10), as JSON text. */
   readonly backupFile: () => Promise<string>;
+  /**
+   * Own-clientId sites: what the marker at this site login's address says (D7):
+   * null without an address; 'none', 'paired', 'unpaired', 'not-yours'
+   * (another global account's, or forged) or 'unreadable'.
+   */
+  readonly markerStatus: MarkerReading['status'] | null;
+  /**
+   * The signed marker to hand the site (JSON): the current "paired" one, or a
+   * new one if there's none yet or it says "unpaired" (published first).
+   * Undefined without an address.
+   */
+  readonly siteMarker: () => Promise<string | undefined>;
+  /** Leaving the global account on this site: a newer "unpaired" marker, published (D7). */
+  readonly leaveSite: () => Promise<void>;
   /** Waits for the list to sync, then wipes the root. */
   readonly close: () => Promise<void>;
 }
@@ -73,10 +90,24 @@ export async function openGlobalAccount(
   const now = deps.now ?? nowS;
   const list = await deps.openList(root);
   const counterPub = await counterPubkey(root);
-  const [rows, counterEvents] = await Promise.all([
+  const address = deps.markerAddress;
+  const [rows, counterEvents, markerEvents] = await Promise.all([
     list.load(),
     deps.query(counterFilter(counterPub)),
+    address ? deps.query(markerFilter(address)) : Promise.resolve(null),
   ]);
+  let marker: MarkerReading | null = address
+    ? await readMarker(markerEvents ?? [], root, origin, address)
+    : null;
+  /** A marker newer than the one at the address, so relays keep it (D7, C13). */
+  const writeMarker = async (state: 'paired' | 'unpaired') => {
+    if (!address) return undefined;
+    const previous = marker && 'event' in marker ? marker.event.created_at : 0;
+    const event = await buildMarker(root, origin, address, state, Math.max(now(), previous + 1));
+    await deps.publish([event]);
+    marker = { status: state, event };
+    return JSON.stringify(event);
+  };
   let current = rows;
   const relayCounter = counterEvents ? await readCounter(counterEvents, root) : null;
 
@@ -174,6 +205,17 @@ export async function openGlobalAccount(
         chosen.map((i) => ({ index: i.index as number, label: i.label })),
         activePubkey
       );
+    },
+    get markerStatus() {
+      return marker?.status ?? null;
+    },
+    siteMarker: async () => {
+      if (!address) return undefined;
+      if (marker?.status === 'paired') return JSON.stringify(marker.event);
+      return writeMarker('paired');
+    },
+    leaveSite: async () => {
+      await writeMarker('unpaired');
     },
     exportMasterKey: (password) => exportMasterKey(root, password),
     backupFile: () =>

@@ -1,15 +1,26 @@
-// Shared-sign-in sites in the widget (#80, the shared-site part of #81): the
-// widget never runs Web3Auth. It opens this site's cache with the device
-// secret, or, on Sign in, the global sign-in popup, and keeps what the popup
-// hands over in the cache.
+// The global account in the widget (#80, #81, #83). On shared-sign-in sites
+// the widget never runs Web3Auth: it opens this site's cache with the device
+// secret, or, on Sign in, the global sign-in popup. On sites with their own
+// clientId the same happens after the site's own login, in that login's cache
+// slot (siteCache.ts), with this site's marker (D7) kept and re-sent.
 
 import type { Web3Auth } from '@web3auth/modal';
 import type { BackupMethod } from './backup';
 import { fetchSharedBlocklist } from './blocklist';
 import { awaitGlobalResult, type GlobalOptions, openGlobalPopup } from './globalPopup';
 import { keyMaterialFromSecret } from './identity';
+import { MARKER_KIND } from './marker';
+import { publishToSignerRelays } from './relayPublish';
 import { isOriginBlocked } from './shared';
-import { deleteSiteCache, loadSiteCache, type SiteCache, saveSiteCache } from './siteCache';
+import { setLastLogin } from './siteAccount';
+import {
+  type CacheSlot,
+  deleteSiteCache,
+  loadSiteCache,
+  SHARED_SLOT,
+  type SiteCache,
+  saveSiteCache,
+} from './siteCache';
 import { activeIdentity, withActive } from './siteGrant';
 import type { KeyMaterial } from './web3auth';
 import { endSession, SITE_SESSION } from './web3authSession';
@@ -27,10 +38,45 @@ const session = (cache: SiteCache): SharedSession => ({
   cache,
 });
 
-/** This site's identity from the cache, or null (the user signs in). */
-export async function restoreSharedSession(): Promise<SharedSession | null> {
-  const cache = await loadSiteCache().catch(() => null);
-  return cache ? session(cache) : null;
+/** Re-sends this site's stored marker (D7): no key needed, relays keep the newest. */
+const resendMarker = (cache: SiteCache) => {
+  try {
+    if (cache.marker) void publishToSignerRelays([JSON.parse(cache.marker)]);
+  } catch {
+    // unreadable: dropped at the next global sign-in
+  }
+};
+
+/**
+ * This site's identity from the cache, or null (the user signs in). On an
+ * own-clientId site, `siteSignedIn` says the site login was just confirmed:
+ * the cache then opens whatever (B)'s window says, and the window restarts.
+ */
+export async function restoreSharedSession(
+  slot: CacheSlot = SHARED_SLOT,
+  siteSignedIn = false
+): Promise<SharedSession | null> {
+  const cache = await loadSiteCache(slot, { siteSignedIn }).catch(() => null);
+  if (!cache) return null;
+  if (slot.kind === 'shared') return session(cache);
+  const renewed = siteSignedIn ? { ...cache, lastSiteSignIn: Date.now() } : cache;
+  if (siteSignedIn) await saveSiteCache(renewed, slot);
+  resendMarker(renewed);
+  return session(renewed);
+}
+
+/** The marker the popup sent, if it's the kind and address this site expects. */
+function checkedMarker(json: string | undefined, address: string | undefined): string | undefined {
+  if (!json || !address) return undefined;
+  try {
+    const e = JSON.parse(json) as { kind?: unknown; tags?: unknown };
+    const d = Array.isArray(e.tags)
+      ? (e.tags as string[][]).find((t) => t[0] === 'd')?.[1]
+      : undefined;
+    return e.kind === MARKER_KIND && d === address ? json : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -39,12 +85,30 @@ export async function restoreSharedSession(): Promise<SharedSession | null> {
  * after keeping it in this site's cache. Also "Add or manage identities": the
  * popup's Welcome back hands over the new list.
  */
-export function signInGlobally(site: string, options: GlobalOptions = {}): Promise<SharedSession> {
+export function signInGlobally(
+  site: string,
+  options: GlobalOptions = {},
+  slot: CacheSlot = SHARED_SLOT
+): Promise<SharedSession> {
   const popup = openGlobalPopup();
   if (!popup) return Promise.reject(new Error('POPUP_BLOCKED'));
-  return awaitGlobalResult(popup, site, options).then(async ({ grant, backedUp }) => {
-    const cache = { ...grant, createdAt: Date.now() };
-    await saveSiteCache(cache);
+  return awaitGlobalResult(popup, site, options).then(async ({ grant, backedUp, marker }) => {
+    const now = Date.now();
+    const checked = checkedMarker(marker, options.markerAddress);
+    const cache: SiteCache =
+      slot.kind === 'shared'
+        ? { ...grant, createdAt: now }
+        : {
+            ...grant,
+            createdAt: now,
+            lastSiteSignIn: now,
+            ...(checked ? { marker: checked } : {}),
+          };
+    await saveSiteCache(cache, slot);
+    if (slot.kind === 'site') {
+      setLastLogin(slot.loginHash);
+      resendMarker(cache);
+    }
     return backedUp ? { ...session(cache), backedUp } : session(cache);
   });
 }
@@ -72,12 +136,15 @@ export function signInFailure(
 }
 
 /** Switches this site to another of its identities (D14); null if it isn't one. */
-export async function switchSharedIdentity(pubkey: string): Promise<SharedSession | null> {
-  const cache = await loadSiteCache().catch(() => null);
+export async function switchSharedIdentity(
+  pubkey: string,
+  slot: CacheSlot = SHARED_SLOT
+): Promise<SharedSession | null> {
+  const cache = await loadSiteCache(slot, { siteSignedIn: true }).catch(() => null);
   const next = cache ? withActive(cache, pubkey) : null;
   if (!cache || !next) return null;
-  const updated = { ...next, createdAt: cache.createdAt };
-  await saveSiteCache(updated);
+  const updated: SiteCache = { ...cache, active: next.active };
+  await saveSiteCache(updated, slot);
   return session(updated);
 }
 
@@ -86,9 +153,14 @@ export async function switchSharedIdentity(pubkey: string): Promise<SharedSessio
  * session it can't log out, code 5113, would stay, #79), and on shared-sign-in
  * sites this site's cache. Other sites stay signed in.
  */
-export async function signOutOnThisSite(w3a: Web3Auth | null, shared: boolean): Promise<void> {
+export async function signOutOnThisSite(
+  w3a: Web3Auth | null,
+  slot: CacheSlot | null
+): Promise<void> {
   await endSession(w3a ? () => w3a.logout() : null, SITE_SESSION);
-  if (shared) deleteSiteCache();
+  if (!slot) return;
+  deleteSiteCache(slot);
+  if (slot.kind === 'site') setLastLogin(null);
 }
 
 /**

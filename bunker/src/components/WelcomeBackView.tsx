@@ -143,6 +143,12 @@ export function WelcomeBackView({
       <h2 className="np-title">{m.title}</h2>
       <p>{format(m.choose, { site: host })}</p>
       {!account.complete && <p className="np-message np-warning">{m.incomplete}</p>}
+      {account.markerStatus === 'not-yours' && (
+        <p className="np-message np-warning">{m.noteNotYours}</p>
+      )}
+      {account.markerStatus === 'unpaired' && (
+        <p className="np-message np-info">{format(m.noteUnpaired, { site: host })}</p>
+      )}
       <ul className="welcome-list">
         {account.list.map((i, n) => (
           <li key={i.pubkey} className="np-list-item welcome-item">

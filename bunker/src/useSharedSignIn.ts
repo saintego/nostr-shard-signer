@@ -1,7 +1,9 @@
-// The widget's side of shared sign-in (#80), as a hook so App.tsx doesn't grow
-// (AGENTS.md, Files): restore this site's identity from its cache, the sign-in
-// sheet, and the global popup opened from the user's click in it.
-import { createElement, useCallback, useState } from 'react';
+// The widget's side of the global account (#80, #83), as a hook so App.tsx
+// doesn't grow (AGENTS.md, Files): restore this site's identity from its cache,
+// the sign-in sheet, and the global popup opened from the user's click in it.
+// On sites with their own clientId, useSiteAccount points it at the site
+// login's cache slot and marker address (`target`).
+import { createElement, useCallback, useRef, useState } from 'react';
 import { IdentitySwitcher } from './components/IdentitySwitcher';
 import { SharedSignInSheet } from './components/SharedSignInSheet';
 import { recordBackup } from './lib/backup';
@@ -13,7 +15,14 @@ import {
   signInGlobally,
   switchSharedIdentity,
 } from './lib/sharedSignIn';
+import { type CacheSlot, SHARED_SLOT } from './lib/siteCache';
 import type { KeyMaterial } from './lib/web3auth';
+
+/** Which cache the global account fills, and the site login's marker address (own clientId). */
+export interface GlobalTarget {
+  readonly slot: CacheSlot;
+  readonly markerAddress?: string;
+}
 
 type View = 'login' | 'connecting';
 type ParentMessage =
@@ -50,6 +59,7 @@ export function useSharedSignIn({
   onBackedUp,
 }: Deps) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  const targetRef = useRef<GlobalTarget>({ slot: SHARED_SLOT });
   // What this site's cache holds: its identities and the active one (#84).
   const [session, setSession] = useState<SharedSession | null>(null);
   const signedIn = useCallback(
@@ -110,9 +120,15 @@ export function useSharedSignIn({
    */
   const google = useCallback(
     async (intent: 'sign-in' | 'backup' = 'sign-in') => {
+      const { slot, markerAddress } = targetRef.current;
       const pending = signInGlobally(
         parentOrigin,
-        session ? { intent, active: session.cache.active } : { intent }
+        {
+          intent,
+          ...(session ? { active: session.cache.active } : {}),
+          ...(markerAddress ? { markerAddress } : {}),
+        },
+        slot
       );
       const managing = session !== null;
       setSheetOpen(false);
@@ -128,7 +144,7 @@ export function useSharedSignIn({
   /** Another identity of this site (D14): the page sees it through onAuthChange. */
   const switchTo = useCallback(
     async (pubkey: string) => {
-      const next = await switchSharedIdentity(pubkey);
+      const next = await switchSharedIdentity(pubkey, targetRef.current.slot);
       if (next) await signedIn(next);
     },
     [signedIn]
@@ -162,5 +178,42 @@ export function useSharedSignIn({
   /** "Back up now" (#37, #87): the popup opens at Backup; call from the click. */
   const backUp = useCallback(() => void google('backup'), [google]);
 
-  return { restore, openSheet, sheet, switcher, forget, backUp };
+  /**
+   * Own-clientId sites: opens a site login's cache (`siteSignedIn`: the login
+   * was just confirmed; otherwise only within rule (B)'s window). True if it did.
+   */
+  const restoreIn = useCallback(
+    async (target: GlobalTarget, siteSignedIn: boolean) => {
+      const restored = await restoreSharedSession(target.slot, siteSignedIn);
+      if (!restored) return false;
+      targetRef.current = target;
+      await signedIn(restored);
+      return true;
+    },
+    [signedIn]
+  );
+
+  /** "Continue with your global account" on an own-clientId site; call from the click. */
+  const continueGlobal = useCallback(
+    (target: GlobalTarget) => {
+      targetRef.current = target;
+      return google('sign-in');
+    },
+    [google]
+  );
+
+  /** The cache this site's session uses, for Sign out (null: no global account here). */
+  const currentSlot = useCallback(() => (session ? targetRef.current.slot : null), [session]);
+
+  return {
+    restore,
+    openSheet,
+    sheet,
+    switcher,
+    forget,
+    backUp,
+    restoreIn,
+    continueGlobal,
+    currentSlot,
+  };
 }

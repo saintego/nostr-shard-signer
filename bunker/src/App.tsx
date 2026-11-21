@@ -34,6 +34,8 @@ import type { Custody, EvolustrSigner, ConfirmRequest, SignerPasskeys } from './
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { ErrorBanner } from './components/ErrorBanner';
 import { LoginView } from './components/LoginView';
+import type { GlobalLogin, Intent } from './lib/siteAccount';
+import { useSiteAccount } from './useSiteAccount'; // own-clientId sites (#83)
 import { NostrSignerCard } from './components/NostrSignerCard';
 import { AvatarView } from './components/AvatarView';
 import { ConfirmView } from './components/ConfirmView';
@@ -71,6 +73,7 @@ interface AppProps {
         protocol: number;
         poweredBy: boolean;
         nostrOnly: boolean;
+        globalLogin: GlobalLogin;
     };
 }
 
@@ -212,6 +215,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // Shared sign-in (#80): the widget's cache, or the global sign-in popup.
     const signerTab = useSignerTab(parentOrigin); // the signer in its own tab (#90)
     const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError, onSignOut: () => bridgeActionsRef.current.logout(), publishRelays, onBackedUp: () => setBackupAsk(false) });
+    const siteAccount = useSiteAccount({ parentOrigin, globalLogin: urlParams.globalLogin, global: sharedSignIn, onSiteOnly: onLoginSuccess, onCancel: () => { setView('login'); postToParent({ type: 'RESIZE', state: 'button' }); }, postToParent });
 
     const showNextConfirmation = useCallback(() => {
         const queue = confQueueRef.current;
@@ -700,8 +704,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             //   "rehydration_error" — sessionId missing/expired → show login
             // A 30 s safety timeout covers the case where none of these fire.
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const w3aAny = w3a as any;
+            const w3aAny = w3a as any; // Web3Auth internals (cachedConnector, events)
             const hasProvider = !!getProvider(w3a);
 
             console.log('[signer] session check: connected=%s provider=%s cachedConnector=%s connectedConnectorName=%s status=%s',
@@ -725,10 +728,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                     } catch (e) {
                         console.warn('[signer] resolveSession: getUserInfo failed', e);
                     }
-                    if (!cancelled) await onLoginSuccess(km, w3aProfile);
+                    if (!cancelled) await siteAccount.afterSiteLogin(km, w3aProfile, 'sign-in');
                 } catch (e) {
+                    // A "restored" session whose key call fails expired (C16): rule (B), else Sign in again.
                     console.error('[signer] resolveSession: extractKey failed', e);
-                    if (!cancelled) {
+                    if (!cancelled && !(await siteAccount.restoreWithoutSiteLogin())) {
                         setView('login');
                         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
                     }
@@ -749,6 +753,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const hasCachedSession = !!(w3aAny.cachedConnector || w3aAny.connectedConnectorName);
             if (!hasCachedSession) {
                 console.log('[signer] no cached session → show login');
+                if (await siteAccount.restoreWithoutSiteLogin()) return; // rule (B), #83
                 setView('login');
                 postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
                 return;
@@ -760,10 +765,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             // in 'loading' view until one of the events fires.
             const w3aEmitter = w3aAny;
 
-            console.log('[signer] cachedConnector=%s: waiting for auto-connect events',
-                (w3a as any).cachedConnector);
-            console.log('[signer] w3a event names currently registered:',
-                typeof w3aEmitter.eventNames === 'function' ? w3aEmitter.eventNames() : '(not an EventEmitter)');
 
             const cleanup = (safetyTimer: ReturnType<typeof setTimeout>) => {
                 clearTimeout(safetyTimer);
@@ -786,8 +787,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 console.warn('[signer] event: %s fired', eventName, err ?? '');
                 cleanup(safetyTimer);
                 if (cancelled) return;
-                setView('login');
-                postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
+                void siteAccount.restoreWithoutSiteLogin().then(ok => { if (!ok && !cancelled) { setView('login'); postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null }); } });
             };
 
             safetyTimer = setTimeout(() => {
@@ -816,7 +816,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     // ── Event handlers ────────────────────────────────────────────────────────
 
-    const handleConnect = useCallback(async () => {
+    const handleConnect = useCallback(async (intent: Intent = 'sign-in') => {
         if (shared) return sharedSignIn.openSheet();
         const w3a = web3authRef.current;
         if (!w3a) {
@@ -851,7 +851,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 const info = await w3a.getUserInfo();
                 w3aProfile = { name: info.name || undefined, picture: info.profileImage || undefined };
             } catch (_) { }
-            await onLoginSuccess(km, w3aProfile);
+            await siteAccount.afterSiteLogin(km, w3aProfile, intent);
         } catch (e) {
             // Revoked while the modal was open: the revocation already set the view.
             if (web3authRef.current !== w3a) return;
@@ -862,7 +862,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Login failed', msg, (e as Error).name === 'KEY_EXPORT_OFF' ? 'KEY_EXPORT_OFF' : 'LOGIN_FAILED');
             }
         }
-    }, [postToParent, onLoginSuccess, showError, nostrSigner, shared, sharedSignIn]);
+    }, [postToParent, showError, nostrSigner, shared, sharedSignIn, siteAccount]);
 
     // "Nostr signer or bunker" picked next to Web3Auth's sheet: the bridge opens
     // window.nostr.js on the parent page, and closing Web3Auth rejects connect(),
@@ -975,7 +975,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         }
         rejectAllConfirmations('Logged out');
         lockEvolustr();
-        await signOutOnThisSite(web3authRef.current, shared);
+        await signOutOnThisSite(web3authRef.current, sharedSignIn.currentSlot());
         sharedSignIn.forget();
         privateKeyRef.current?.fill(0); // zero the key material before dropping the reference
         privateKeyRef.current = null;
@@ -1054,8 +1054,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             />
         );
     }
-    if (sharedSignIn.sheet) return sharedSignIn.sheet;
-    if (view === 'login') return <LoginView onConnect={handleConnect} notice={setupError} />;
+    if (sharedSignIn.sheet || siteAccount.choice) return sharedSignIn.sheet ?? siteAccount.choice;
+    if (view === 'login') return <LoginView onConnect={() => handleConnect('sign-in')} onSignUp={!shared && clientId ? () => handleConnect('sign-up') : undefined} notice={setupError} />;
     // Web3Auth's modal is open and draws its own UI over the iframe; under that
     // sheet, offer the parent page's Nostr signer (if any) and link the library
     // (unless the host page turned the link off).

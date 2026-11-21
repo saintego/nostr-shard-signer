@@ -32,6 +32,7 @@ Use it when a Nostr web app should be easy to log in to for people with no Nostr
 - Legacy: auth and error events are also `message` events on `window` with `event.origin === ""`. If you listen to those, check the origin.
 - The bridge signs and encrypts only. Publishing to relays is the app's job (e.g. nostr-tools `SimplePool`).
 - With shared sign-in a user may have several identities on one site and switch between them in the widget: `onAuthChange` then fires with the new `pubkey`. Don't cache the pubkey beyond that, and leave `pubkey` out of `signEvent` (one for another identity is refused).
+- With your own `clientId`, the widget shows Sign up and Sign in; users choose an account only for your site or their global account (`globalLogin: "offer" | "off" | "require"`). Don't build your own chooser around it.
 - Pubkeys are hex, not npub. Convert with nostr-tools `nip19` if needed.
 - Never ask for or handle the user's nsec.
 - Google/Apple/X keys are scoped to the Web3Auth project: the same account gets a different npub under another `clientId` (shared sign-in is one more project), and Google, Apple and X give different keys. Never suggest changing the `clientId` of a live app, adding one to a live app that used shared sign-in, or removing it; OAuth users would get new, empty identities. Users can export their nsec from the widget's profile menu. The `clientId` owner can obtain OAuth users' keys (they control which sites may use the project); don't claim otherwise.

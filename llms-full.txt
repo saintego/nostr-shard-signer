@@ -141,6 +141,7 @@ Attributes map to the `init()` options: `data-client-id`, `data-nostr-only`, `da
 | --------------- | ----------------------------------- | ---------------------------------------------------- | ----- |
 | `clientId`      | string                              | none                                                 | Your Web3Auth client ID: Google/Apple/X with your project's keys. Without it, Google/Apple/X goes through shared sign-in (see section 1) |
 | `nostrOnly`     | boolean                             | `false`                                              | `true`: no Google/Apple/X, only extension / bunker sign-in; `clientId` is ignored |
+| `globalLogin`   | `"offer"` \| `"off"` \| `"require"` | `"offer"`                                            | With your own `clientId`: whether users may use their global account (same identities on every site; the signer's operator can open it, you can't) next to an account only for your site. `"off"`: only-for-this-site accounts; `"require"`: the global account only |
 | `bunkerOrigin`  | string (absolute URL)               | `https://saintego.github.io/nostr-shard-signer`      | Only for a self-hosted signer |
 | `forceIframe`   | boolean                             | `false`                                              | `true`: ignore an installed extension and don't offer bunkers; always use Web3Auth. Ignored with `nostrOnly` |
 | `layout`        | `"floating"` \| `"in-place"`        | `"floating"`                                         | Floating widget sits bottom-right |

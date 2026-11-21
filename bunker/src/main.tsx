@@ -13,6 +13,7 @@ import { TAB_PARAM } from './lib/signerTab';
 import { SignerTabView } from './components/SignerTabView';
 import './components/GlobalSignInPopup.css';
 import { resolveLocale } from './lib/i18n';
+import { parseGlobalLogin } from './lib/siteAccount';
 import { sweepGlobalSession } from './lib/web3authSession';
 import { LocaleContext } from './lib/useMessages';
 import './vendor/nostr-post-ui/ui.css';
@@ -37,6 +38,8 @@ const urlParams = {
     poweredBy: searchParams.get('poweredBy') !== '0',
     // "1" when the host page turned off shared sign-in (nostrOnly: true).
     nostrOnly: searchParams.get('nostrOnly') === '1',
+    // Own-clientId sites: whether to offer the global account (#73 D3, #83).
+    globalLogin: parseGlobalLogin(searchParams.get('globalLogin')),
 };
 
 // The passkey popup (src/lib/passkeyPopup.ts) is this same page, top-level.
