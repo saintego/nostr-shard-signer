@@ -81,6 +81,21 @@ export async function openGlobalList(
           { onComplete }
         )
       ),
+    addStored: (secretKeyHex, pubkey, createdOn, label) =>
+      done((onComplete) =>
+        evolu.insert(
+          'identity',
+          {
+            derivationIndex: null,
+            storedKey: secretKeyHex,
+            pubkey: NonEmptyTrimmedString100.orThrow(pubkey),
+            label,
+            createdOn: canonicalOrigin(createdOn),
+            usedElsewhere: DateIso.orThrow(new Date().toISOString()),
+          },
+          { onComplete }
+        )
+      ),
     pair: async (pubkey, origin) => {
       const o = canonicalOrigin(origin);
       const pairs = await evolu.loadQuery(pairingsQuery);

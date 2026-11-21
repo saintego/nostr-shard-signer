@@ -976,7 +976,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         rejectAllConfirmations('Logged out');
         lockEvolustr();
         await signOutOnThisSite(web3authRef.current, sharedSignIn.currentSlot());
-        sharedSignIn.forget();
+        sharedSignIn.forget(); siteAccount.forget();
         privateKeyRef.current?.fill(0); // zero the key material before dropping the reference
         privateKeyRef.current = null;
         setKeyInfo(null);
@@ -1137,7 +1137,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 onAutoApproveChange={handleAutoApproveChange}
                 onClose={() => setView('avatar')}
                 onOpenTab={signerTab.open}
-                identitySection={sharedSignIn.switcher}
+                identitySection={sharedSignIn.switcher ?? siteAccount.bringOver}
                 evolustrSection={
                     <EvolustrSettings
                         status={evolustrStatus}

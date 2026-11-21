@@ -28,16 +28,23 @@ export interface GlobalRequest {
   readonly active?: string;
   /** Own-clientId sites: this site login's marker address (D7), derived in the iframe. */
   readonly markerAddress?: string;
+  /**
+   * "Use this account on other sites" (D9): the site-only account's key, sent
+   * only with that intent, from the user's click; it becomes a stored identity.
+   */
+  readonly siteKey?: string;
 }
 
-export type GlobalIntent = 'sign-in' | 'backup';
+export type GlobalIntent = 'sign-in' | 'backup' | 'bring-over';
 
 /** What the widget may pass along (choices, not data the popup trusts). */
 export interface GlobalOptions {
   readonly intent?: GlobalIntent;
   readonly active?: string;
-  /** Own-clientId sites: the marker's `d` tag (never the site login key, update 2). */
+  /** Own-clientId sites: the marker's `d` tag (the site login key itself only with 'bring-over'). */
   readonly markerAddress?: string;
+  /** 'bring-over' only: the site-only account's key (D9). */
+  readonly siteKey?: string;
 }
 
 /** What the widget gets back. */
@@ -167,11 +174,12 @@ export function checkOpener(opener: Window | null, site: string, signerPath: str
 const isHex64 = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
 
 /** The widget's choices, checked field by field (anything else is dropped). */
-function parseOptions(d: Partial<GlobalRequest>): GlobalOptions {
+export function parseOptions(d: Partial<GlobalRequest>): GlobalOptions {
   return {
-    ...(d.intent === 'backup' ? { intent: 'backup' as const } : {}),
+    ...(d.intent === 'backup' || d.intent === 'bring-over' ? { intent: d.intent } : {}),
     ...(isHex64(d.active) ? { active: d.active } : {}),
     ...(isHex64(d.markerAddress) ? { markerAddress: d.markerAddress } : {}),
+    ...(d.intent === 'bring-over' && isHex64(d.siteKey) ? { siteKey: d.siteKey } : {}),
   };
 }
 

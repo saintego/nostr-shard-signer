@@ -40,8 +40,12 @@ export function RestoreIdentities({ root, identities, onExported }: Props) {
                 </span>
               )}
             </span>
-            {i.index !== null && (
-              <ExportKey root={root} index={i.index} onShown={() => onExported(i)} />
+            {(i.index !== null || i.storedKey) && (
+              <ExportKey
+                root={root}
+                which={i.index !== null ? i.index : { storedKey: i.storedKey ?? '' }}
+                onShown={() => onExported(i)}
+              />
             )}
           </li>
         ))}
@@ -52,11 +56,11 @@ export function RestoreIdentities({ root, identities, onExported }: Props) {
 
 function ExportKey({
   root,
-  index,
+  which,
   onShown,
 }: {
   root: Uint8Array;
-  index: number;
+  which: number | { readonly storedKey: string };
   onShown: () => void;
 }) {
   const m = useMessages(restoreMessages);
@@ -65,7 +69,7 @@ function ExportKey({
   const [key, setKey] = useState('');
   const [copied, setCopied] = useState(false);
   const show = async (withPassword: boolean) => {
-    setKey(await exportIdentity(root, index, withPassword ? password : undefined));
+    setKey(await exportIdentity(root, which, withPassword ? password : undefined));
     onShown();
   };
   if (!open)

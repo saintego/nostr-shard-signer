@@ -31,7 +31,7 @@ type State =
   | { step: 'working'; site: string }
   | { step: 'account'; site: string; account: GlobalAccount; profile: NewProfile | null }
   | { step: 'failed'; site: string; reason: string }
-  | { step: 'done'; site: string };
+  | { step: 'done'; site: string; broughtOver?: boolean };
 
 /** The sign-in account's name and picture, offered for new identities (D15). */
 const profileOf = (info: { name?: string; profileImage?: string } | null): NewProfile | null =>
@@ -123,6 +123,19 @@ export function GlobalSignInPopupView() {
     }
   };
 
+  /** D9: the site-only account becomes a stored identity; the widget is told, then the window closes. */
+  const bringOver = async (site: string, account: GlobalAccount, siteKey: string) => {
+    try {
+      await account.addStored(siteKey);
+      replyRef.current?.({ error: 'BROUGHT_OVER' });
+      setState({ step: 'done', site, broughtOver: true });
+      setTimeout(() => window.close(), 2500);
+    } finally {
+      accountRef.current = null;
+      await account.close();
+    }
+  };
+
   const signIn = async (site: string, provider: Provider) => {
     setState({ step: 'working', site });
     const previous = accountRef.current; // a retry after a failure
@@ -144,9 +157,12 @@ export function GlobalSignInPopupView() {
         accountDeps(optionsRef.current)
       );
       accountRef.current = account;
+      const { intent, siteKey } = optionsRef.current;
+      // "Use this account on other sites" (D9): stored, and the window closes.
+      if (intent === 'bring-over' && siteKey) return await bringOver(site, account, siteKey);
       const first = account.list[0];
       // A first sign-in: identity 0, straight away (D8: Welcome back only for an existing account).
-      if (account.isNew && first && optionsRef.current.intent !== 'backup') {
+      if (account.isNew && first && intent !== 'backup') {
         await account.pair(first.pubkey);
         return await finish(site, first.pubkey);
       }
@@ -238,7 +254,9 @@ export function GlobalSignInPopupView() {
           </>
         )}
         {state.step === 'done' && (
-          <p className="np-message np-success">{format(m.done, { site })}</p>
+          <p className="np-message np-success">
+            {format(state.broughtOver ? m.broughtOver : m.done, { site })}
+          </p>
         )}
       </>
     );

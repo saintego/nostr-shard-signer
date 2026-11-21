@@ -14,6 +14,8 @@ export const globalSignInMessages = defineMessages('globalSignIn', {
   waiting: 'Connecting to the site…',
   working: 'Signing in…',
   done: 'Done. You can go back to {site}.',
+  broughtOver:
+    'Your account from {site} is now in your global account. On other sites, pair it from “Welcome back”.',
   close: 'Close',
   retry: 'Try again',
   failed: 'Sign-in failed: {reason}',

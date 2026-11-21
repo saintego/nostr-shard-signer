@@ -22,6 +22,7 @@ import {
   saveSiteCache,
 } from './siteCache';
 import { activeIdentity, withActive } from './siteGrant';
+import { markUsedElsewhere } from './trustCheck';
 import type { KeyMaterial } from './web3auth';
 import { endSession, SITE_SESSION } from './web3authSession';
 
@@ -111,6 +112,24 @@ export function signInGlobally(
     }
     return backedUp ? { ...session(cache), backedUp } : session(cache);
   });
+}
+
+/**
+ * "Use this account on other sites" (D9): opens the popup (call from the
+ * click) and sends it this site-only account's key, which becomes a stored
+ * identity of the global account. Resolves when the popup says it's done; the
+ * account is then marked "used elsewhere" here too (D13).
+ */
+export function bringOverGlobally(site: string, siteKeyHex: string, pubkey: string): Promise<void> {
+  const popup = openGlobalPopup();
+  if (!popup) return Promise.reject(new Error('POPUP_BLOCKED'));
+  return awaitGlobalResult(popup, site, { intent: 'bring-over', siteKey: siteKeyHex }).then(
+    () => markUsedElsewhere(pubkey),
+    (e: unknown) => {
+      if ((e as Error)?.message !== 'BROUGHT_OVER') throw e;
+      markUsedElsewhere(pubkey);
+    }
+  );
 }
 
 /**

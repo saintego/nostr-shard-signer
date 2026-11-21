@@ -7,6 +7,8 @@ export interface ListedIdentity {
   readonly pubkey: string;
   /** Derivation index; null for stored identities (D9). */
   readonly index: number | null;
+  /** Stored identities (D9): the hex secret key, kept under the root; null for derived ones. */
+  readonly storedKey: string | null;
   readonly label: string | null;
   /** Canonical origin where it was created. */
   readonly createdOn: string | null;
@@ -18,6 +20,8 @@ export interface ListedIdentity {
 export interface IdentityRow {
   readonly pubkey: string | null;
   readonly derivationIndex: number | null;
+  /** Optional in old rows and tests: absent means derived. */
+  readonly storedKey?: string | null;
   readonly label: string | null;
   readonly createdOn: string | null;
   readonly usedElsewhere: string | null;
@@ -43,6 +47,7 @@ export function buildList(
     byPubkey.set(r.pubkey, {
       pubkey: r.pubkey,
       index: had?.index ?? r.derivationIndex,
+      storedKey: had?.storedKey ?? r.storedKey ?? null,
       label: had?.label ?? r.label,
       createdOn: had?.createdOn ?? r.createdOn,
       usedElsewhere: (had?.usedElsewhere ?? false) || r.usedElsewhere !== null,
@@ -85,6 +90,13 @@ export interface GlobalList {
   readonly load: () => Promise<ListedIdentity[]>;
   readonly addDerived: (
     index: number,
+    pubkey: string,
+    createdOn: string,
+    label: string | null
+  ) => Promise<void>;
+  /** A stored identity (D9: brought over or imported), marked "used elsewhere" from the start. */
+  readonly addStored: (
+    secretKeyHex: string,
     pubkey: string,
     createdOn: string,
     label: string | null

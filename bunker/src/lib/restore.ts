@@ -42,21 +42,27 @@ export async function restoredIdentities(
         index,
         label: null,
         createdOn: null,
+        storedKey: null,
         usedElsewhere: false,
         sites: [],
       }
     );
   }
+  // Stored identities (D9): brought over or imported; their keys are in the list.
+  for (const i of list) if (i.index === null && i.storedKey) out.push(i);
   return out;
 }
 
 /** An identity's key to import into another signer: NIP-49 with a password, else nsec. */
 export async function exportIdentity(
   root: Uint8Array,
-  index: number,
+  which: number | { readonly storedKey: string },
   password?: string
 ): Promise<string> {
-  const k = await deriveIdentity(root, index);
+  const k =
+    typeof which === 'number'
+      ? await deriveIdentity(root, which)
+      : Uint8Array.from(which.storedKey.match(/../g) ?? [], (x) => Number.parseInt(x, 16));
   try {
     return password ? nip49Encrypt(k, password, 16, 0x02) : nsecEncode(k);
   } finally {

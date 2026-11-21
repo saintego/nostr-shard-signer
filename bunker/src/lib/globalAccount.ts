@@ -64,6 +64,12 @@ export interface GlobalAccount {
   readonly siteMarker: () => Promise<string | undefined>;
   /** Leaving the global account on this site: a newer "unpaired" marker, published (D7). */
   readonly leaveSite: () => Promise<void>;
+  /**
+   * "Use this account on other sites" (D9): a site-only account's key becomes
+   * a stored identity, marked "used elsewhere", created on this site and not
+   * paired with it (its own site keeps using the site login). Its pubkey.
+   */
+  readonly addStored: (secretKeyHex: string) => Promise<string>;
   /** Waits for the list to sync, then wipes the root. */
   readonly close: () => Promise<void>;
 }
@@ -153,6 +159,7 @@ export async function openGlobalAccount(
         index,
         label,
         createdOn: origin,
+        storedKey: null,
         usedElsewhere: false,
         sites: [origin],
       }
@@ -166,7 +173,15 @@ export async function openGlobalAccount(
   if (current.length === 0) {
     const pubkey0 = await pubkeyOf(0);
     current = [
-      { pubkey: pubkey0, index: 0, label: null, createdOn: null, usedElsewhere: false, sites: [] },
+      {
+        pubkey: pubkey0,
+        index: 0,
+        storedKey: null,
+        label: null,
+        createdOn: null,
+        usedElsewhere: false,
+        sites: [],
+      },
     ];
   }
 
@@ -195,14 +210,19 @@ export async function openGlobalAccount(
     },
     create,
     grant: async (activePubkey) => {
-      const chosen = pairedWith(current, origin).filter((i) => i.index !== null);
+      const chosen = pairedWith(current, origin).filter(
+        (i) => i.index !== null || i.storedKey !== null
+      );
       if (!chosen.some((i) => i.pubkey === activePubkey))
         throw new Error('That identity is not paired with this site');
-      // TODO(#83): stored identities (imported or brought over, D9) once they can be created.
       return grantFromRoot(
         root,
         origin,
-        chosen.map((i) => ({ index: i.index as number, label: i.label })),
+        chosen.map((i) =>
+          i.storedKey !== null
+            ? { storedKey: i.storedKey, label: i.label }
+            : { index: i.index as number, label: i.label }
+        ),
         activePubkey
       );
     },
@@ -213,6 +233,14 @@ export async function openGlobalAccount(
       if (!address) return undefined;
       if (marker?.status === 'paired') return JSON.stringify(marker.event);
       return writeMarker('paired');
+    },
+    addStored: async (secretKeyHex) => {
+      const pubkey = getPublicKey(
+        Uint8Array.from(secretKeyHex.match(/../g) ?? [], (x) => Number.parseInt(x, 16))
+      );
+      if (!find(pubkey)) await list.addStored(secretKeyHex, pubkey, origin, null);
+      await reload();
+      return pubkey;
     },
     leaveSite: async () => {
       await writeMarker('unpaired');

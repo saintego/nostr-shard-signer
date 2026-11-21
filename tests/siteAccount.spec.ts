@@ -161,6 +161,7 @@ function fakeList(rows: IdentityRow[] = [], pairs: PairingRow[] = []): GlobalLis
     pair: async (pubkey, origin) => {
       st.pairs.push({ origin, identityPubkey: pubkey });
     },
+    addStored: async () => {},
     unpair: async () => {},
     markUsedElsewhere: async () => {},
     close: async () => 'Synced',
@@ -246,4 +247,70 @@ test('shared-sign-in sites: no marker address, no marker', async () => {
   const account = await openGlobalAccount(bytes(v.globalLoginKey), SITE, shared);
   expect(account.markerStatus).toBeNull();
   expect(await account.siteMarker()).toBeUndefined();
+});
+
+// ── D9: bringing a site-only account to other sites ──────────────────────────
+
+test('D9: a brought-over account becomes a stored identity, not paired with its own site, and other sites get its key', async () => {
+  const { parseOptions } = await import('../bunker/src/lib/globalPopup.ts');
+  const { restoredIdentities } = await import('../bunker/src/lib/restore.ts');
+  const siteKey = Buffer.from(generateSecretKey()).toString('hex');
+  // The popup accepts the key only with the bring-over intent.
+  expect(parseOptions({ intent: 'bring-over', siteKey }).siteKey).toBe(siteKey);
+  expect(parseOptions({ intent: 'sign-in', siteKey } as never).siteKey).toBeUndefined();
+  expect(parseOptions({ siteKey }).siteKey).toBeUndefined();
+
+  const rows: IdentityRow[] = [
+    {
+      pubkey: v.identities[0].pubkey,
+      derivationIndex: 0,
+      label: null,
+      createdOn: SITE,
+      usedElsewhere: null,
+    },
+  ];
+  const pairs: PairingRow[] = [];
+  const list: GlobalList = {
+    ...fakeList(),
+    load: async () => buildList(rows, pairs),
+    addStored: async (secretKeyHex, pubkey, createdOn, label) => {
+      rows.push({
+        pubkey,
+        derivationIndex: null,
+        storedKey: secretKeyHex,
+        label,
+        createdOn,
+        usedElsewhere: '2026-01-01T00:00:00.000Z',
+      });
+    },
+    pair: async (pubkey, origin) => {
+      pairs.push({ origin, identityPubkey: pubkey });
+    },
+  };
+  const deps: AccountDeps = {
+    openList: async () => list,
+    query: async () => [],
+    publish: async () => {},
+  };
+  const onSiteA = await openGlobalAccount(bytes(v.globalLoginKey), SITE, deps);
+  const pubkey = await onSiteA.addStored(siteKey);
+  const stored = onSiteA.list.find((i) => i.pubkey === pubkey);
+  expect(stored?.index).toBeNull();
+  expect(stored?.usedElsewhere).toBe(true);
+  expect(stored?.createdOn).toBe(SITE);
+  expect(onSiteA.paired).toEqual([]); // its own site keeps using the site login
+  // Adding it twice keeps one entry.
+  await onSiteA.addStored(siteKey);
+  expect(onSiteA.list.filter((i) => i.pubkey === pubkey)).toHaveLength(1);
+
+  // On another site it pairs like any identity, and the site gets its key.
+  const onSiteB = await openGlobalAccount(bytes(v.globalLoginKey), 'https://b.example', deps);
+  await onSiteB.pair(pubkey);
+  const grant = await onSiteB.grant(pubkey);
+  expect(grant.identities.map((i) => [i.pubkey, i.secretKey])).toEqual([[pubkey, siteKey]]);
+
+  // /restore lists it and exports its key.
+  const root = await deriveRoot(bytes(v.globalLoginKey));
+  const listed = await restoredIdentities(root, 1, onSiteB.list);
+  expect(listed.map((i) => i.pubkey)).toContain(pubkey);
 });

@@ -51,6 +51,25 @@ function saveRecords(pubkey: string, records: Records): void {
   }
 }
 
+const usedElsewhereKey = (pubkey: string) => `nss_used_elsewhere:${pubkey}`;
+
+/** This identity's key also lives elsewhere (D9, D13: brought over from this site); it asks more. */
+export function markUsedElsewhere(pubkey: string): void {
+  try {
+    localStorage.setItem(usedElsewhereKey(pubkey), '1');
+  } catch {
+    // storage blocked
+  }
+}
+
+export function isMarkedUsedElsewhere(pubkey: string): boolean {
+  try {
+    return localStorage.getItem(usedElsewhereKey(pubkey)) === '1';
+  } catch {
+    return false;
+  }
+}
+
 /** Whether the user trusts this site with this identity's replaceable data (D13, "Trusted"). */
 export const isTrusted = (pubkey: string): boolean => loadRecords(pubkey).trusted === true;
 
@@ -243,7 +262,7 @@ export async function decideRequest(
     autoApproveKinds: deps.autoApproveKinds,
     isProtected: isProtectedEvent({ kind: evt.kind, tags: evt.tags as string[][] }),
     isAllowedUpload: isAllowedUpload(evt.tags),
-    usedElsewhere: deps.usedElsewhere ?? false,
+    usedElsewhere: deps.usedElsewhere ?? isMarkedUsedElsewhere(deps.pubkey),
     trusted: records.trusted === true,
     current,
     lastSignedId: records.lastSigned[address],

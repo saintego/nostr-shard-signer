@@ -4,10 +4,12 @@
 // asks, or it offers "Continue with your global account". Without a site
 // session, rule (B) opens the last login's cache for 7 days.
 import { createElement, useCallback, useState } from 'react';
+import { BringOver } from './components/BringOver';
 import { type ChoiceStep, SiteAccountChoice } from './components/SiteAccountChoice';
 import { deriveMarkerAddress } from './lib/derive';
 import { markerFilter, markerHint } from './lib/marker';
 import { queryRelays } from './lib/relayPublish';
+import { bringOverGlobally } from './lib/sharedSignIn';
 import {
   type DeviceAnswer,
   decideAfterSiteLogin,
@@ -69,6 +71,8 @@ const targetOf = (p: { hash: string; address: string }): GlobalTarget => ({
   markerAddress: p.address,
 });
 
+const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+
 export function useSiteAccount({
   parentOrigin,
   globalLogin,
@@ -78,6 +82,8 @@ export function useSiteAccount({
   postToParent,
 }: Deps) {
   const [pending, setPending] = useState<Pending | null>(null);
+  // The site-only account in use, for "Use this account on other sites" (D9).
+  const [siteOnly, setSiteOnly] = useState<KeyMaterial | null>(null);
 
   /** Acts on a decision for this site login. */
   const proceed = useCallback(
@@ -86,6 +92,7 @@ export function useSiteAccount({
       if (next.next === 'site-only') {
         setPending(null);
         saveAnswer(p.hash, remember(p.answer, { kind: 'site' }));
+        setSiteOnly(p.km);
         return onSiteOnly(p.km, p.profile);
       }
       const step: ChoiceStep =
@@ -163,5 +170,17 @@ export function useSiteAccount({
       })
     : null;
 
-  return { afterSiteLogin, restoreWithoutSiteLogin, choice };
+  const bringOver =
+    siteOnly && globalLogin !== 'off'
+      ? createElement(BringOver, {
+          site: hostOf(parentOrigin),
+          onBringOver: () =>
+            bringOverGlobally(parentOrigin, toHex(siteOnly.privateKeyBytes), siteOnly.publicKeyHex),
+        })
+      : null;
+
+  /** Signed out on this site. */
+  const forget = useCallback(() => setSiteOnly(null), []);
+
+  return { afterSiteLogin, restoreWithoutSiteLogin, choice, bringOver, forget };
 }

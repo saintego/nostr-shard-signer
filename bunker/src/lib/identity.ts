@@ -34,11 +34,13 @@ export async function sharedIdentity(login: KeyMaterial, index = 0): Promise<Key
 }
 
 /** An identity to hand a site: derived (by index) and its label. */
-export interface ChosenIdentity {
-  readonly index: number;
-  readonly label: string | null;
-}
+/** An identity to hand a site: derived (by index) or stored (D9: its key), and its label. */
+export type ChosenIdentity =
+  | { readonly index: number; readonly label: string | null }
+  | { readonly storedKey: string; readonly label: string | null };
 
+const hexToBytes = (h: string) =>
+  Uint8Array.from(h.match(/../g) ?? [], (x) => Number.parseInt(x, 16));
 const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 
 /**
@@ -54,9 +56,14 @@ export async function grantFromRoot(
 ): Promise<SiteGrant> {
   if (identities.length === 0) throw new Error('No identity for this site');
   const granted = [];
-  for (const { index, label } of identities) {
-    const key = await deriveIdentity(root, index);
-    granted.push({ secretKey: toHex(key), pubkey: getPublicKey(key), label });
+  for (const chosen of identities) {
+    if ('storedKey' in chosen) {
+      const pubkey = getPublicKey(hexToBytes(chosen.storedKey));
+      granted.push({ secretKey: chosen.storedKey, pubkey, label: chosen.label });
+      continue;
+    }
+    const key = await deriveIdentity(root, chosen.index);
+    granted.push({ secretKey: toHex(key), pubkey: getPublicKey(key), label: chosen.label });
     key.fill(0);
   }
   const storeKey = await deriveStoreKey(root, site);
