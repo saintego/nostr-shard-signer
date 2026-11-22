@@ -1035,9 +1035,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         if (keyInfo) snoozeBackupPrompt(keyInfo.publicKeyHex);
         setBackupAsk(false);
     }, [keyInfo]);
-
     // ── Render ─────────────────────────────────────────────────────────────────
 
+    if (siteAccount.choice) return siteAccount.choice; // #83: asked while the view is still 'loading'
     if (view === 'loading') return <LoadingOverlay />;
     if (view === 'error' && error) {
         return (
@@ -1054,7 +1054,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             />
         );
     }
-    if (sharedSignIn.sheet || siteAccount.choice) return sharedSignIn.sheet ?? siteAccount.choice;
+    if (sharedSignIn.sheet) return sharedSignIn.sheet;
     if (view === 'login') return <LoginView onConnect={() => handleConnect('sign-in')} onSignUp={!shared && clientId ? () => handleConnect('sign-up') : undefined} notice={setupError} />;
     // Web3Auth's modal is open and draws its own UI over the iframe; under that
     // sheet, offer the parent page's Nostr signer (if any) and link the library
