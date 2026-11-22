@@ -108,7 +108,11 @@ export async function extractKey(web3auth: Web3Auth): Promise<KeyMaterial> {
   if (!provider) throw new Error('No provider after login');
 
   // provider.request is typed for Ethereum methods; "private_key" is Web3Auth's own.
-  const request = provider.request as (args: { method: string }) => Promise<unknown>;
+  // Bound: Web3Auth's request reads `this.provider`, so a detached call fails
+  // with "Cannot read properties of undefined (reading 'provider')".
+  const request = (provider.request as (args: { method: string }) => Promise<unknown>).bind(
+    provider
+  );
   const rawKey = await request({ method: 'private_key' }).catch((e: unknown) => {
     throw keyExportError(e);
   });
