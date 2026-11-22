@@ -76,6 +76,12 @@ jobs:
       - name: Assemble site
         run: |
           scripts/assemble-site.sh _preview/nostr-shard-signer
+          # The minimal example loads the hosted bridge and signer; on a preview
+          # it should try this build instead (#96).
+          ex=_preview/nostr-shard-signer/examples/minimal.html
+          sed -i -e 's#src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"#src="/nostr-shard-signer/nostr-bridge.js"#' \
+            -e 's#await NostrBridge.init()#await NostrBridge.init({ bunkerOrigin: location.origin + "/nostr-shard-signer" })#' "$ex"
+          grep -q 'src="/nostr-shard-signer/nostr-bridge.js"' "$ex" && grep -q 'bunkerOrigin: location.origin' "$ex"
           echo "/ /nostr-shard-signer/portal/ 302" > _preview/_redirects
 
       - name: Create Pages project if missing
