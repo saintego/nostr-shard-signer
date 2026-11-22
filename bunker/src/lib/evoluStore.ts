@@ -36,6 +36,8 @@ const IdentityId = id('Identity');
 const PairedSiteId = id('PairedSite');
 const SiteIdentityId = id('SiteIdentity');
 const SettingId = id('Setting');
+const LinkId = id('Link');
+const EnvelopeId = id('Envelope');
 
 /** The global list. */
 export const globalSchema = {
@@ -57,6 +59,31 @@ export const globalSchema = {
     origin: NonEmptyTrimmedString100,
     identityPubkey: NonEmptyTrimmedString100,
   },
+  /**
+   * A linked sign-in (D25, #98): what unlinking needs without that login
+   * (its pointer key and envelope owner, hex), and what the UI shows.
+   */
+  link: {
+    id: LinkId,
+    provider: NonEmptyTrimmedString100,
+    masked: EvoluString,
+    /** 'full' or 'restricted' (JSON list of pubkeys for restricted). */
+    scope: EvoluString,
+    pointerPubkey: NonEmptyTrimmedString100,
+    pointerKey: EvoluString,
+    pointerD: EvoluString,
+    envelopeOwner: EvoluString,
+    version: NonNegativeInt,
+    /** The last pointer event (JSON), re-sent at each global sign-in (review 8, item 9). */
+    pointerEvent: EvoluString,
+    linkedAt: DateIso,
+    unlinkedAt: nullOr(DateIso),
+  },
+} as const;
+
+/** A linked sign-in's own database: copies of its envelope (D25), under an owner only it (and the root) can open. */
+export const envelopeSchema = {
+  envelope: { id: EnvelopeId, content: EvoluString },
 } as const;
 
 /** One site's store. */
@@ -136,6 +163,9 @@ export const openGlobalStore = (ownerSecret: Uint8Array, options: StoreOptions =
 
 export const openSiteStore = (ownerSecret: Uint8Array, options: StoreOptions = {}) =>
   run.ok(createEvolu(siteSchema, config('site', ownerSecret, options)));
+
+export const openEnvelopeStore = (ownerSecret: Uint8Array, options: StoreOptions = {}) =>
+  run.ok(createEvolu(envelopeSchema, config('envelope', ownerSecret, options)));
 
 export const openSettingsStore = (ownerSecret: Uint8Array, options: StoreOptions = {}) =>
   run.ok(createEvolu(settingsSchema, config('settings', ownerSecret, options)));

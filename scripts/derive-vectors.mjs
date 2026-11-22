@@ -55,6 +55,13 @@ const vectors = LOGIN_KEYS.map((loginHex) => {
       markerAddress: { siteLoginKey: SITE_LOGIN_KEY, d: hex(hkdf(Buffer.from(SITE_LOGIN_KEY, "hex"), P + "marker-address/" + canonical)) },
     })),
     globalStoreKey: hex(hkdf(root, P + "global-store")),
+    // D25: keys of a linked sign-in, from that login's key (the global login key stands in here).
+    linked: {
+      envelopeKey: hex(hkdf(login, P + "envelope")),
+      envelopeOwner: hex(hkdf(login, P + "envelope-owner")),
+      pointerKey: withPub(secret(login, P + "pointer")),
+      pointerD: hex(hkdf(login, P + "pointer-d")),
+    },
     counterKey: withPub(secret(root, P + "counter")),
     configKey: withPub(secret(root, P + "config")),
     backupKey: hex(hkdf(root, P + "backup")),

@@ -111,6 +111,15 @@
         }
       ],
       "globalStoreKey": "cbf47ca9632165e53ff02886f83afe57e10ac73ca5d9a363e99968b444043fc5",
+      "linked": {
+        "envelopeKey": "c86288cf05f77e6ebef9104adb6e4e90cc64fc270a2d3a3326f2dbb688877e89",
+        "envelopeOwner": "adb5051145a1b51a46deeb66f975b85da4a69d1486153bb468b065ef359a3e62",
+        "pointerKey": {
+          "secret": "cdb1839f198b6c69a1ef3c10957c547329e754b3a39956522af2466f63b8893e",
+          "pubkey": "b62453c8d1336cd5937d377b2f4f393587a53e157c716990fb61cdfc8f200b6f"
+        },
+        "pointerD": "ef11cf4e938a8acbfba5ea2f377bae88f0e8e0327dcca582a985625e57df41f2"
+      },
       "counterKey": {
         "secret": "20f832f12d725a87fa042510d40967abaa3893b23904e28edb90009ae27f68c8",
         "pubkey": "0209f74adbab168afcb8b011651416083a2a239999815d5cab8b76b57e566645"
@@ -234,6 +243,15 @@
         }
       ],
       "globalStoreKey": "1294d0ed981e5ca4c92773a50d5b1d540d8788892cec52a6a9c3e5a43d3ad000",
+      "linked": {
+        "envelopeKey": "6c767558ad8f9bc24263993244818489c6fc5a7524bba01d9fc130b5b9aee51c",
+        "envelopeOwner": "5904aba409635b03973313f7215a3a56973d0fe96ca65552dd4e869941f1486b",
+        "pointerKey": {
+          "secret": "fa50bb6a7a056befd7e8495fb5e283a3962a5722c6781b4516832921a4d451cb",
+          "pubkey": "d949bfc5ff0fd191462a88b0ff8cbbdc597e8ecf28b7fc15785bdcbf546ba6bf"
+        },
+        "pointerD": "f10bf0f80e505511e0d1b6a4790af900c64714e7616a1912a96b1d958344e4dc"
+      },
       "counterKey": {
         "secret": "3325ac80f568cb8f01d54368178b925d9ee1508c14ea0865bd3c62ad58178858",
         "pubkey": "9a183ba93f0a8be2e64fcc4108eef4d5ed5d3e56ccc9d41ca5abb4dae8501588"

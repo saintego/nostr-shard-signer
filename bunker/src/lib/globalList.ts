@@ -15,7 +15,13 @@ import {
 } from '@evolu/common';
 import { canonicalOrigin, deriveGlobalStoreKey } from './derive';
 import { globalSchema, openGlobalStore, waitForSync } from './evoluStore';
-import { buildList, type GlobalList, type SyncResult } from './globalListModel';
+import {
+  buildList,
+  type GlobalList,
+  linkFromRow,
+  newestLinks,
+  type SyncResult,
+} from './globalListModel';
 
 // ── Evolu ─────────────────────────────────────────────────────────────────────
 
@@ -30,6 +36,26 @@ const pairingsQuery = query((db) =>
   db
     .selectFrom('pairedSite')
     .select(['id', 'origin', 'identityPubkey'])
+    .where('isDeleted', 'is not', sqliteTrue)
+);
+
+const linksQuery = query((db) =>
+  db
+    .selectFrom('link')
+    .select([
+      'id',
+      'provider',
+      'masked',
+      'scope',
+      'pointerPubkey',
+      'pointerKey',
+      'pointerD',
+      'envelopeOwner',
+      'version',
+      'pointerEvent',
+      'linkedAt',
+      'unlinkedAt',
+    ])
     .where('isDeleted', 'is not', sqliteTrue)
 );
 
@@ -121,6 +147,27 @@ export async function openGlobalList(
           evolu.update('pairedSite', { id: p.id, isDeleted: sqliteTrue }, { onComplete })
         );
     },
+    links: async () => newestLinks((await evolu.loadQuery(linksQuery)).map(linkFromRow)),
+    saveLink: (link) =>
+      done((onComplete) =>
+        evolu.insert(
+          'link',
+          {
+            provider: NonEmptyTrimmedString100.orThrow(link.provider),
+            masked: link.masked,
+            scope: link.scope === 'full' ? 'full' : JSON.stringify(link.scope),
+            pointerPubkey: NonEmptyTrimmedString100.orThrow(link.pointerPubkey),
+            pointerKey: link.pointerKey,
+            pointerD: link.pointerD,
+            envelopeOwner: link.envelopeOwner,
+            version: NonNegativeInt.orThrow(link.version),
+            pointerEvent: link.pointerEvent,
+            linkedAt: DateIso.orThrow(link.linkedAt),
+            unlinkedAt: link.unlinkedAt ? DateIso.orThrow(link.unlinkedAt) : null,
+          },
+          { onComplete }
+        )
+      ),
     markUsedElsewhere: async (pubkey, index) => {
       const usedElsewhere = DateIso.orThrow(new Date().toISOString());
       const rows = (await evolu.loadQuery(identitiesQuery)).filter((r) => r.pubkey === pubkey);
