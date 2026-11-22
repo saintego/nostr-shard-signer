@@ -11,6 +11,11 @@ const dist = path.join(root, "bunker/dist");
 // the signer (with nostr-bridge.js next to it) and the app embedding it.
 export const SIGNER_ORIGIN = "http://signer.test";
 export const BUNKER = SIGNER_ORIGIN + "/nostr-shard-signer";
+// The same signer over https: a secure context without browser flags, for
+// pages that need WebCrypto at top level (/restore). The headless shell CI
+// uses ignores --unsafely-treat-insecure-origin-as-secure.
+export const SECURE_SIGNER_ORIGIN = "https://signer.test";
+export const SECURE_BUNKER = SECURE_SIGNER_ORIGIN + "/nostr-shard-signer";
 export const APP = "http://app.test";
 // An app on localhost: the signer gives app keys (Evolustr) only to https: or
 // http://localhost pages, so prompts can be tested offline.
@@ -53,7 +58,7 @@ export const test = base.extend({
   context: async ({ context, pages, bridgePatch }, use) => {
     await context.route("**/*", async (route) => {
       const url = new URL(route.request().url());
-      if (url.origin === SIGNER_ORIGIN) {
+      if (url.origin === SIGNER_ORIGIN || url.origin === SECURE_SIGNER_ORIGIN) {
         const p = url.pathname.replace(/^\/nostr-shard-signer/, "");
         // Test pages on the signer's origin: pages.set("signer:/path", html).
         if (pages.has("signer:" + p))

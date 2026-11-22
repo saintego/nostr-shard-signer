@@ -4,14 +4,15 @@
 import { readFileSync } from 'node:fs';
 import { nsecEncode } from 'nostr-tools/nip19';
 import { buildBackupFile } from '../bunker/src/lib/backupFile.ts';
-import { BUNKER, blankPage, expect, test } from './fixtures.js';
+import { blankPage, expect, SECURE_BUNKER, test } from './fixtures.js';
 
 const vectors = JSON.parse(
   readFileSync(new URL('../bunker/src/lib/derive.vectors.json', import.meta.url), 'utf8')
 );
 const v = vectors.vectors[0];
 const bytes = (h: string) => new Uint8Array(Buffer.from(h, 'hex'));
-const RESTORE = `${BUNKER}/restore/`;
+// https: the page needs WebCrypto, so a secure context in every browser build.
+const RESTORE = `${SECURE_BUNKER}/restore/`;
 
 test('opened by the user: the master key gives back identity 0, and its key exports', async ({
   page,
@@ -90,13 +91,13 @@ test('refuses to run in a frame or in a window another page opened', async ({ pa
     'signer:/host',
     `<!doctype html><iframe src="${RESTORE}" width="600" height="400"></iframe>`
   );
-  await page.goto(`${BUNKER}/host`);
+  await page.goto(`${SECURE_BUNKER}/host`);
   await expect(
     page.frameLocator('iframe').getByText('This page only works in its own tab')
   ).toBeVisible();
 
   pages.set('signer:/opener', blankPage);
-  await page.goto(`${BUNKER}/opener`);
+  await page.goto(`${SECURE_BUNKER}/opener`);
   const popupOpened = page.waitForEvent('popup');
   await page.evaluate((url) => window.open(url, '_blank'), RESTORE);
   const popup = await popupOpened;
