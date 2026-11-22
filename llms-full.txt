@@ -49,7 +49,7 @@ The portal refuses localhost, IP addresses and http origins. For local testing, 
     <button id="logout" hidden>Sign out</button>
     <button id="publish" disabled>Publish note</button>
     <script type="module">
-      import { SimplePool } from "https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js";
+      import { SimplePool } from "https://cdn.jsdelivr.net/npm/nostr-tools@2/+esm";
       const RELAYS = ["wss://relay.damus.io", "wss://nos.lol"];
       const statusEl = document.getElementById("status");
       const publishBtn = document.getElementById("publish");
