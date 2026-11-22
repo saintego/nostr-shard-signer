@@ -360,6 +360,7 @@ export async function openGlobalAccountFromRoot(
         root: Array.from(root, (x) => x.toString(16).padStart(2, '0')).join(''),
         counter: Math.max(relayCounter ?? 0, listNext(current) ?? 0, 1),
         identities: current,
+        links,
         createdAt: new Date(now() * 1000).toISOString(),
       }),
     close: async () => {

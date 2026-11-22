@@ -7,7 +7,7 @@
 
 import * as nip44 from 'nostr-tools/nip44';
 import { getPublicKey } from 'nostr-tools/pure';
-import type { ListedIdentity } from './globalListModel';
+import type { LinkRecord, ListedIdentity } from './globalListModel';
 import type { Result } from './masterKey';
 
 export const BACKUP_TYPE = 'nostr-shard-signer-backup';
@@ -19,6 +19,8 @@ export interface BackupBody {
   /** The next unused derivation index (D12). */
   readonly counter: number;
   readonly identities: readonly ListedIdentity[];
+  /** Linked sign-ins (D25), with what unlinking needs (#98). */
+  readonly links?: readonly LinkRecord[];
   /** ISO date. */
   readonly createdAt: string;
 }
