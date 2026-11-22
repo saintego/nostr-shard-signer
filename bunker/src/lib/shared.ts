@@ -24,6 +24,34 @@ export const SHARED_CLIENT_ID = '';
  */
 export const SHARED_MODE_ON = true;
 
+/** Build-time settings; absent outside Vite (tests run this file in Node). */
+const env = ((import.meta as { env?: Record<string, string | undefined> }).env ?? {}) as Record<
+  string,
+  string | undefined
+>;
+
+/**
+ * Preview builds only (#96): a test Web3Auth project stands in for the shared
+ * one, so the global flows can be tried before launch. The preview workflow
+ * sets VITE_PREVIEW=1 and the test project's client ID (and network, devnet by
+ * default); production builds never do, and a real SHARED_CLIENT_ID wins. The
+ * widget and the sign-in window then say it's a test version: its identities
+ * aren't the real ones. Never the real shared project on previews: they're
+ * built from PR branches, so the preview address would collect real keys.
+ */
+export const PREVIEW =
+  !SHARED_CLIENT_ID && env.VITE_PREVIEW === '1' && !!env.VITE_PREVIEW_SHARED_CLIENT_ID;
+
+/** The client ID shared sign-in uses: the real one, or a preview's test project. */
+export const SHARED_SIGN_IN_CLIENT_ID =
+  SHARED_CLIENT_ID || (PREVIEW ? (env.VITE_PREVIEW_SHARED_CLIENT_ID ?? '') : '');
+
+/** Its Web3Auth network: Sapphire Mainnet, or a preview's (devnet unless set). */
+export const SHARED_SIGN_IN_NETWORK: 'sapphire_mainnet' | 'sapphire_devnet' =
+  PREVIEW && env.VITE_PREVIEW_SHARED_NETWORK !== 'sapphire_mainnet'
+    ? 'sapphire_devnet'
+    : 'sapphire_mainnet';
+
 /** Where users and site owners can fund shared mode. Empty: no link is shown. */
 export const SUPPORT_URL = '';
 
@@ -37,37 +65,40 @@ export const SUPPORT_URL = '';
  */
 export const SHARED_BLOCKED_ORIGINS: readonly string[] = [];
 
-const builtInBlocked = (): readonly string[] => [
+const builtInBlocked = (): readonly string[] =>
+  [
     ...SHARED_BLOCKED_ORIGINS,
     ...((import.meta.env?.VITE_SHARED_BLOCKED_ORIGINS as string | undefined) ?? '').split(','),
-].map(e => e.trim().toLowerCase()).filter(Boolean);
+  ]
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
 
 /** True when `origin` matches an entry: the same origin, or a subdomain of a "*.host" entry. */
 export function isOriginBlocked(origin: string, entries: readonly string[]): boolean {
-    let normalized: string;
-    let host: string;
+  let normalized: string;
+  let host: string;
+  try {
+    const url = new URL(origin);
+    normalized = url.origin.toLowerCase();
+    host = url.hostname.toLowerCase();
+  } catch (_) {
+    return false;
+  }
+  return entries.some((raw) => {
+    const entry = raw.trim().toLowerCase();
+    if (entry.startsWith('*.')) return host.endsWith(entry.slice(1));
     try {
-        const url = new URL(origin);
-        normalized = url.origin.toLowerCase();
-        host = url.hostname.toLowerCase();
+      return new URL(entry).origin === normalized;
     } catch (_) {
-        return false;
+      return false;
     }
-    return entries.some(raw => {
-        const entry = raw.trim().toLowerCase();
-        if (entry.startsWith('*.')) return host.endsWith(entry.slice(1));
-        try {
-            return new URL(entry).origin === normalized;
-        } catch (_) {
-            return false;
-        }
-    });
+  });
 }
 
 export interface SharedConfig {
-    clientId: string;
-    on: boolean;
-    blocked: readonly string[];
+  clientId: string;
+  on: boolean;
+  blocked: readonly string[];
 }
 
 /**
@@ -78,21 +109,37 @@ export interface SharedConfig {
  * registry checks of an own clientId.
  */
 export function sharedClientIdForConfig(
-    config: SharedConfig,
-    pageClientId: string,
-    nostrOnly: boolean,
-    parentOrigin: string,
+  config: SharedConfig,
+  pageClientId: string,
+  nostrOnly: boolean,
+  parentOrigin: string
 ): string {
-    if (!config.clientId || !config.on || nostrOnly) return '';
-    if (pageClientId && pageClientId !== config.clientId) return '';
-    return isOriginBlocked(parentOrigin, config.blocked) ? '' : config.clientId;
+  if (!config.clientId || !config.on || nostrOnly) return '';
+  if (pageClientId && pageClientId !== config.clientId) return '';
+  return isOriginBlocked(parentOrigin, config.blocked) ? '' : config.clientId;
 }
 
 /** What the page would get without the block list: whether it asks for shared sign-in at all. */
 export function wantsSharedSignIn(pageClientId: string, nostrOnly: boolean): boolean {
-    return sharedClientIdForConfig({ clientId: SHARED_CLIENT_ID, on: SHARED_MODE_ON, blocked: [] }, pageClientId, nostrOnly, '') !== '';
+  return (
+    sharedClientIdForConfig(
+      { clientId: SHARED_SIGN_IN_CLIENT_ID, on: SHARED_MODE_ON, blocked: [] },
+      pageClientId,
+      nostrOnly,
+      ''
+    ) !== ''
+  );
 }
 
-export function sharedClientIdFor(pageClientId: string, nostrOnly: boolean, parentOrigin: string): string {
-    return sharedClientIdForConfig({ clientId: SHARED_CLIENT_ID, on: SHARED_MODE_ON, blocked: builtInBlocked() }, pageClientId, nostrOnly, parentOrigin);
+export function sharedClientIdFor(
+  pageClientId: string,
+  nostrOnly: boolean,
+  parentOrigin: string
+): string {
+  return sharedClientIdForConfig(
+    { clientId: SHARED_SIGN_IN_CLIENT_ID, on: SHARED_MODE_ON, blocked: builtInBlocked() },
+    pageClientId,
+    nostrOnly,
+    parentOrigin
+  );
 }

@@ -1,6 +1,7 @@
 import { useMessages } from '../lib/useMessages';
 import { sharedSignInMessages } from './SharedSignInMessages';
 import './SharedSignInSheet.css';
+import { TestVersionNotice } from './TestVersionNotice';
 
 const LIB_URL = 'https://github.com/saintego/nostr-shard-signer';
 
@@ -18,11 +19,18 @@ interface Props {
  * The sign-in sheet on shared-sign-in sites (#80): the global sign-in (in the
  * signer's popup, opened from the click here) and the page's own Nostr signer.
  */
-export function SharedSignInSheet({ nostrSigner, poweredBy, onGoogle, onNostrSigner, onCancel }: Props) {
+export function SharedSignInSheet({
+  nostrSigner,
+  poweredBy,
+  onGoogle,
+  onNostrSigner,
+  onCancel,
+}: Props) {
   const m = useMessages(sharedSignInMessages);
   return (
     <div className="shared-sheet np-card" role="dialog" aria-label={m.title}>
       <h2 className="np-title">{m.title}</h2>
+      <TestVersionNotice />
       <button type="button" className="np-button np-filled" onClick={onGoogle}>
         {m.google}
       </button>

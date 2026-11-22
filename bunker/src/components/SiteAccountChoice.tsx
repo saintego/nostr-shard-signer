@@ -4,6 +4,7 @@ import type { Question } from '../lib/siteAccount';
 import { useMessages } from '../lib/useMessages';
 import { GuardedButton } from './GuardedButton';
 import { siteAccountChoiceMessages } from './SiteAccountChoiceMessages';
+import { TestVersionNotice } from './TestVersionNotice';
 import './SharedSignInSheet.css';
 
 /** What the widget shows after the site's own login (#73 D5, #83). */
@@ -61,6 +62,7 @@ export function SiteAccountChoice(props: Props) {
   if (props.step.kind === 'global')
     return (
       <Sheet label={m.continueGlobal}>
+        <TestVersionNotice />
         {props.step.noteFound && <p className="np-message np-info">{m.noteFoundGlobal}</p>}
         <GuardedButton
           type="button"

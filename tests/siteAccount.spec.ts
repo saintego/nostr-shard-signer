@@ -314,3 +314,10 @@ test('D9: a brought-over account becomes a stored identity, not paired with its 
   const listed = await restoredIdentities(root, 1, onSiteB.list);
   expect(listed.map((i) => i.pubkey)).toContain(pubkey);
 });
+
+test('preview settings stay off outside a preview build (#96)', async () => {
+  const shared = await import('../bunker/src/lib/shared.ts');
+  expect(shared.PREVIEW).toBe(false);
+  expect(shared.SHARED_SIGN_IN_CLIENT_ID).toBe(shared.SHARED_CLIENT_ID);
+  expect(shared.SHARED_SIGN_IN_NETWORK).toBe('sapphire_mainnet');
+});

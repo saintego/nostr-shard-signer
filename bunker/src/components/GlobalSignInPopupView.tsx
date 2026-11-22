@@ -12,11 +12,12 @@ import { type GlobalOptions, type GlobalResult, serveGlobalPopup } from '../lib/
 import { format } from '../lib/i18n';
 import { restoreUrl } from '../lib/masterKey';
 import { publishToSignerRelays, queryRelays } from '../lib/relayPublish';
-import { SHARED_CLIENT_ID } from '../lib/shared';
+import { SHARED_SIGN_IN_CLIENT_ID, SHARED_SIGN_IN_NETWORK } from '../lib/shared';
 import { useMessages } from '../lib/useMessages';
 import { extractKey, initWeb3Auth, loginWith } from '../lib/web3auth';
 import { endSession, GLOBAL_SESSION, sweepGlobalSession } from '../lib/web3authSession';
 import { globalSignInMessages } from './GlobalSignInMessages';
+import { TestVersionNotice } from './TestVersionNotice';
 import { WelcomeBackView } from './WelcomeBackView';
 import './GlobalSignInPopup.css';
 
@@ -76,11 +77,11 @@ export function GlobalSignInPopupView() {
   }, []);
 
   useEffect(() => {
-    if (!SHARED_CLIENT_ID) return;
+    if (!SHARED_SIGN_IN_CLIENT_ID) return;
     // A leftover global session first (#79), then a fresh instance, ready
     // before the click so Google's window opens from it.
     w3aRef.current = sweepGlobalSession().then(() =>
-      initWeb3Auth(SHARED_CLIENT_ID, GLOBAL_SESSION)
+      initWeb3Auth(SHARED_SIGN_IN_CLIENT_ID, GLOBAL_SESSION, SHARED_SIGN_IN_NETWORK)
     );
     w3aRef.current.catch(() => {});
     return serveGlobalPopup(
@@ -185,7 +186,7 @@ export function GlobalSignInPopupView() {
   };
 
   let body: React.ReactNode;
-  if (!SHARED_CLIENT_ID) body = <p className="np-message np-info">{m.notSetUp}</p>;
+  if (!SHARED_SIGN_IN_CLIENT_ID) body = <p className="np-message np-info">{m.notSetUp}</p>;
   else if (state.step === 'waiting') body = <p className="np-loading">{m.waiting}</p>;
   else if (state.step === 'refused') body = <p className="np-message np-error">{m.refused}</p>;
   else {
@@ -265,6 +266,7 @@ export function GlobalSignInPopupView() {
   return (
     <main className="global-popup np-app">
       <h1 className="np-title">{m.title}</h1>
+      <TestVersionNotice />
       {body}
       <button type="button" className="np-button np-text global-close" onClick={close}>
         {m.close}

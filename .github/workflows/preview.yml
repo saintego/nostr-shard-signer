@@ -63,6 +63,12 @@ jobs:
           VITE_ROOT_PUBKEY_HEX: ${{ vars.ROOT_PUBKEY_HEX }}
           VITE_REGISTRY_RELAYS: ${{ vars.REGISTRY_RELAYS }}
           VITE_POPUP_CONFIRM: ${{ vars.POPUP_CONFIRM }}
+          # Previews only (#96): a test Web3Auth project for shared sign-in, so the
+          # global flows can be tried before launch; the widget then says it's a
+          # test version. Never the real shared project here (lib/shared.ts).
+          VITE_PREVIEW: "1"
+          VITE_PREVIEW_SHARED_CLIENT_ID: ${{ vars.PREVIEW_SHARED_CLIENT_ID }}
+          VITE_PREVIEW_SHARED_NETWORK: ${{ vars.PREVIEW_SHARED_NETWORK }}
 
       # Nested under /nostr-shard-signer/ to match the GitHub Pages URL: the
       # portal loads /nostr-shard-signer/nostr-bridge.js and uses that path as
