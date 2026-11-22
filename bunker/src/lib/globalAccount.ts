@@ -9,8 +9,23 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { buildBackupFile } from './backupFile';
 import { buildCounter, counterFilter, counterPubkey, nextIndex, readCounter } from './counter';
 import { canonicalOrigin, deriveIdentity, deriveRoot } from './derive';
-import { type GlobalList, type ListedIdentity, listNext, pairedWith } from './globalListModel';
+import { type Primary, pointerAddress } from './envelope';
+import {
+  type GlobalList,
+  type LinkRecord,
+  type ListedIdentity,
+  listNext,
+  pairedWith,
+} from './globalListModel';
 import { grantFromRoot } from './identity';
+import {
+  type LinkingDeps,
+  type LinkScope,
+  type Login,
+  sealLink,
+  storedPointers,
+  unlinkRecord,
+} from './linking';
 import { buildMarker, type MarkerReading, markerFilter, readMarker } from './marker';
 import { exportMasterKey } from './masterKey';
 import type { SiteGrant } from './siteGrant';
@@ -25,6 +40,12 @@ export interface AccountDeps {
   readonly now?: () => number;
   /** Own-clientId sites: this site login's marker address (D7), from the widget. */
   readonly markerAddress?: string;
+  /** Linking (D25, #98): a linked login's own Evolu database. */
+  readonly openCopies?: LinkingDeps['openCopies'];
+  /** Who created the account (D25): the primary provider, masked. */
+  readonly primary?: Primary;
+  /** Signed in through an envelope: that login's pointer pubkey. */
+  readonly viaPointer?: string;
 }
 
 export interface GlobalAccount {
@@ -70,6 +91,19 @@ export interface GlobalAccount {
    * paired with it (its own site keeps using the site login). Its pubkey.
    */
   readonly addStored: (secretKeyHex: string) => Promise<string>;
+  /** The provider the account was created with (D25), when known. */
+  readonly primary: Primary | null;
+  /** Linked sign-ins (D25), linked and unlinked. */
+  readonly links: readonly LinkRecord[];
+  /** Signed in through a sign-in this account unlinked: when (ISO), else null (review 8, item 3). */
+  readonly unlinkedVia: string | null;
+  /**
+   * Links another sign-in (proven in this popup session) to this account:
+   * 'full', or a restricted link to these identities (pubkeys, #98).
+   */
+  readonly link: (login: Login, scope: 'full' | readonly string[]) => Promise<void>;
+  /** Unlinks a sign-in from this session, with the stored keys (review 8, item 3). */
+  readonly unlink: (pointerPubkey: string) => Promise<void>;
   /** Waits for the list to sync, then wipes the root. */
   readonly close: () => Promise<void>;
 }
@@ -78,6 +112,10 @@ export interface NewProfile {
   readonly name?: string;
   readonly picture?: string;
 }
+
+const toHexKey = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+const fromHexKey = (h: string) =>
+  Uint8Array.from(h.match(/../g) ?? [], (x) => Number.parseInt(x, 16));
 
 const nowS = () => Math.floor(Date.now() / 1000);
 
@@ -90,9 +128,22 @@ export async function openGlobalAccount(
   site: string,
   deps: AccountDeps
 ): Promise<GlobalAccount> {
-  const origin = canonicalOrigin(site);
   const root = await deriveRoot(loginKey);
   loginKey.fill(0);
+  return openGlobalAccountFromRoot(root, site, deps);
+}
+
+/**
+ * Opens the account from its root: derived from the primary login, or opened
+ * from a linked sign-in's envelope (D25). The root is kept (and wiped at
+ * `close`): pass a copy if the caller keeps its own.
+ */
+export async function openGlobalAccountFromRoot(
+  root: Uint8Array,
+  site: string,
+  deps: AccountDeps
+): Promise<GlobalAccount> {
+  const origin = canonicalOrigin(site);
   const now = deps.now ?? nowS;
   const list = await deps.openList(root);
   const counterPub = await counterPubkey(root);
@@ -115,6 +166,33 @@ export async function openGlobalAccount(
     return JSON.stringify(event);
   };
   let current = rows;
+  let links = await list.links();
+  const linkingDeps = (): LinkingDeps => {
+    if (!deps.openCopies) throw new Error('Linking needs the envelope store');
+    return {
+      query: deps.query,
+      publish: deps.publish,
+      openCopies: deps.openCopies,
+      openList: deps.openList,
+      now,
+    };
+  };
+  /** The identities a restricted link opens, with their keys (derived, or stored). */
+  const linkScope = async (scope: 'full' | readonly string[]): Promise<LinkScope> => {
+    if (scope === 'full') return { kind: 'full' };
+    const identities = [];
+    for (const pubkey of scope) {
+      const i = current.find((x) => x.pubkey === pubkey);
+      if (!i) throw new Error('Not an identity of this account');
+      const key = i.storedKey ? fromHexKey(i.storedKey) : await deriveIdentity(root, i.index ?? 0);
+      identities.push({ secretKey: toHexKey(key), pubkey, index: i.index, label: i.label });
+      key.fill(0);
+    }
+    return { kind: 'restricted', identities };
+  };
+  // Re-send the stored pointers, linked and unlinked (review 8, item 9).
+  if (links.length) void deps.publish(storedPointers(links)).catch(() => {});
+  const via = deps.viaPointer ? links.find((l) => l.pointerPubkey === deps.viaPointer) : undefined;
   const relayCounter = counterEvents ? await readCounter(counterEvents, root) : null;
 
   const pubkeyOf = async (index: number) => {
@@ -202,6 +280,10 @@ export async function openGlobalAccount(
       if (!known && i.index !== null)
         await list.addDerived(i.index, pubkey, i.createdOn ?? origin, i.label);
       await list.pair(pubkey, origin);
+      // A new account gets its counter event at once: a witness on relays that
+      // it exists (review 8, item 4); only after reading the relays' one.
+      if (isNew && counterEvents && relayCounter === null)
+        await deps.publish([await buildCounter(root, 1, now())]);
       await reload();
     },
     unpair: async (pubkey) => {
@@ -244,6 +326,32 @@ export async function openGlobalAccount(
     },
     leaveSite: async () => {
       await writeMarker('unpaired');
+    },
+    primary: deps.primary ?? null,
+    get links() {
+      return links;
+    },
+    unlinkedVia: via?.unlinkedAt ?? null,
+    link: async (login, scope) => {
+      if (!deps.primary) throw new Error('The account’s first sign-in isn’t known here');
+      const { pubkey } = await pointerAddress(login.key);
+      const previous = links.find((l) => l.pointerPubkey === pubkey);
+      const record = await sealLink(
+        root,
+        login,
+        await linkScope(scope),
+        deps.primary,
+        (previous?.version ?? 0) + 1,
+        linkingDeps()
+      );
+      await list.saveLink(record);
+      links = await list.links();
+    },
+    unlink: async (pointerPubkey) => {
+      const record = links.find((l) => l.pointerPubkey === pointerPubkey && !l.unlinkedAt);
+      if (!record) return;
+      await list.saveLink(await unlinkRecord(record, linkingDeps()));
+      links = await list.links();
     },
     exportMasterKey: (password) => exportMasterKey(root, password),
     backupFile: () =>

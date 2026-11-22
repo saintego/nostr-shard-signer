@@ -12,6 +12,7 @@ import {
   derivePointerD,
   derivePointerKey,
   deriveRoot,
+  deriveStoreKey,
 } from './derive';
 import {
   buildPointer,
@@ -27,6 +28,7 @@ import {
 } from './envelope';
 import type { EnvelopeCopies } from './envelopeStore';
 import type { GlobalList, LinkRecord } from './globalListModel';
+import type { SiteGrant } from './siteGrant';
 
 /** One provider login in the popup: its key and who it is (Web3Auth's user info). */
 export interface Login {
@@ -257,4 +259,26 @@ export async function linkFor(
 ): Promise<LinkRecord | null> {
   const { pubkey } = await pointerAddress(loginKey);
   return links.find((l) => l.pointerPubkey === pubkey) ?? null;
+}
+
+/**
+ * What a restricted sign-in hands a site (#98): the chosen identity, and a
+ * per-site store of its own (from the link's store secret: the site store
+ * keys come from the root, which a restricted link never has).
+ */
+export async function restrictedGrant(
+  envelope: Extract<EnvelopeBody, { scope: 'restricted' }>,
+  site: string,
+  pubkey: string
+): Promise<SiteGrant> {
+  const chosen = envelope.identities.find((i) => i.pubkey === pubkey);
+  if (!chosen) throw new Error('This sign-in doesn’t open that identity');
+  const storeKey = await deriveStoreKey(fromHex(envelope.storeSecret), site);
+  const grant = {
+    storeKey: toHex(storeKey),
+    identities: [{ secretKey: chosen.secretKey, pubkey: chosen.pubkey, label: chosen.label }],
+    active: chosen.pubkey,
+  };
+  storeKey.fill(0);
+  return grant;
 }

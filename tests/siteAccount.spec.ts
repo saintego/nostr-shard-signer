@@ -163,6 +163,8 @@ function fakeList(rows: IdentityRow[] = [], pairs: PairingRow[] = []): GlobalLis
     },
     addStored: async () => {},
     unpair: async () => {},
+    links: async () => [],
+    saveLink: async () => {},
     markUsedElsewhere: async () => {},
     close: async () => 'Synced',
   };

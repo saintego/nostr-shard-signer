@@ -4,8 +4,11 @@ import type { BackupMethod } from '../lib/backup';
 import type { GlobalAccount, NewProfile } from '../lib/globalAccount';
 import type { ListedIdentity } from '../lib/globalListModel';
 import { format } from '../lib/i18n';
+import type { Provider } from '../lib/popupLogin';
 import { useMessages } from '../lib/useMessages';
 import { BackupView } from './BackupView';
+import { LinkedSignIns } from './LinkedSignIns';
+import { LinkNotices } from './LinkNotices';
 import { welcomeBackMessages } from './WelcomeBackMessages';
 import './WelcomeBack.css';
 
@@ -25,6 +28,11 @@ interface Props {
   readonly restoreAddress: string;
   /** The user saved a backup (#87). */
   readonly onBackedUp: (method: BackupMethod) => void;
+  /** Linking (D25, #98): another provider's sign-in, from the click; then the popup asks to link it. */
+  readonly onLinkProvider: (provider: Provider) => void;
+  readonly onUnlink: (pointerPubkey: string) => Promise<void>;
+  /** Signed in through a link: who created the account (D25). */
+  readonly createdWith?: { readonly provider: string; readonly masked: string } | null;
 }
 
 const hostOf = (origin: string | null) => {
@@ -54,6 +62,9 @@ export function WelcomeBackView({
   initialMode = 'choose',
   restoreAddress,
   onBackedUp,
+  onLinkProvider,
+  onUnlink,
+  createdWith = null,
 }: Props) {
   const m = useMessages(welcomeBackMessages);
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -134,6 +145,12 @@ export function WelcomeBackView({
         >
           {m.done}
         </button>
+        <LinkedSignIns
+          account={account}
+          busy={busy}
+          onLink={onLinkProvider}
+          onUnlink={(pointer) => void run(() => onUnlink(pointer))}
+        />
       </section>
     );
   }
@@ -143,6 +160,7 @@ export function WelcomeBackView({
       <h2 className="np-title">{m.title}</h2>
       <p>{format(m.choose, { site: host })}</p>
       {!account.complete && <p className="np-message np-warning">{m.incomplete}</p>}
+      <LinkNotices account={account} createdWith={createdWith} />
       {account.markerStatus === 'not-yours' && (
         <p className="np-message np-warning">{m.noteNotYours}</p>
       )}

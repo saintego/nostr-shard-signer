@@ -55,6 +55,8 @@ function fakeList(
       );
     },
     addStored: async () => {},
+    links: async () => [],
+    saveLink: async () => {},
     markUsedElsewhere: async (pubkey) => {
       state.identities = state.identities.map((r) =>
         r.pubkey === pubkey ? { ...r, usedElsewhere: 'x' } : r

@@ -11,8 +11,11 @@ test("the tab connects to the widget, takes its prompts, and stops when the site
   await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin }), BUNKER);
   await waitForAuth(page, true);
   const signer = page.frameLocator("#nostr-signer-iframe");
-  await signer.getByRole("button", { name: "Open Nostr profile" }).click();
-  await expect(page.locator("#nostr-signer-container")).toHaveCSS("height", "580px"); // the panel's size
+  // The widget may still be settling after sign-in (profile from relays): retry the click.
+  await expect(async () => {
+    await signer.getByRole("button", { name: "Open Nostr profile" }).click({ timeout: 1000 });
+    await expect(page.locator("#nostr-signer-container")).toHaveCSS("height", "580px", { timeout: 1000 }); // the panel's size
+  }).toPass({ timeout: 15000 });
 
   const tabOpened = context.waitForEvent("page");
   await signer.getByRole("button", { name: "Open in a new tab" }).click();

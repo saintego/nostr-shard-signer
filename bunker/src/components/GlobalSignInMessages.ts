@@ -10,7 +10,7 @@ export const globalSignInMessages = defineMessages('globalSignIn', {
   google: 'Continue with Google',
   apple: 'Continue with Apple',
   x: 'Continue with X',
-  providerHint: 'Use the same one every time: each gives you its own account.',
+  providerHint: 'Use the one you used before. You can link the others to your account later.',
   waiting: 'Connecting to the site…',
   working: 'Signing in…',
   done: 'Done. You can go back to {site}.',
