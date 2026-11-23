@@ -1,5 +1,6 @@
 // The global sign-in window's first step and its working state (#80, #110, #113).
 import { useEffect, useState } from 'react';
+import { format } from '../lib/i18n';
 import { type Choice, PROVIDERS } from '../lib/popupLogin';
 import { useMessages } from '../lib/useMessages';
 import { globalSignInMessages } from './GlobalSignInMessages';
@@ -62,5 +63,40 @@ export function Working({ phase }: { phase: Phase }) {
       </p>
       {slow && <p className="np-hint">{m.slowHint}</p>}
     </>
+  );
+}
+
+/**
+ * Under a step: an error with the way back (to the account screen it came
+ * from, else the start), or Back to the start from a question.
+ */
+export function StepFooter({
+  step,
+  reason,
+  busy,
+  toAccount,
+  onBack,
+}: {
+  step: string;
+  reason: string;
+  busy: boolean;
+  toAccount: boolean;
+  onBack: () => void;
+}) {
+  const m = useMessages(globalSignInMessages);
+  if (step === 'failed')
+    return (
+      <>
+        <p className="np-message np-error">{format(m.failed, { reason })}</p>
+        <button type="button" className="np-button np-filled" onClick={onBack}>
+          {toAccount ? m.back : m.retry}
+        </button>
+      </>
+    );
+  if (step !== 'question' && step !== 'unlinked') return null;
+  return (
+    <button type="button" className="np-button np-text" disabled={busy} onClick={onBack}>
+      {m.back}
+    </button>
   );
 }

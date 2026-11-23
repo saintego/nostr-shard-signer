@@ -20,7 +20,7 @@ import { LinkConfirmView, refusalText } from './LinkConfirmView';
 import { linkingMessages } from './LinkingMessages';
 import { NewAccountView } from './NewAccountView';
 import { RestrictedView } from './RestrictedView';
-import { choicesFor, type Phase, SignInChoice, Working } from './SignInChoice';
+import { choicesFor, type Phase, SignInChoice, StepFooter, Working } from './SignInChoice';
 import { TestVersionNotice } from './TestVersionNotice';
 import { WelcomeBackView } from './WelcomeBackView';
 import './GlobalSignInPopup.css';
@@ -110,6 +110,13 @@ export function GlobalSignInPopupView() {
   const optionsRef = useRef<GlobalOptions>({});
   // Set when the user saved a backup here (#87), sent with the grant.
   const backedUpRef = useRef<BackupMethod | undefined>(undefined);
+
+  // The account screen last shown: where Back goes after an error there.
+  const lastAccountRef = useRef<Extract<State, { step: 'account' }> | null>(null);
+  useEffect(() => {
+    if (state.step === 'account') lastAccountRef.current = state;
+    else if (state.step === 'ready' || state.step === 'done') lastAccountRef.current = null;
+  }, [state]);
 
   const wipe = () => {
     void accountRef.current?.close();
@@ -443,18 +450,17 @@ export function GlobalSignInPopupView() {
             onUnlink={(pointer) => s.account.unlink(pointer)}
           />
         )}
-        {s.step === 'failed' && (
-          <>
-            <p className="np-message np-error">{format(m.failed, { reason: s.reason })}</p>
-            <button
-              type="button"
-              className="np-button np-filled"
-              onClick={() => setState({ step: 'ready', site: s.site })}
-            >
-              {m.retry}
-            </button>
-          </>
-        )}
+        <StepFooter
+          step={s.step}
+          reason={s.step === 'failed' ? s.reason : ''}
+          busy={busy}
+          toAccount={lastAccountRef.current !== null}
+          onBack={() =>
+            setState(
+              (s.step === 'failed' && lastAccountRef.current) || { step: 'ready', site: s.site }
+            )
+          }
+        />
         {s.step === 'done' && (
           <p className="np-message np-success">
             {format(s.broughtOver ? m.broughtOver : m.done, { site })}

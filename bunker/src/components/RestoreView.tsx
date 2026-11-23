@@ -158,7 +158,7 @@ export function RestoreView() {
               <input
                 className="np-input"
                 type="file"
-                accept="application/json,.json"
+                accept="application/json,.json,text/plain,.txt"
                 onChange={(e) => void readFile(e.target.files?.[0])}
               />
             </label>

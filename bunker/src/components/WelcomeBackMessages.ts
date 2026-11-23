@@ -32,7 +32,7 @@ export const welcomeBackMessages = defineMessages('welcomeBack', {
   back: 'Back',
   // Manage
   manageTitle: 'Identities on {site}',
-  unpair: 'Unpair from {site}',
+  unpair: 'Unpair',
   unpairHint: '{site} keeps what it already saw, but can’t sign with it any more.',
   noneLeft: 'No identity is paired with {site} now: you’ll be signed out there.',
   done: 'Done',

@@ -20,6 +20,7 @@ export const globalSignInMessages = defineMessages('globalSignIn', {
     'Your account from {site} is now in your global account. On other sites, pair it from “Welcome back”.',
   close: 'Close',
   retry: 'Try again',
+  back: 'Back',
   // What the window is doing (#110)
   phaseLogin: 'Waiting for the sign-in…',
   phaseChecking: 'Checking your account…',

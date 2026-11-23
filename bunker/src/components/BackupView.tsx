@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BackupMethod } from '../lib/backup';
 import type { GlobalAccount } from '../lib/globalAccount';
 import { format } from '../lib/i18n';
@@ -15,6 +15,7 @@ interface Props {
 }
 
 const MIN_PASSWORD = 8;
+const fileName = () => `nostr-account-backup-${new Date().toISOString().slice(0, 10)}.json`;
 
 /**
  * Backing up the global account (#73 D10, #87), in the signer's popup: the
@@ -39,7 +40,6 @@ export function BackupView({ account, restoreAddress, onDone, onCancel }: Props)
     });
   };
 
-  const fileName = () => `nostr-account-backup-${new Date().toISOString().slice(0, 10)}.json`;
   const download = async () => {
     const blob = new Blob([await account.backupFile()], { type: 'application/json' });
     const a = document.createElement('a');
@@ -49,10 +49,25 @@ export function BackupView({ account, restoreAddress, onDone, onCancel }: Props)
     URL.revokeObjectURL(a.href);
     setFileSaved(true);
   };
-  const canShare = typeof navigator.canShare === 'function';
+  // Built ahead, so the share starts in the click (it needs the user's
+  // activation), as .txt: Android's share sheet refuses .json files. The button
+  // shows only where the browser can share it. /restore takes .txt too.
+  const [shareFile, setShareFile] = useState<File | null>(null);
+  useEffect(() => {
+    let live = true;
+    void account.backupFile().then((text) => {
+      const name = fileName().replace(/\.json$/, '.txt');
+      const file = new File([text], name, { type: 'text/plain' });
+      if (live && navigator.canShare?.({ files: [file] })) setShareFile(file);
+    });
+    return () => {
+      live = false;
+    };
+  }, [account]);
+  const canShare = shareFile !== null;
   const share = async () => {
-    const file = new File([await account.backupFile()], fileName(), { type: 'application/json' });
-    if (!navigator.canShare?.({ files: [file] })) return;
+    const file = shareFile;
+    if (!file) return;
     try {
       await navigator.share({ files: [file], title: m.fileTitle });
       setFileSaved(true);
