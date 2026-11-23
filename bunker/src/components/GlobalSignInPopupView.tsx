@@ -1,5 +1,6 @@
 import type { Web3Auth } from '@web3auth/modal';
 import { useEffect, useRef, useState } from 'react';
+import { backgroundWrites, timed } from '../lib/backgroundWrites';
 import type { BackupMethod } from '../lib/backup';
 import { openEnvelopeCopies } from '../lib/envelopeStore';
 import type { GlobalAccount } from '../lib/globalAccount';
@@ -45,12 +46,22 @@ type State =
   | { step: 'failed'; site: string; reason: string }
   | { step: 'done'; site: string; broughtOver?: boolean };
 
+/** Relay writes run in the background; the window waits for them only before closing (#110). */
+const writes = backgroundWrites(publishToSignerRelays);
+/** The longest the window stays open for unfinished writes after it's done. */
+const WRITES_MAX_MS = 20000;
+/** Closes the window once its writes are sent (or after WRITES_MAX_MS), `ms` after done at least. */
+const closeAfterWrites = (ms: number) =>
+  void Promise.all([writes.settled(WRITES_MAX_MS), new Promise((r) => setTimeout(r, ms))]).then(
+    () => window.close()
+  );
+
 /** Where the account reads and writes (relays, Evolu), and this site login's marker address. */
 const flowDeps = (options: GlobalOptions): FlowDeps => ({
   openList: (root) => openGlobalList(root),
   openCopies: (owner) => openEnvelopeCopies(owner),
   query: (filter) => queryRelays(filter),
-  publish: publishToSignerRelays,
+  publish: writes.publish,
   ...(options.markerAddress ? { markerAddress: options.markerAddress } : {}),
 });
 
@@ -187,7 +198,7 @@ export function GlobalSignInPopupView() {
         });
       }
       setState({ step: 'done', site });
-      setTimeout(() => window.close(), 1200);
+      closeAfterWrites(1200);
     } catch (e) {
       setState({ step: 'failed', site, reason: reasonOf(e) });
     } finally {
@@ -208,7 +219,7 @@ export function GlobalSignInPopupView() {
       setState({ step: 'done', site, broughtOver: true });
       accountRef.current = null;
       await step.account.close();
-      setTimeout(() => window.close(), 2500);
+      closeAfterWrites(2500);
       return;
     }
     const first = step.account.list[0];
@@ -217,6 +228,12 @@ export function GlobalSignInPopupView() {
       await step.account.pair(first.pubkey);
       return finish(site, first.pubkey);
     }
+    // Signing in again where identities are already in use: no Welcome back, no
+    // extra click (#109). "Add or manage identities" (it sends `active`) and
+    // backup still show it.
+    const pairedHere = step.account.paired[0];
+    if (pairedHere && intent !== 'backup' && !optionsRef.current.active)
+      return finish(site, pairedHere.pubkey);
     setState({ site, ...step });
   };
 
@@ -225,9 +242,13 @@ export function GlobalSignInPopupView() {
       setState({ step: 'working', site });
       wipe();
       accountRef.current = null;
-      const first = await login(provider);
+      const first = await timed('provider login', login(provider));
       sessionRef.current = first;
-      await show(site, await afterLogin(first, site, flowDeps(optionsRef.current)));
+      const step = await timed(
+        'account lookup',
+        afterLogin(first, site, flowDeps(optionsRef.current))
+      );
+      await timed('account step', show(site, step));
     });
 
   /** "Made one with another sign-in?": sign in with it, then link the first login to that account. */
@@ -259,7 +280,7 @@ export function GlobalSignInPopupView() {
     if (account && state.step === 'account')
       return void finish(state.site, account.paired[0]?.pubkey ?? 'none');
     wipe();
-    window.close();
+    closeAfterWrites(0);
   };
 
   /** One step of the window (everything after the opener's request). */
@@ -319,7 +340,7 @@ export function GlobalSignInPopupView() {
               void run(s.site, async () => {
                 replyRef.current?.({ grant: await restrictedGrant(s.envelope, s.site, pubkey) });
                 setState({ step: 'done', site: s.site });
-                setTimeout(() => window.close(), 1200);
+                closeAfterWrites(1200);
               })
             }
           />
