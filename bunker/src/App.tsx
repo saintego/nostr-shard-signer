@@ -188,7 +188,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setSetupError(message);
         postToParent({ type: 'SIGNER_ERROR', code, message });
         // A WNJ_SESSION may already have switched the view to the avatar.
-        setView(v => (v === 'loading' || v === 'connecting' ? 'login' : v));
+        setView(v => (v === 'loading' || v === 'connecting' || v === 'signing-in' ? 'login' : v));
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
     }, [nostrSigner, showError, postToParent]);
 
@@ -529,7 +529,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             return;
         }
         const resizeState =
-            view === 'login' ? 'button' :
+            view === 'login' || view === 'signing-in' ? 'button' :
                 view === 'avatar' ? 'avatar' :
                     'modal';
         postToParent({ type: 'RESIZE', state: resizeState });
@@ -1038,7 +1038,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // ── Render ─────────────────────────────────────────────────────────────────
 
     if (siteAccount.choice) return siteAccount.choice; // #83: asked while the view is still 'loading'
-    if (view === 'loading') return <LoadingOverlay />;
+    if (view === 'loading' || view === 'signing-in') return <LoadingOverlay />;
     if (view === 'error' && error) {
         return (
             <ErrorBanner

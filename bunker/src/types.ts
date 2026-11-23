@@ -39,6 +39,8 @@ export type ViewName =
   | "loading"
   | "login"
   | "connecting"
+  /** The global sign-in window is open (#80): a button-sized spinner, no Web3Auth sheet. */
+  | "signing-in"
   | "avatar"
   | "profile"
   | "export"

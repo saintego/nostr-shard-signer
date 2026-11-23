@@ -24,7 +24,7 @@ export interface GlobalTarget {
   readonly markerAddress?: string;
 }
 
-type View = 'login' | 'connecting';
+type View = 'login' | 'signing-in';
 type ParentMessage =
   | { type: 'AUTH_STATE'; loggedIn: false; pubkey: null }
   | { type: 'RESIZE'; state: 'modal' | 'button' }
@@ -133,7 +133,7 @@ export function useSharedSignIn({
       const managing = session !== null;
       setSheetOpen(false);
       if (!managing) {
-        setView('connecting');
+        setView('signing-in');
         postToParent({ type: 'RESIZE', state: 'button' });
       }
       await pending.then(signedIn).catch((e: unknown) => failed(e, managing));
