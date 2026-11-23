@@ -24,3 +24,9 @@
 .global-close {
   margin-top: auto;
 }
+
+/* NewAccountView: the sign-in account's picture, round. */
+.new-account-picture {
+  align-self: flex-start;
+  border-radius: var(--np-radius-full);
+}

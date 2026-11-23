@@ -60,6 +60,8 @@ export interface GlobalAccount {
   /** A first sign-in: no identity known anywhere. */
   readonly isNew: boolean;
   readonly pair: (pubkey: string) => Promise<void>;
+  /** Publishes a name and picture (kind 0) for one of the account's identities (D15). */
+  readonly publishProfile: (pubkey: string, profile: NewProfile) => Promise<void>;
   readonly unpair: (pubkey: string) => Promise<void>;
   /**
    * Creates the next identity (D12), paired with this site. With `profile`
@@ -294,6 +296,17 @@ export async function openGlobalAccountFromRoot(
       if (isNew && counterEvents && relayCounter === null)
         await deps.publish([await buildCounter(root, 1, now())]);
       await reload();
+    },
+    publishProfile: async (pubkey, profile) => {
+      const i = find(pubkey);
+      if (!i) throw new Error('Not an identity of this account');
+      const k = i.storedKey ? fromHexKey(i.storedKey) : await deriveIdentity(root, i.index ?? 0);
+      const event = finalizeEvent(
+        { kind: 0, created_at: now(), tags: [], content: JSON.stringify(profile) },
+        k
+      );
+      k.fill(0);
+      await deps.publish([event]);
     },
     unpair: async (pubkey) => {
       await list.unpair(pubkey, origin);

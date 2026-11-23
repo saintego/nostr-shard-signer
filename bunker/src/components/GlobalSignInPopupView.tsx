@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { backgroundWrites, timed, withTimeout } from '../lib/backgroundWrites';
 import type { BackupMethod } from '../lib/backup';
 import { openEnvelopeCopies } from '../lib/envelopeStore';
-import type { GlobalAccount } from '../lib/globalAccount';
+import type { GlobalAccount, NewProfile } from '../lib/globalAccount';
 import { openGlobalList } from '../lib/globalList';
 import { type GlobalOptions, type GlobalResult, serveGlobalPopup } from '../lib/globalPopup';
 import { format } from '../lib/i18n';
@@ -16,8 +16,9 @@ import { SHARED_SIGN_IN_CLIENT_ID } from '../lib/shared';
 import { useMessages } from '../lib/useMessages';
 import { AccountQuestionView } from './AccountQuestionView';
 import { globalSignInMessages } from './GlobalSignInMessages';
-import { LinkConfirmView } from './LinkConfirmView';
+import { LinkConfirmView, refusalText } from './LinkConfirmView';
 import { linkingMessages } from './LinkingMessages';
+import { NewAccountView } from './NewAccountView';
 import { RestrictedView } from './RestrictedView';
 import { choicesFor, type Phase, SignInChoice, Working } from './SignInChoice';
 import { TestVersionNotice } from './TestVersionNotice';
@@ -34,6 +35,14 @@ type State =
   | { step: 'refused' }
   | { step: 'ready'; site: string }
   | { step: 'working'; site: string; phase: Phase }
+  /** A new account: its first identity, with the sign-in account's name and picture or not. */
+  | {
+      step: 'new-account';
+      site: string;
+      account: GlobalAccount;
+      profile: NewProfile;
+      pubkey: string;
+    }
   | ({ site: string } & Step)
   /** Before sealing a link: who is being linked (review 8, item 7), or why it can't be. */
   | ({
@@ -74,20 +83,6 @@ const hostOf = (origin: string) => {
     return origin;
   }
 };
-
-/** Why a sign-in can't be linked, for the user (review 8, items 4 and 8). */
-const refusalText = (
-  refusal: ReturnType<typeof linkRefusal>,
-  lm: (typeof linkingMessages)['en']
-) =>
-  refusal === null
-    ? null
-    : {
-        'same-login': lm.refusedSame,
-        'own-account': lm.refusedOwn,
-        'linked-elsewhere': lm.refusedElsewhere,
-        unknown: lm.refusedUnknown,
-      }[refusal];
 
 const reasonOf = (e: unknown) => (e as Error)?.message ?? String(e);
 
@@ -200,6 +195,14 @@ export function GlobalSignInPopupView() {
     }
   };
 
+  /** A new account's identity 0: paired, then its name and picture asked about (D15), if any. */
+  const newAccount = async (site: string, step: AccountStep, pubkey: string) => {
+    await step.account.pair(pubkey);
+    const profile = step.profile;
+    if (!profile || !(profile.name || profile.picture)) return finish(site, pubkey);
+    setState({ step: 'new-account', site, account: step.account, profile, pubkey });
+  };
+
   /** Shows a step; an account step may finish at once (a first sign-in, or bring-over). */
   const show = async (site: string, step: Step) => {
     if (step.step !== 'account') return setState({ site, ...step });
@@ -217,10 +220,8 @@ export function GlobalSignInPopupView() {
     }
     const first = step.account.list[0];
     // A new account: identity 0, straight away (D8: Welcome back only for an existing account).
-    if (step.account.isNew && first && intent !== 'backup') {
-      await step.account.pair(first.pubkey);
-      return finish(site, first.pubkey);
-    }
+    if (step.account.isNew && first && intent !== 'backup')
+      return newAccount(site, step, first.pubkey);
     // Signing in again where identities are already in use: no Welcome back, no
     // extra click (#109). "Add or manage identities" (it sends `active`) and
     // backup still show it.
@@ -299,6 +300,7 @@ export function GlobalSignInPopupView() {
   /** Closing with the account open still tells the site what's left (after unpairing). */
   const close = () => {
     const account = accountRef.current;
+    if (account && state.step === 'new-account') return void finish(state.site, state.pubkey);
     if (account && state.step === 'account')
       return void finish(state.site, account.paired[0]?.pubkey ?? 'none');
     wipe();
@@ -333,6 +335,18 @@ export function GlobalSignInPopupView() {
           <SignInChoice choices={choices} onSignIn={(c) => void signIn(s.site, c)} />
         )}
         {s.step === 'working' && <Working phase={s.phase} />}
+        {s.step === 'new-account' && (
+          <NewAccountView
+            profile={s.profile}
+            busy={busy}
+            onContinue={(useProfile) =>
+              void run(s.site, async () => {
+                if (useProfile) await s.account.publishProfile(s.pubkey, s.profile);
+                await finish(s.site, s.pubkey);
+              })
+            }
+          />
+        )}
         {s.step === 'question' && (
           <AccountQuestionView
             step={s}

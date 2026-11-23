@@ -7,6 +7,20 @@ import { useMessages } from '../lib/useMessages';
 import { providerName } from './AccountQuestionView';
 import { linkingMessages } from './LinkingMessages';
 
+/** Why a sign-in can't be linked, for the user (review 8, items 4 and 8). */
+export const refusalText = (
+  refusal: 'same-login' | 'own-account' | 'linked-elsewhere' | 'unknown' | null,
+  lm: (typeof linkingMessages)['en']
+) =>
+  refusal === null
+    ? null
+    : {
+        'same-login': lm.refusedSame,
+        'own-account': lm.refusedOwn,
+        'linked-elsewhere': lm.refusedElsewhere,
+        unknown: lm.refusedUnknown,
+      }[refusal];
+
 interface Props {
   /** Why this sign-in can't be linked (review 8): shown instead of the question. */
   readonly refused?: string | null;

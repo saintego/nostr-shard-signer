@@ -119,6 +119,23 @@ test('a first sign-in: identity 0, paired, no Welcome back; the login key is wip
   expect(state.closed).toBe(true);
 });
 
+test("a new account's identity 0 gets the sign-in account's name and picture when kept (D15)", async () => {
+  const { list } = fakeList([], [], 'NoRelays');
+  const { d, published } = deps(list);
+  const account = await openGlobalAccount(bytes(v.globalLoginKey), SITE, d);
+  const first = account.list[0];
+  if (!first) throw new Error('no identity 0');
+  await account.pair(first.pubkey);
+  await account.publishProfile(first.pubkey, { name: 'Alice', picture: 'https://p.example/a.png' });
+  const profile = published.find((e) => e.kind === 0);
+  expect(profile?.pubkey).toBe(first.pubkey);
+  expect(JSON.parse(profile?.content ?? '{}')).toEqual({
+    name: 'Alice',
+    picture: 'https://p.example/a.png',
+  });
+  await expect(account.publishProfile('ab'.repeat(32), { name: 'x' })).rejects.toThrow();
+});
+
 test('Welcome back lists the identities; an existing account never gets a second identity 0 (scenario 10)', async () => {
   const { list } = fakeList([row(0), row(1)], [{ origin: OTHER, identityPubkey: id(0).pubkey }]);
   const { d } = deps(list);
