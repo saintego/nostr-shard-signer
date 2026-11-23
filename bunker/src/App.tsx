@@ -519,7 +519,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [view, evolustrPubkey]);
 
-    // ── Send RESIZE messages whenever the view changes ────────────────────────
+    const sheetShown = sharedSignIn.sheet !== null; // ── RESIZE on view changes; a sheet over 'login' stays modal-sized (#124)
     useEffect(() => {
         if (view === 'loading') return;
         if (view === 'error') {
@@ -529,11 +529,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             return;
         }
         const resizeState =
-            view === 'login' || view === 'signing-in' ? 'button' :
+            (view === 'login' && !sheetShown) || view === 'signing-in' ? 'button' :
                 view === 'avatar' ? 'avatar' :
                     'modal';
         postToParent({ type: 'RESIZE', state: resizeState });
-    }, [view, errorCollapsed, postToParent]);
+    }, [view, errorCollapsed, postToParent, sheetShown]);
 
     // ── Bootstrap: run once on mount ──────────────────────────────────────────
     useEffect(() => {
