@@ -441,8 +441,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 if (enrollConsentRef.current) return true;
                 return (await askEvolustr({ kind: 'enrollPasskey' })) === 'allow';
             }
-            // What does allowing this app also need? Read the signer vault
-            // first (no prompt, nothing published).
+            if (req.kind === 'rotateMaster') return false; // "Replace my key" isn't offered here yet
+            // What does allowing this app also need? Read the signer vault first (no prompt, nothing published).
             const caps = await evolustr.capabilities(selfCaller);
             if (caps.ok && oauth && custodyRef.current === null) {
                 // Chosen on another site or device: the vault on the relays says how.

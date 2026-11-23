@@ -43,8 +43,16 @@ export interface PublishResult {
     readonly timedOut?: ReadonlyArray<string>;
 }
 /** Relay access behind an interface, so tests can use an in-memory fake. */
+export interface QueryOptions {
+    /**
+     * Stop waiting once this many relays have answered (#60): one slow relay
+     * mustn't hold up the read. Relays still waiting then count as failed.
+     * Default: every relay.
+     */
+    readonly quorum?: number;
+}
 export interface Relays {
-    readonly query: (urls: ReadonlyArray<string>, filter: Filter, timeoutMs: number) => Promise<QueryResult>;
+    readonly query: (urls: ReadonlyArray<string>, filter: Filter, timeoutMs: number, opts?: QueryOptions) => Promise<QueryResult>;
     readonly publish: (urls: ReadonlyArray<string>, event: NostrEvent, timeoutMs: number) => Promise<PublishResult>;
 }
 //# sourceMappingURL=types.d.ts.map

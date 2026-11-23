@@ -234,6 +234,9 @@ export const createHostSigner = (o: HostOptions): EvolustrSigner =>
     createEvolustrSigner({
         relays: poolRelays(),
         relayUrls: o.relays,
+        // Enough relays to trust a read: one slow or dead relay mustn't block
+        // unlocking or "Add a passkey" (evolustr #60, #111).
+        relayQuorum: Math.min(3, o.relays.length),
         // The origin of this signer, the same on every site that embeds it.
         signerKey: location.origin,
         getPublicKey: async () => o.pubkey,
@@ -243,6 +246,10 @@ export const createHostSigner = (o: HostOptions): EvolustrSigner =>
         allowSkWrap: () => o.getSecretKey !== null && o.custody() === 'sk',
         passkeys: o.passkeys,
         cache,
-        ui: { confirm: o.confirm, requestGesture: o.requestGesture },
+        // "rotateMaster" never comes: confirm refuses it (no "Replace my key" here yet).
+        ui: {
+            confirm: o.confirm,
+            requestGesture: (reason) => o.requestGesture(reason === 'rotateMaster' ? 'unlock' : reason),
+        },
         knownNsiteGateways: KNOWN_NSITE_GATEWAYS,
     });

@@ -124,6 +124,14 @@ var decoder = new TextDecoder();
 var utf8 = (text) => encoder.encode(text);
 var randomBytes2 = (length) => randomBytes(length);
 var toHex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+var fromHex = (hex) => {
+  if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex))
+    return null;
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++)
+    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+};
 var toBase64Url = (bytes) => {
   let binary = "";
   for (const b of bytes)
@@ -139,6 +147,14 @@ var fromBase64Url = (text) => {
   } catch {
     return null;
   }
+};
+var bytesEqual = (a, b) => {
+  if (a.length !== b.length)
+    return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++)
+    diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  return diff === 0;
 };
 
 // ../evolustr/node_modules/@noble/ciphers/utils.js
@@ -1096,6 +1112,7 @@ var sha256 = /* @__PURE__ */ createHasher(
 // ../evolustr/packages/core/dist/crypto.js
 var sha2562 = (data) => sha256(data);
 var sha256Hex = (data) => toHex(sha2562(typeof data === "string" ? utf8(data) : data));
+var hmacSha256 = (key, message) => hmac(sha256, key, message);
 var hkdf2 = (ikm, info, length = 32, salt) => hkdf(sha256, ikm, salt, utf8(info), length);
 var seal = (key, plaintext, aad) => {
   const iv = randomBytes2(12);
@@ -1117,7 +1134,13 @@ var MASTER_SECRET_LENGTH = 32;
 var signerPrfInput = (pubkey) => sha2562(utf8(`evolustr/v1/signer-prf|${pubkey}`));
 var signerPasskeyWrapKey = (prfOutput) => hkdf2(prfOutput, "evolustr/v1/signer-passkey-wrap");
 var signerSkWrapKey = (secretKey) => hkdf2(secretKey, "evolustr/v1/signer-wrap");
+var signerWrapAuthKey = (m) => hkdf2(m, "evolustr/v1/signer-wrap-auth");
+var signerMId = (m) => toHex(hkdf2(m, "evolustr/v1/signer-mid", 8));
+var signerRotateKey = (m) => hkdf2(m, "evolustr/v1/signer-rotate");
+var signerPreviousKey = (m) => hkdf2(m, "evolustr/v1/signer-previous");
 var signerAppKey = (m, appId) => hkdf2(m, `evolustr/v1|app|${appId}`);
+var hostSecret = (m, label) => hkdf2(m, `evolustr/v1|host|${label}`);
+var isHostSecretLabel = (label) => label.length > 0 && label.length <= 200 && !label.includes("|");
 var signerId = (m, appId) => toHex(hkdf2(m, `evolustr/v1/signer-id|${appId}`, 8));
 
 // ../evolustr/packages/core/dist/aad.js
@@ -1181,7 +1204,7 @@ var withTimeout = (p, ms) => new Promise((resolve, reject) => {
   p.then((v) => (clearTimeout(t), resolve(v)), (e) => (clearTimeout(t), reject(e instanceof Error ? e : new Error(String(e)))));
 });
 var poolRelays = (pool = new SimplePool()) => ({
-  query: async (urls, filter, timeoutMs) => {
+  query: async (urls, filter, timeoutMs, opts) => {
     const events = /* @__PURE__ */ new Map();
     const idsByRelay = /* @__PURE__ */ new Map();
     const one = async (url) => {
@@ -1192,13 +1215,13 @@ var poolRelays = (pool = new SimplePool()) => ({
         return await new Promise((resolve) => {
           let settled = false;
           let timer;
-          const settle = (answered) => {
+          const settle = (answered2) => {
             if (settled)
               return;
             settled = true;
             if (timer !== void 0)
               clearTimeout(timer);
-            resolve(answered);
+            resolve(answered2);
           };
           const sub = relay.subscribe([toNtFilter(filter)], {
             onevent: (e) => {
@@ -1222,12 +1245,29 @@ var poolRelays = (pool = new SimplePool()) => ({
         return false;
       }
     };
-    const results = await Promise.all(urls.map(async (url) => [url, await one(url)]));
+    const quorum = Math.min(opts?.quorum ?? urls.length, urls.length);
+    const answered = [];
+    await new Promise((resolve) => {
+      let finished = 0;
+      if (urls.length === 0)
+        return resolve();
+      for (const url of urls) {
+        void one(url).then((ok2) => {
+          finished++;
+          if (ok2)
+            answered.push(url);
+          if (answered.length >= quorum || finished === urls.length)
+            resolve();
+        });
+      }
+    });
+    const done = new Set(answered);
     return {
+      // Events from a relay still waiting are kept: the newest version wins either way.
       events: [...events.values()],
-      answered: results.filter(([, ok2]) => ok2).map(([u]) => u),
-      failed: results.filter(([, ok2]) => !ok2).map(([u]) => u),
-      idsByRelay
+      answered: [...answered],
+      failed: urls.filter((u) => !done.has(u)),
+      idsByRelay: new Map([...idsByRelay].filter(([u]) => done.has(u)))
     };
   },
   publish: async (urls, event, timeoutMs) => {
@@ -1251,10 +1291,10 @@ var poolRelays = (pool = new SimplePool()) => ({
 // ../evolustr/packages/core/dist/nostr/replaceable.js
 var matches = (e, a) => e.pubkey === a.author && e.kind === a.kind && e.tags.some((t) => t[0] === "d" && t[1] === a.d) && isValidEvent(e);
 var newest = (events) => [...events].sort((x, y) => y.created_at - x.created_at || (x.id < y.id ? -1 : 1))[0];
-var fetchReplaceable = async (relays, urls, address, timeoutMs = 5e3) => {
-  const result = await relays.query(urls, { kinds: [address.kind], authors: [address.author], "#d": [address.d] }, timeoutMs);
+var fetchReplaceable = async (relays, urls, address, timeoutMs = 5e3, quorum) => {
+  const result = await relays.query(urls, { kinds: [address.kind], authors: [address.author], "#d": [address.d] }, timeoutMs, quorum === void 0 ? void 0 : { quorum });
   const event = newest(result.events.filter((e) => matches(e, address)));
-  const complete = result.failed.length === 0;
+  const complete = result.failed.length === 0 || quorum !== void 0 && result.answered.length >= Math.min(quorum, urls.length);
   if (event !== void 0) {
     const missingOn = result.idsByRelay === void 0 ? [] : result.answered.filter((u) => !result.idsByRelay.get(u)?.has(event.id));
     return { kind: "found", event, complete, missingOn };
@@ -1344,6 +1384,7 @@ var webauthnPasskeys = (opts) => {
 };
 
 // ../evolustr/packages/signer/dist/signer.js
+var MAX_PREVIOUS_MASTERS = 16;
 var isRecord = (x) => typeof x === "object" && x !== null;
 var parseSignerVault = (json) => {
   let data;
@@ -1360,7 +1401,9 @@ var parseSignerVault = (json) => {
     if (!isRecord(w) || typeof w["iv"] !== "string" || typeof w["ct"] !== "string") {
       return error("invalidSignerVault", "Malformed wrap");
     }
-    const sealed = { iv: w["iv"], ct: w["ct"] };
+    if (w["tag"] !== void 0 && typeof w["tag"] !== "string")
+      return error("invalidSignerVault", "Malformed wrap");
+    const sealed = { iv: w["iv"], ct: w["ct"], ...typeof w["tag"] === "string" ? { tag: w["tag"] } : {} };
     if (w["type"] === "sk")
       wraps.push({ type: "sk", ...sealed });
     else if (w["type"] === "passkey" && typeof w["rpId"] === "string" && typeof w["credId"] === "string") {
@@ -1374,24 +1417,96 @@ var parseSignerVault = (json) => {
     } else
       return error("invalidSignerVault", "Unknown wrap type");
   }
+  const dropped = data["skDroppedAt"];
+  if (dropped !== void 0 && (typeof dropped !== "number" || !Number.isFinite(dropped))) {
+    return error("invalidSignerVault", "Malformed skDroppedAt");
+  }
+  const mId = data["mId"];
+  const rotatedFrom = data["rotatedFrom"];
+  const previous = data["previous"];
+  const older = data["older"];
+  if (mId !== void 0 && typeof mId !== "string")
+    return error("invalidSignerVault", "Malformed mId");
+  if (rotatedFrom !== void 0 && !(isRecord(rotatedFrom) && typeof rotatedFrom["mId"] === "string" && typeof rotatedFrom["proof"] === "string")) {
+    return error("invalidSignerVault", "Malformed rotatedFrom");
+  }
+  if (previous !== void 0 && !isPreviousMaster(previous))
+    return error("invalidSignerVault", "Malformed previous");
+  if (older !== void 0 && !(Array.isArray(older) && older.length < MAX_PREVIOUS_MASTERS && older.every(isPreviousMaster))) {
+    return error("invalidSignerVault", "Malformed older");
+  }
+  const extra = {
+    ...typeof mId === "string" ? { mId } : {},
+    ...isRecord(rotatedFrom) ? { rotatedFrom: { mId: rotatedFrom["mId"], proof: rotatedFrom["proof"] } } : {},
+    ...isPreviousMaster(previous) ? { previous: previousMaster(previous) } : {},
+    ...isPreviousMaster(previous) && Array.isArray(older) && older.length > 0 ? { older: older.map(previousMaster) } : {}
+  };
   if (wraps.length === 0)
     return error("invalidSignerVault", "The signer vault has no wraps");
   if (wraps.length > MAX_SIGNER_WRAPS)
     return error("invalidSignerVault", "Too many wraps");
-  return ok({ v: 1, wraps });
+  return ok({ v: 1, wraps, ...typeof dropped === "number" ? { skDroppedAt: dropped } : {}, ...extra });
 };
+var isPreviousMaster = (x) => isRecord(x) && typeof x["mId"] === "string" && typeof x["iv"] === "string" && typeof x["ct"] === "string";
+var previousMaster = (x) => ({ mId: x.mId, iv: x.iv, ct: x.ct });
 var wrapId = (w) => w.type === "sk" ? "sk" : w.credId;
 var MAX_SIGNER_WRAPS = 32;
-var mergeSignerVaults = (local, fetched) => {
+var UNTAGGED_SIGNER_WRAP_LIMIT = 16;
+var mergeSignerVaults = (local, fetched, opts) => {
   const byId = /* @__PURE__ */ new Map();
+  const keep = (w) => opts?.dropSk !== true || w.type !== "sk";
   for (const w of local.wraps)
-    byId.set(`${w.type}:${wrapId(w)}`, w);
+    if (keep(w))
+      byId.set(`${w.type}:${wrapId(w)}`, w);
   for (const w of fetched.wraps) {
     const k = `${w.type}:${wrapId(w)}`;
-    if (!byId.has(k) && byId.size < MAX_SIGNER_WRAPS)
+    if (keep(w) && !byId.has(k) && byId.size < MAX_SIGNER_WRAPS)
       byId.set(k, w);
   }
-  return { v: 1, wraps: [...byId.values()] };
+  const dropped = Math.max(local.skDroppedAt ?? -1, fetched.skDroppedAt ?? -1);
+  const mId = local.mId ?? fetched.mId;
+  const rotatedFrom = local.rotatedFrom ?? fetched.rotatedFrom;
+  const previous = local.previous ?? fetched.previous;
+  const olderOf = (v) => v.previous?.mId === previous?.mId ? v.older ?? [] : [];
+  const [a, b] = [olderOf(local), olderOf(fetched)];
+  const older = b.length > a.length ? b : a;
+  return {
+    v: 1,
+    wraps: [...byId.values()],
+    ...dropped >= 0 ? { skDroppedAt: dropped } : {},
+    ...mId === void 0 ? {} : { mId },
+    ...rotatedFrom === void 0 ? {} : { rotatedFrom },
+    ...previous === void 0 ? {} : { previous },
+    ...previous === void 0 || older.length === 0 ? {} : { older }
+  };
+};
+var differentMaster = (a, b) => a.mId !== void 0 && b.mId !== void 0 && a.mId !== b.mId || b.rotatedFrom !== void 0 && a.mId !== b.mId || a.rotatedFrom !== void 0 && a.mId !== b.mId;
+var masterRotationProof = (oldM, newMId) => toHex(hmacSha256(signerRotateKey(oldM), utf8(newMId)));
+var rotationValid = (v, oldM) => {
+  if (v.rotatedFrom === void 0 || v.mId === void 0 || v.rotatedFrom.mId !== signerMId(oldM))
+    return false;
+  const expected = fromHex(masterRotationProof(oldM, v.mId));
+  const given = fromHex(v.rotatedFrom.proof);
+  return expected !== null && given !== null && bytesEqual(expected, given);
+};
+var signerWrapTag = (pubkey, signerKey, m, w) => {
+  const id = w.type === "sk" ? "sk" : w.credId;
+  const extra = w.type === "passkey" ? `${w.rpId}|${w.synced === void 0 ? "" : String(w.synced)}` : "|";
+  const message = `${signerWrapAad(pubkey, signerKey, w.type, id)}|${extra}|${w.iv}|${w.ct}`;
+  return toHex(hmacSha256(signerWrapAuthKey(m), utf8(message)));
+};
+var tagValid = (pubkey, signerKey, m, w) => {
+  if (w.tag === void 0)
+    return false;
+  const { tag, ...rest } = w;
+  const expected = fromHex(signerWrapTag(pubkey, signerKey, m, rest));
+  const given = fromHex(tag);
+  return expected !== null && given !== null && bytesEqual(expected, given);
+};
+var pruneSignerVault = (vault, pubkey, signerKey, m, openedId) => {
+  const kept = vault.wraps.filter((w) => w.tag === void 0 || tagValid(pubkey, signerKey, m, w));
+  const wraps = kept.length > UNTAGGED_SIGNER_WRAP_LIMIT ? kept.filter((w) => w.tag !== void 0 || `${w.type}:${wrapId(w)}` === openedId) : kept;
+  return { ...vault, wraps };
 };
 var PACKAGE_NAME = /^[A-Za-z][\w]*(\.[A-Za-z][\w]*)+$/;
 var HEX_PUBKEY = /^[0-9a-f]{64}$/;
@@ -1415,9 +1530,12 @@ var createEvolustrSigner = (host) => {
   let vaultLoaded = false;
   let needsHeal = false;
   let lastEventAt = 0;
+  let candidate = null;
+  let previousM = null;
+  let earlierMs = null;
   const appIdFor = (caller) => appIdForCaller(caller, host.knownNsiteGateways);
   const fetchVault = async (pubkey) => {
-    const f = await fetchReplaceable(host.relays, host.relayUrls, { author: pubkey, kind: VAULT_KIND, d: signerVaultDTag(pubkey, host.signerKey) }, timeoutMs);
+    const f = await fetchReplaceable(host.relays, host.relayUrls, { author: pubkey, kind: VAULT_KIND, d: signerVaultDTag(pubkey, host.signerKey) }, timeoutMs, host.relayQuorum);
     if (f.kind === "none")
       return ok(null);
     if (f.kind === "incomplete")
@@ -1441,8 +1559,13 @@ var createEvolustrSigner = (host) => {
     } else if (!fetched.ok || fetched.value === null) {
       vault = local;
       needsHeal = true;
+    } else if (differentMaster(local, fetched.value)) {
+      vault = local;
+      candidate = fetched.value;
+      needsHeal = false;
     } else {
-      vault = mergeSignerVaults(local, fetched.value);
+      const dropSk = !allowSk() && !fetched.value.wraps.some((w) => w.type === "sk");
+      vault = mergeSignerVaults(local, fetched.value, { dropSk });
       const onRelays = new Set(fetched.value.wraps.map((w) => JSON.stringify(w)));
       needsHeal = vault.wraps.some((w) => !onRelays.has(JSON.stringify(w)));
     }
@@ -1472,21 +1595,78 @@ var createEvolustrSigner = (host) => {
   };
   const sealM = (pubkey, key, w, secret) => {
     const id = w.type === "sk" ? "sk" : w.credId;
-    return { ...w, ...seal(key, secret, signerWrapAad(pubkey, host.signerKey, w.type, id)) };
+    const sealed = { ...w, ...seal(key, secret, signerWrapAad(pubkey, host.signerKey, w.type, id)) };
+    return { ...sealed, tag: signerWrapTag(pubkey, host.signerKey, secret, sealed) };
   };
   const openM = (pubkey, w, key) => {
     const r = open(key, w, signerWrapAad(pubkey, host.signerKey, w.type, wrapId(w)));
     return r.ok && r.value.length !== MASTER_SECRET_LENGTH ? error("invalidSignerVault", "Wrong secret length") : r;
   };
   const withWrap = (v, w) => ({
+    ...v ?? {},
     v: 1,
     wraps: [...(v?.wraps ?? []).filter((x) => !(x.type === w.type && wrapId(x) === wrapId(w))), w]
   });
-  const remember = async (pubkey, secret) => {
+  const prune = (pubkey, secret, openedId) => {
+    if (vault === null || vault.mId !== void 0 && vault.mId !== signerMId(secret))
+      return;
+    const pruned = pruneSignerVault(vault, pubkey, host.signerKey, secret, openedId);
+    if (pruned.wraps.length !== vault.wraps.length) {
+      vault = pruned;
+      needsHeal = true;
+    }
+  };
+  const reconcile = async (pubkey) => {
+    if (m === null)
+      return "same";
+    const myId = signerMId(m);
+    const other = candidate ?? (vault?.mId !== void 0 && vault.mId !== myId ? vault : null);
+    if (other === null)
+      return "same";
+    candidate = null;
+    if (!rotationValid(other, m))
+      return "foreign";
+    previousM = m;
+    earlierMs = null;
+    vault = other;
+    m = null;
+    needsHeal = false;
+    await host.cache?.remove(pubkey);
+    await host.cache?.setVault?.(pubkey, JSON.stringify(other));
+    return "rotated";
+  };
+  const remember = async (pubkey, secret, openedId) => {
     m = secret;
+    if (await reconcile(pubkey) === "rotated")
+      return;
+    prune(pubkey, secret, openedId);
+    if (openedId !== void 0 && vault !== null && vault.mId === void 0) {
+      vault = { ...vault, mId: signerMId(secret) };
+      needsHeal = true;
+    }
     await host.cache?.set(pubkey, secret);
     if (vault !== null)
       await host.cache?.setVault?.(pubkey, JSON.stringify(vault));
+  };
+  const earlierOf = (pubkey) => {
+    if (earlierMs !== null)
+      return earlierMs;
+    const first = vault?.previous;
+    if (m === null || first === void 0 || vault?.mId !== signerMId(m))
+      return previousM === null ? [] : [previousM];
+    const found = [];
+    let key = m;
+    for (const p of [first, ...vault?.older ?? []]) {
+      const opened = open(signerPreviousKey(key), p, signerWrapAad(pubkey, host.signerKey, "previous", p.mId));
+      if (!opened.ok || opened.value.length !== MASTER_SECRET_LENGTH || signerMId(opened.value) !== p.mId)
+        break;
+      found.push(opened.value);
+      key = opened.value;
+    }
+    if (found.length === 0 && previousM !== null)
+      found.push(previousM);
+    earlierMs = found;
+    return found;
   };
   const unlockQuiet = async (pubkey, create) => {
     if (m !== null)
@@ -1494,7 +1674,9 @@ var createEvolustrSigner = (host) => {
     const cached = await host.cache?.get(pubkey);
     if (cached != null && cached.length === MASTER_SECRET_LENGTH) {
       m = cached;
-      return ok(true);
+      const read = await loadVault(pubkey);
+      if (!read.ok || await reconcile(pubkey) !== "rotated")
+        return ok(true);
     }
     const loaded = await loadVault(pubkey);
     if (!loaded.ok)
@@ -1505,13 +1687,13 @@ var createEvolustrSigner = (host) => {
       if (skWrap !== void 0) {
         const opened = openM(pubkey, skWrap, signerSkWrapKey(sk));
         if (opened.ok) {
-          await remember(pubkey, opened.value);
+          await remember(pubkey, opened.value, "sk:sk");
           return ok(true);
         }
       }
       if (vault === null && create) {
         const fresh = random(MASTER_SECRET_LENGTH);
-        const published = await publish(pubkey, withWrap(vault, sealM(pubkey, signerSkWrapKey(sk), { type: "sk" }, fresh)));
+        const published = await publish(pubkey, { ...withWrap(vault, sealM(pubkey, signerSkWrapKey(sk), { type: "sk" }, fresh)), mId: signerMId(fresh) });
         if (!published.ok)
           return published;
         await remember(pubkey, fresh);
@@ -1539,7 +1721,7 @@ var createEvolustrSigner = (host) => {
     const opened = openM(pubkey, wrap, signerPasskeyWrapKey(result.prfOutput));
     if (!opened.ok)
       return opened;
-    await remember(pubkey, opened.value);
+    await remember(pubkey, opened.value, `passkey:${wrap.credId}`);
     return ok(void 0);
   };
   const ensureM = async () => {
@@ -1551,6 +1733,11 @@ var createEvolustrSigner = (host) => {
       const viaPasskey = await unlockWithPasskey(pubkey);
       if (!viaPasskey.ok)
         return viaPasskey;
+      if (m === null && previousM !== null) {
+        const again = await unlockWithPasskey(pubkey);
+        if (!again.ok)
+          return again;
+      }
     }
     return m === null ? error("signerLocked", "Locked") : ok({ pubkey, m });
   };
@@ -1570,7 +1757,12 @@ var createEvolustrSigner = (host) => {
       ready: m !== null,
       signerPasskey: (vault?.wraps ?? []).some((w) => w.type === "passkey"),
       recoverable: (vault?.wraps ?? []).some((w) => w.type === "sk" || w.type === "passkey" && w.synced === true),
-      nsecProtected: (vault?.wraps ?? []).some((w) => w.type === "sk")
+      nsecProtected: (vault?.wraps ?? []).some((w) => w.type === "sk"),
+      nsecExposed: (vault?.wraps ?? []).some((w) => w.type === "sk") || vault?.skDroppedAt !== void 0,
+      ...(() => {
+        const ids = earlierOf(pubkey).map((x) => signerId(x, appId.value));
+        return { previousSignerId: ids[0] ?? null, previousSignerIds: ids };
+      })()
     });
   };
   const getWrapKey = async (caller) => {
@@ -1585,9 +1777,18 @@ var createEvolustrSigner = (host) => {
       return unlocked;
     if (!vaultLoaded)
       await loadVault(unlocked.value.pubkey);
+    prune(unlocked.value.pubkey, unlocked.value.m);
     if (needsHeal && vault !== null)
       await publish(unlocked.value.pubkey, vault);
     return ok(signerAppKey(unlocked.value.m, appId.value));
+  };
+  const getHostSecret = async (label) => {
+    if (!isHostSecretLabel(label))
+      return error("badRequest", "A host secret label is 1\u2013200 characters without '|'");
+    const unlocked = await ensureM();
+    if (!unlocked.ok)
+      return unlocked;
+    return ok(hostSecret(unlocked.value.m, label));
   };
   const enrollPasskey = async () => {
     const passkeys = host.passkeys;
@@ -1608,7 +1809,7 @@ var createEvolustrSigner = (host) => {
       if (sk !== null && skWrap !== void 0) {
         const opened = openM(pubkey, skWrap, signerSkWrapKey(sk));
         if (opened.ok)
-          await remember(pubkey, opened.value);
+          await remember(pubkey, opened.value, "sk:sk");
       }
     }
     if (m === null && vault !== null) {
@@ -1639,20 +1840,119 @@ var createEvolustrSigner = (host) => {
       return error("prfUnsupported", "The passkey gave no PRF output");
     const secret = m ?? random(MASTER_SECRET_LENGTH);
     let next = withWrap(vault, sealM(pubkey, signerPasskeyWrapKey(prfOutput), { type: "passkey", rpId: passkeys.rpId, credId: created.credId, synced: created.synced }, secret));
-    if (!allowSk())
-      next = { v: 1, wraps: next.wraps.filter((w) => w.type !== "sk") };
+    if (!allowSk() && next.wraps.some((w) => w.type === "sk")) {
+      next = { ...next, wraps: next.wraps.filter((w) => w.type !== "sk"), skDroppedAt: now() };
+    }
+    if (next.wraps.length > MAX_SIGNER_WRAPS)
+      return error("signerVaultFull", "The signer vault has no room for another wrap");
+    next = { ...next, mId: signerMId(secret) };
     const published = await publish(pubkey, next);
     if (!published.ok)
       return published;
     await remember(pubkey, secret);
     return ok(void 0);
   };
-  const handle = async (method, _params, caller) => {
+  const getPreviousWrapKey = async (caller, signerId2) => {
+    const appId = appIdFor(caller);
+    if (!appId.ok)
+      return appId;
+    const allowed = await host.ui.confirm({ kind: "appKey", appId: appId.value, identity: caller.identity });
+    if (!allowed)
+      return error("userRefused", "The user didn't allow this app");
+    const unlocked = await ensureM();
+    if (!unlocked.ok)
+      return unlocked;
+    const earlier = earlierOf(unlocked.value.pubkey);
+    if (earlier.length === 0)
+      return error("noPreviousKey", "This signer hasn't replaced its key");
+    const prev = signerId2 === void 0 ? earlier[0] : earlier.find((x) => signerId(x, appId.value) === signerId2);
+    return prev === void 0 ? error("noPreviousKey", "This signer has no earlier key with that id") : ok(signerAppKey(prev, appId.value));
+  };
+  const getPreviousHostSecret = async (label) => {
+    if (!isHostSecretLabel(label))
+      return error("badRequest", "A host secret label is 1\u2013200 characters without '|'");
+    const unlocked = await ensureM();
+    if (!unlocked.ok)
+      return unlocked;
+    const prev = earlierOf(unlocked.value.pubkey)[0];
+    return prev === void 0 ? error("noPreviousKey", "This signer hasn't replaced its key") : ok(hostSecret(prev, label));
+  };
+  const getPreviousHostSecrets = async (label) => {
+    if (!isHostSecretLabel(label))
+      return error("badRequest", "A host secret label is 1\u2013200 characters without '|'");
+    const unlocked = await ensureM();
+    if (!unlocked.ok)
+      return unlocked;
+    return ok(earlierOf(unlocked.value.pubkey).map((x) => hostSecret(x, label)));
+  };
+  const rotateMaster = async () => {
+    const passkeys = host.passkeys;
+    if (passkeys === void 0)
+      return error("noPasskeys", "This signer has no passkey support");
+    if (allowSk())
+      return error("nsecAllowed", "Turn off the nsec protection (allowSkWrap) before replacing the key");
+    const pubkey = await host.getPublicKey();
+    const loaded = await loadVault(pubkey);
+    if (!loaded.ok)
+      return loaded;
+    if (vault === null)
+      return error("noSignerVault", "This signer has no key to replace yet");
+    const wraps = vault.wraps.filter((w) => w.type === "passkey" && w.rpId === passkeys.rpId);
+    if (wraps.length === 0)
+      return error("noSignerPasskey", "Enroll a signer passkey first");
+    if (!await host.ui.confirm({ kind: "rotateMaster" }))
+      return error("userRefused", "Cancelled");
+    await host.ui.requestGesture("rotateMaster");
+    let result;
+    try {
+      result = await passkeys.get({ allowCredIds: wraps.map((w) => w.credId), prfInput: signerPrfInput(pubkey) });
+    } catch (e) {
+      return error("passkeyFailed", e instanceof Error ? e.message : String(e));
+    }
+    const wrap = wraps.find((w) => w.credId === result.credId);
+    if (wrap === void 0 || result.prfOutput === null)
+      return error("passkeyFailed", "The passkey gave no usable result");
+    const key = signerPasskeyWrapKey(result.prfOutput);
+    const oldM = openM(pubkey, wrap, key);
+    if (!oldM.ok)
+      return oldM;
+    const newM = random(MASTER_SECRET_LENGTH);
+    const oldMId = signerMId(oldM.value);
+    const newMId = signerMId(newM);
+    const older = vault.previous === void 0 ? [] : [vault.previous, ...vault.older ?? []].slice(0, MAX_PREVIOUS_MASTERS - 1);
+    const next = {
+      v: 1,
+      wraps: [sealM(pubkey, key, { type: "passkey", rpId: wrap.rpId, credId: wrap.credId, ...wrap.synced === void 0 ? {} : { synced: wrap.synced } }, newM)],
+      mId: newMId,
+      rotatedFrom: { mId: oldMId, proof: masterRotationProof(oldM.value, newMId) },
+      previous: { mId: oldMId, ...seal(signerPreviousKey(newM), oldM.value, signerWrapAad(pubkey, host.signerKey, "previous", oldMId)) },
+      ...older.length > 0 ? { older } : {}
+    };
+    const droppedWraps = vault.wraps.length - 1;
+    const published = await publish(pubkey, next);
+    if (!published.ok)
+      return published;
+    candidate = null;
+    previousM = oldM.value;
+    earlierMs = null;
+    m = newM;
+    await host.cache?.set(pubkey, newM);
+    return ok({ droppedWraps });
+  };
+  const handle = async (method, params, caller) => {
     switch (method) {
       case "evolustr_capabilities":
         return capabilities(caller);
       case "evolustr_get_wrap_key": {
         const key = await getWrapKey(caller);
+        return key.ok ? ok(toBase64Url(key.value)) : key;
+      }
+      case "evolustr_get_previous_wrap_key": {
+        const signerId2 = params[0];
+        if (signerId2 !== void 0 && signerId2 !== null && (typeof signerId2 !== "string" || !/^[0-9a-f]{16}$/.test(signerId2))) {
+          return error("badRequest", "signerId must be 16 hex characters");
+        }
+        const key = await getPreviousWrapKey(caller, typeof signerId2 === "string" ? signerId2 : void 0);
         return key.ok ? ok(toBase64Url(key.value)) : key;
       }
       case "evolustr_enroll_passkey":
@@ -1667,10 +1967,26 @@ var createEvolustrSigner = (host) => {
     vault = null;
     vaultLoaded = false;
     needsHeal = false;
+    candidate = null;
+    previousM = null;
+    earlierMs = null;
     if (pubkey !== null)
       await host.cache?.remove(pubkey);
   };
-  return { handle, capabilities, getWrapKey, enrollPasskey, isProtectedEvent, appIdFor, lock };
+  return {
+    handle,
+    capabilities,
+    getWrapKey,
+    getPreviousWrapKey,
+    enrollPasskey,
+    rotateMaster,
+    getHostSecret,
+    getPreviousHostSecret,
+    getPreviousHostSecrets,
+    isProtectedEvent,
+    appIdFor,
+    lock
+  };
 };
 export {
   createEvolustrSigner,
