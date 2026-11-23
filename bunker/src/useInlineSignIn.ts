@@ -87,11 +87,15 @@ export function useInlineSignIn({
 
   /** "Continue with Google, X, Facebook and more": Web3Auth's panel here, then the account. */
   const start = useCallback(async () => {
-    setView('connecting');
-    postToParent({ type: 'RESIZE', state: 'modal' });
+    // The button-sized spinner while Web3Auth loads; the panel view only once
+    // it's ready (an empty full-size panel flickered there before, #128).
+    setView('signing-in');
+    postToParent({ type: 'RESIZE', state: 'button' });
     try {
       const instance = await prepareInstance(document.documentElement.lang);
       instanceRef.current = instance;
+      setView('connecting');
+      postToParent({ type: 'RESIZE', state: 'modal' });
       const first = await timed('provider login', loginOnce(instance, 'panel')).finally(() => {
         // Closed whatever happened: left open, the emptied panel fell over the
         // widget and hid the next step or the error (#123).

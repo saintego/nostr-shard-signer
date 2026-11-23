@@ -60,7 +60,15 @@ export class Web3Auth {
 
   constructor(readonly options: unknown) {}
 
+  /** Like Web3Auth's, which loads its project config: a test may set 'fake-w3a-init-ms'. */
   async init() {
+    let ms = 0;
+    try {
+      ms = Number(localStorage.getItem('fake-w3a-init-ms') ?? 0);
+    } catch {
+      // no storage: instant
+    }
+    if (ms > 0) await new Promise((r) => setTimeout(r, ms));
     this.status = 'ready';
   }
 
