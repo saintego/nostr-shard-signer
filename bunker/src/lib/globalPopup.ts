@@ -53,7 +53,8 @@ export interface GlobalRequest {
   readonly siteKey?: string;
 }
 
-export type GlobalIntent = 'sign-in' | 'backup' | 'bring-over';
+/** What the widget asked for; 'manage': "Add or manage identities", the window opens at Manage (#129). */
+export type GlobalIntent = 'sign-in' | 'backup' | 'bring-over' | 'manage';
 
 /** What the widget may pass along (choices, not data the popup trusts). */
 export interface GlobalOptions {
@@ -218,7 +219,9 @@ export function parseHandedLogin(d: unknown): HandedLogin | null {
 /** The widget's choices, checked field by field (anything else is dropped). */
 export function parseOptions(d: Partial<GlobalRequest>): GlobalOptions {
   return {
-    ...(d.intent === 'backup' || d.intent === 'bring-over' ? { intent: d.intent } : {}),
+    ...(d.intent === 'backup' || d.intent === 'bring-over' || d.intent === 'manage'
+      ? { intent: d.intent }
+      : {}),
     ...(isHex64(d.active) ? { active: d.active } : {}),
     ...(d.ui === 'buttons' ? { ui: 'buttons' as const } : {}),
     ...(parseHandedLogin(d.login) ? { login: parseHandedLogin(d.login) as HandedLogin } : {}),

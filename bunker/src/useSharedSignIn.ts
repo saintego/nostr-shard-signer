@@ -117,7 +117,7 @@ export function useSharedSignIn({
    * so the popup may open. A failed manage keeps the current session.
    */
   const google = useCallback(
-    async (intent: 'sign-in' | 'backup' = 'sign-in') => {
+    async (intent: 'sign-in' | 'backup' | 'manage' = 'sign-in') => {
       const { slot, markerAddress } = targetRef.current;
       const pending = signInGlobally(
         parentOrigin,
@@ -193,7 +193,7 @@ export function useSharedSignIn({
         identities: session.cache.identities,
         active: session.cache.active,
         onSwitch: (pubkey: string) => void switchTo(pubkey),
-        onManage: () => void google(),
+        onManage: () => void google('manage'),
       })
     : null;
 

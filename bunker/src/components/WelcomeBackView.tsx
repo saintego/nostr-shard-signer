@@ -23,7 +23,7 @@ interface Props {
   readonly onFinish: (pubkey: string | 'none') => void;
   readonly onError: (message: string) => void;
   /** Where to start: the list, or Backup (the widget's "Back up now"). */
-  readonly initialMode?: 'choose' | 'backup';
+  readonly initialMode?: 'choose' | 'backup' | 'manage';
   /** `<signer origin>/restore/`, shown with the master key. */
   readonly restoreAddress: string;
   /** The user saved a backup (#87). */

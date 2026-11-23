@@ -232,7 +232,7 @@ export function GlobalSignInPopupView() {
     // extra click (#109). "Add or manage identities" (it sends `active`) and
     // backup still show it.
     const pairedHere = step.account.paired[0];
-    if (pairedHere && intent !== 'backup' && !optionsRef.current.active)
+    if (pairedHere && intent !== 'backup' && intent !== 'manage' && !optionsRef.current.active)
       return finish(site, pairedHere.pubkey);
     setState({ site, ...step });
   };
@@ -439,7 +439,11 @@ export function GlobalSignInPopupView() {
             account={s.account}
             signInProfile={s.profile}
             createdWith={s.createdWith}
-            initialMode={optionsRef.current.intent === 'backup' ? 'backup' : 'choose'}
+            initialMode={
+              ({ backup: 'backup', manage: 'manage' } as const)[
+                optionsRef.current.intent as 'backup' | 'manage'
+              ] ?? 'choose'
+            }
             restoreAddress={restoreUrl(new URL('.', location.href).href)}
             onBackedUp={(method) => {
               backedUpRef.current = method;

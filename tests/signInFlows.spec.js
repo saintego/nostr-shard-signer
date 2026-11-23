@@ -125,9 +125,15 @@ test('Add or manage identities: the window signs in, and its buttons respond', a
   await win.setViewportSize(pixel.viewport);
   // The window opens Web3Auth's panel by itself; its button must be tappable.
   await win.getByRole('button', { name: 'Fake google' }).click();
-  await expect(win.getByRole('heading', { name: 'Welcome back' })).toBeVisible({ timeout: 20000 });
-  await snap(win, '6 window: Welcome back');
-  // Nothing covers the window: "Create a new identity" opens its form.
+  // It opens at Manage: the identities this site uses, with Unpair (#129).
+  await expect(win.getByRole('heading', { name: 'Identities on signer.test' })).toBeVisible({
+    timeout: 20000,
+  });
+  await expect(win.getByRole('button', { name: 'Unpair' })).toBeVisible();
+  await snap(win, '6 window: Manage');
+  // Nothing covers the window: Done, then "Create a new identity" opens its form.
+  await win.getByRole('button', { name: 'Done' }).click();
+  await expect(win.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
   await win.getByRole('button', { name: 'Create a new identity' }).click();
   await expect(win.getByRole('heading', { name: 'A new identity' })).toBeVisible();
 });
