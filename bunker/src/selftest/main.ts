@@ -16,6 +16,17 @@ import vectors from '../lib/derive.vectors.json';
 const g = globalThis as { Buffer?: unknown };
 g.Buffer ??= PolyBuffer;
 
+// Counts the browser's persistent-storage requests: the signer never asks
+// (Firefox shows a prompt for it, #101), though Evolu would after a write.
+let persistCalls = 0;
+if (navigator.storage?.persist) {
+  const persist = navigator.storage.persist.bind(navigator.storage);
+  navigator.storage.persist = () => {
+    persistCalls++;
+    return persist();
+  };
+}
+
 interface Check {
   name: string;
   ok: boolean;
@@ -118,6 +129,12 @@ async function syncedApps(): Promise<Check> {
   return { name: 'syncedApps', ok, detail: JSON.stringify(sorted) };
 }
 
+/** After the Evolu checks wrote to stored databases: no persistent-storage request (#101). */
+async function noPersistPrompt(): Promise<Check> {
+  await new Promise((r) => setTimeout(r, 300));
+  return { name: 'noPersistPrompt', ok: persistCalls === 0, detail: `${persistCalls} calls` };
+}
+
 async function siteCache(): Promise<Check> {
   const { saveSiteCache, loadSiteCache, deleteSiteCache } = await import('../lib/siteCache');
   const cache = {
@@ -156,6 +173,7 @@ async function main() {
     evolu,
     globalList,
     syncedApps,
+    noPersistPrompt,
     siteCache,
   ]) {
     try {

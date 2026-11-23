@@ -102,7 +102,10 @@ export const settingsSchema = {
   setting: { id: SettingId, name: NonEmptyTrimmedString100, value: EvoluString },
 } as const;
 
-const deps = createEvoluDeps();
+// Never ask the browser for persistent storage (#101): Firefox shows a prompt
+// for it, in the signer's own windows and pages too, and what the signer keeps
+// is synced or a cache (data stays without it: checks C8 of #75).
+const deps = createEvoluDeps({ requestPersistentStorage: () => {} });
 const run = createRun(deps);
 
 /**
