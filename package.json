@@ -18,6 +18,7 @@
     "test:e2e": "playwright test",
     "test:types": "npm run sync-files --workspace=npm && tsc -p tests/types",
     "lint": "biome lint .",
+    "lint:hooks": "biome lint --only=correctness/useExhaustiveDependencies --error-on-warnings bunker/src",
     "lint:changed": "biome lint --changed --since=origin/shared-mode",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write ."

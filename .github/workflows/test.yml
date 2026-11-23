@@ -29,6 +29,11 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      # A hook that misses a dependency keeps stale values (the logout of #117):
+      # an error. Deliberate exceptions carry a biome-ignore with the reason.
+      - name: Lint React hook dependencies
+        run: npm run lint:hooks
+
       # Builds the signer, type-checks the npm package, runs Playwright.
       - name: Test
         run: npm test

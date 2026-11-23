@@ -46,6 +46,8 @@ Apply them to new and changed code. Existing exceptions are tracked in issues: d
 
 - npm workspaces (not pnpm: the workflows and the npm package build on npm).
 - Biome for linting and formatting: `npm run lint`, `npm run lint:fix`, `npm run format`.
+  `npm run lint:hooks` (React hook dependencies) runs in CI and must pass: a deliberate
+  exception gets a `biome-ignore` comment with the reason, not an `eslint-disable`.
 - Tests: `npm test` (build, types, Playwright). Locally, see the README for the browser setup.
 
 ## Security first

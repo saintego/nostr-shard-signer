@@ -77,6 +77,9 @@ interface AppProps {
     };
 }
 
+/** The signer itself, as the caller for status checks from the settings. */
+const selfCaller = { identity: 'verified' as const, origin: location.origin };
+
 export function App({ parentOrigin, urlParams }: AppProps) {
     const { nostrSigner, protocol, poweredBy, nostrOnly } = urlParams;
     // Shared mode: no clientId from the page, so the signer's own project is
@@ -237,10 +240,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setPendingConf(null);
     }, []);
 
-    const noteSignedEvent = (pubkeyHex: string) => {
+    const noteSignedEvent = useCallback((pubkeyHex: string) => {
         countSignedEvent(pubkeyHex);
         setBackupAsk(shouldAskForBackup(pubkeyHex));
-    };
+    }, []);
 
     // ── Evolustr Signer API ───────────────────────────────────────────────────
 
@@ -259,26 +262,25 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     }, [showNextConfirmation]);
 
     // Forget the unlocked master key on this device (logout).
-    const lockEvolustr = () => {
+    const lockEvolustr = useCallback(() => {
         const evolustr = evolustrRef.current;
         evolustrRef.current = null;
         setEvolustrStatus(null);
         void evolustr?.lock();
-    };
+    }, []);
 
     // The bridge forwards Evolustr calls as soon as this iframe reports the
     // session, which can be before the effect below has created the signer.
-    const waitForEvolustr = () => new Promise<EvolustrSigner | null>(resolve => {
+    const waitForEvolustr = useCallback(() => new Promise<EvolustrSigner | null>(resolve => {
         const timer = setTimeout(() => {
             evolustrWaitersRef.current = evolustrWaitersRef.current.filter(w => w !== waiter);
             resolve(null);
         }, 3000);
         const waiter = (s: EvolustrSigner | null) => { clearTimeout(timer); resolve(s); };
         evolustrWaitersRef.current.push(waiter);
-    });
+    }), []);
 
-    // The signer itself, as the caller for status checks from the settings.
-    const selfCaller = { identity: 'verified' as const, origin: location.origin };
+    // (The signer's own caller for status checks: selfCaller, above the component.)
 
     // ── postMessage handler (use ref to always capture fresh state) ───────────
     const handleMessageRef = useRef<(event: MessageEvent) => void>(() => { });
@@ -398,8 +400,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 postToParent({ id, result: null, error: (e as Error).message });
             }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays, view, showNextConfirmation, rejectAllConfirmations]);
+    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays, view, showNextConfirmation, rejectAllConfirmations, noteSignedEvent, lockEvolustr, waitForEvolustr]);
 
     useEffect(() => {
         const listener = (event: MessageEvent) => handleMessageRef.current(event);
@@ -501,10 +502,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         return () => {
             if (evolustrRef.current === evolustr) evolustrRef.current = null;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [evolustrPubkey, holdsNsec, publishRelaysKey, askEvolustr, postToParent]);
 
     // Status for the settings: read when they open.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: re-read when the identity changes too (evolustrPubkey), selfCaller is constant
     useEffect(() => {
         if (view !== 'profile') return;
         const evolustr = evolustrRef.current;
@@ -516,7 +517,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             setEvolustrStatus({ setUp: c.ready || c.signerPasskey || c.nsecProtected, nsecProtected: c.nsecProtected, signerPasskey: c.signerPasskey });
         });
         return () => { stale = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [view, evolustrPubkey]);
 
     const sheetShown = sharedSignIn.sheet !== null; // ── RESIZE on view changes; a sheet over 'login' stays modal-sized (#124)
@@ -536,6 +536,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     }, [view, errorCollapsed, postToParent, sheetShown]);
 
     // ── Bootstrap: run once on mount ──────────────────────────────────────────
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the bootstrap runs once on mount; later prop changes don't restart it
     useEffect(() => {
         let cancelled = false;
 
@@ -811,7 +812,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         });
 
         return () => { cancelled = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // run once on mount
 
     // ── Event handlers ────────────────────────────────────────────────────────
@@ -912,6 +912,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         }, (e: Error) => setPopupError(e.message));
     }, [parentOrigin, keyInfo, handleApprove, handleReject, handleEvolustrAnswer]);
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: only when a new prompt arrives (its seq), not on every change to it
     useEffect(() => { if (signerTab.connected && pendingConf) handleReviewInPopup(); }, [signerTab.connected, pendingConf?.seq]); // prompts to the tab (#90)
 
     const handleRejectHead = useCallback(() => {
@@ -957,7 +958,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             afterConfirmViewRef.current = 'avatar';
             setEvolustrBusy(false);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [keyInfo, wnjPubkey]);
 
     const handleSaveProfile = useCallback(async (profile: UserProfile) => {
@@ -984,7 +984,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setUserProfile({});
         setView('login');
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
-    }, [postToParent, wnjPubkey, rejectAllConfirmations, sharedSignIn, siteAccount]); // sharedSignIn: its current slot (#117)
+    }, [postToParent, wnjPubkey, rejectAllConfirmations, sharedSignIn, siteAccount, lockEvolustr]); // sharedSignIn: its current slot (#117)
 
     bridgeActionsRef.current = { connect: handleConnect, logout: handleLogout };
 

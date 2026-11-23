@@ -21,7 +21,8 @@
       "complexity": {
         "noExcessiveCognitiveComplexity": { "level": "warn", "options": { "maxAllowedComplexity": 15 } }
       },
-      "style": { "useConst": "error", "useTemplate": "error" }
+      "style": { "useConst": "error", "useTemplate": "error" },
+      "correctness": { "useExhaustiveDependencies": "error" }
     }
   },
   "javascript": {
