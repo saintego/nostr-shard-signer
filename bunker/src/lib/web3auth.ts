@@ -63,6 +63,21 @@ const panelLanguage = (locale: string): PanelLanguage => {
   return (PANEL_LANGUAGES as readonly string[]).includes(base) ? (base as PanelLanguage) : 'en';
 };
 
+/**
+ * Web3Auth's panel settings (#113). `modalConfig` replaces Web3Auth's default,
+ * so the auth connector (every social and email sign-in) must be listed too:
+ * without it the panel was empty (#120). Wallets can't give a Nostr key.
+ */
+export const panelConfig = () => ({
+  hideWalletDiscovery: true,
+  connectors: {
+    [WALLET_CONNECTORS.AUTH]: { label: 'Auth', showOnModal: true },
+    [WALLET_CONNECTORS.METAMASK]: { label: 'MetaMask', showOnModal: false },
+    [WALLET_CONNECTORS.WALLET_CONNECT_V2]: { label: 'WalletConnect', showOnModal: false },
+    [WALLET_CONNECTORS.COINBASE]: { label: 'Coinbase', showOnModal: false },
+  },
+});
+
 export async function initWeb3Auth(
   clientId: string,
   names: SessionNames = SITE_SESSION,
@@ -77,15 +92,7 @@ export async function initWeb3Auth(
         ? WEB3AUTH_NETWORK.SAPPHIRE_DEVNET
         : WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
     uiConfig: { defaultLanguage: panelLanguage(locale) },
-    // Wallets can't give a Nostr key: only the social and email sign-ins (#113).
-    modalConfig: {
-      hideWalletDiscovery: true,
-      connectors: {
-        [WALLET_CONNECTORS.METAMASK]: { label: 'MetaMask', showOnModal: false },
-        [WALLET_CONNECTORS.WALLET_CONNECT_V2]: { label: 'WalletConnect', showOnModal: false },
-        [WALLET_CONNECTORS.COINBASE]: { label: 'Coinbase', showOnModal: false },
-      },
-    },
+    modalConfig: panelConfig(),
     ...sessionOptions(names),
   });
   await instance.init();
