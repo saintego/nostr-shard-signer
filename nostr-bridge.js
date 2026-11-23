@@ -203,6 +203,12 @@
   const iframeLoaded = new Promise(function (resolve) {
     resolveIframeLoaded = resolve;
   });
+  // The iframe's app has reported its own state (AUTH_STATE / AUTH_SUCCESS): it
+  // is listening and done restoring. Before that a LOGOUT is lost (#121).
+  let resolveIframeAnswered;
+  const iframeAnswered = new Promise(function (resolve) {
+    resolveIframeAnswered = resolve;
+  });
   let signerSession = null; // pubkey the signer iframe reports signed in (any mode)
   let signerSessionWaiters = []; // Evolustr calls waiting for signerSession
   const SIGNER_SESSION_TIMEOUT_MS = 15000;
@@ -511,6 +517,7 @@
 
     // ── UI/State messages (custom schema) ────────────────────────────────────
     if (data.type === "AUTH_STATE" || data.type === "AUTH_SUCCESS") {
+      resolveIframeAnswered();
       setSignerSession(
         data.type === "AUTH_SUCCESS" || data.loggedIn ? data.pubkey || null : null,
       );
@@ -1569,6 +1576,15 @@
     // A pending session restore would swallow the iframe's AUTH_STATE:false.
     sessionRestoreProtect = false;
     await iframeLoaded;
+    // After a reload the bridge restores its saved session at once, before the
+    // iframe has restored its own: a LOGOUT sent then was lost, and the site
+    // stayed signed in (#121). Wait for the iframe's own state first.
+    await Promise.race([
+      iframeAnswered,
+      new Promise(function (resolve) {
+        setTimeout(resolve, IFRAME_AUTH_STATE_TIMEOUT_MS);
+      }),
+    ]);
     await new Promise(function (resolve) {
       var done = false;
       var unsubscribe = function () {};

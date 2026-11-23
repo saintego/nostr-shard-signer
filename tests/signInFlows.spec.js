@@ -202,3 +202,20 @@ test('Account tab: switching, Back up and Log out without scrolling; Back up ope
   });
   await snap(win, '9 window: backup');
 });
+
+test("the page's NostrBridge.logout() after a reload signs out on this site (#121)", async ({
+  page,
+  pages,
+}) => {
+  let signer = await openApp(page, pages);
+  await signUp(page, signer);
+  await page.reload();
+  signer = await openApp(page, pages);
+  await expect.poll(() => pubkey(page), { timeout: 15000 }).not.toBeNull();
+  await page.evaluate(() => NostrBridge.logout());
+  await expect.poll(() => pubkey(page)).toBeNull();
+  await page.reload();
+  signer = await openApp(page, pages);
+  await expect(signer.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  expect(await pubkey(page)).toBeNull();
+});
