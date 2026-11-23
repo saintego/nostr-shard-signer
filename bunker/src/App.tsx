@@ -984,7 +984,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setUserProfile({});
         setView('login');
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
-    }, [postToParent, wnjPubkey, rejectAllConfirmations]);
+    }, [postToParent, wnjPubkey, rejectAllConfirmations, sharedSignIn, siteAccount]); // sharedSignIn: its current slot (#117)
 
     bridgeActionsRef.current = { connect: handleConnect, logout: handleLogout };
 

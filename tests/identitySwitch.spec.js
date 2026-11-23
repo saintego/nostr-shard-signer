@@ -71,4 +71,21 @@ test("the widget switches between the site's identities; the page sees each swit
   await expect
     .poll(() => page.evaluate(() => window.nostr.getPublicKey().catch(() => null)))
     .toBe(B);
+
+  // Signing out deletes this site's cache: a reload stays signed out (#117).
+  await expect(async () => {
+    await signer.getByRole('button', { name: 'Open Nostr profile' }).click({ timeout: 1000 });
+    await signer.getByRole('button', { name: 'Log out' }).first().click({ timeout: 1000 });
+  }).toPass({ timeout: 15000 });
+  await expect
+    .poll(() => page.evaluate(() => window.nostr.getPublicKey().catch(() => null)))
+    .toBeNull();
+  await page.reload();
+  await page.evaluate((bunkerOrigin) => {
+    window.states = [];
+    NostrBridge.onAuthChange((s) => window.states.push(s.loggedIn));
+    return NostrBridge.init({ bunkerOrigin });
+  }, BUNKER);
+  await expect.poll(() => page.evaluate(() => window.states.length)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.states.at(-1))).toBe(false);
 });
