@@ -31,7 +31,7 @@ export function SignerTabView() {
       <main className="np-app global-popup">
         <p className="np-message np-success">{format(m.connected, { site })}</p>
         <p className="np-hint">{format(m.connectedHint, { site })}</p>
-        <ConfirmPopupView keepOpen />
+        <ConfirmPopupView keepOpen idle={m.idle} />
       </main>
     );
   }

@@ -22,6 +22,8 @@ test("the tab connects to the widget, takes its prompts, and stops when the site
   const tab = await tabOpened;
   expect(new URL(tab.url()).searchParams.get("signer-tab")).toBe("1");
   await expect(tab.getByText("Connected to the widget on localhost:4173")).toBeVisible();
+  // Between requests it says so, not "Waiting for the signer…" (it is connected).
+  await expect(tab.getByText("No request right now.")).toBeVisible();
 
   // A prompt now shows in the tab, not in the widget.
   await page.evaluate(() => {

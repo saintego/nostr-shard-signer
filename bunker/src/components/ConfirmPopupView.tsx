@@ -12,7 +12,8 @@ import { KeyExportView } from './KeyExportView';
  * mode (src/lib/confirmPopup.ts). No page can frame or style it, so its buttons
  * need no click guard.
  */
-export function ConfirmPopupView({ keepOpen = false }: { keepOpen?: boolean } = {}) {
+/** `idle`: what the signer's tab shows between requests (#90); a popup waits for its one request. */
+export function ConfirmPopupView({ keepOpen = false, idle }: { keepOpen?: boolean; idle?: string } = {}) {
     const [served, setServed] = useState<ServedRequest | null | undefined>(undefined);
 
     // keepOpen: the signer's tab (#90), which serves one request after another.
@@ -22,7 +23,7 @@ export function ConfirmPopupView({ keepOpen = false }: { keepOpen?: boolean } = 
     if (served === null) {
         content = <p className="confirm-summary">Open this window from the signer to review a request.</p>;
     } else if (served === undefined) {
-        content = <p className="confirm-summary">Waiting for the signer…</p>;
+        content = <p className="confirm-summary">{idle ?? 'Waiting for the signer…'}</p>;
     } else {
         const { request, answer, event } = served;
         if (request.kind === 'rpc') {
