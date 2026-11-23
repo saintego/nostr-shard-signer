@@ -15,7 +15,10 @@ test('derivation, Buffer and Evolu work in the production build', async ({ page,
     if (url.origin !== ORIGIN) return route.abort();
     const p = url.pathname.replace(/^\/nostr-shard-signer/, '');
     if (p === '/selftest.html') {
-      return route.fulfill({ contentType: 'text/html', body: await readFile(path.join(dist, 'selftest.html'), 'utf8') });
+      return route.fulfill({
+        contentType: 'text/html',
+        body: await readFile(path.join(dist, 'selftest.html'), 'utf8'),
+      });
     }
     if (p.startsWith('/assets/')) return route.fulfill({ path: path.join(dist, p) });
     return route.abort();
@@ -26,7 +29,14 @@ test('derivation, Buffer and Evolu work in the production build', async ({ page,
   await page.goto(`${ORIGIN}/nostr-shard-signer/selftest.html`);
   await expect.poll(() => page.evaluate(() => window.selftest), { timeout: 20000 }).toBeTruthy();
   const results = await page.evaluate(() => window.selftest);
-  expect(results.map((r) => r.name)).toEqual(['derivation', 'buffer', 'evolu', 'globalList', 'siteCache']);
+  expect(results.map((r) => r.name)).toEqual([
+    'derivation',
+    'buffer',
+    'evolu',
+    'globalList',
+    'syncedApps',
+    'siteCache',
+  ]);
   for (const r of results) expect(r, JSON.stringify(r)).toMatchObject({ ok: true });
   expect(errors).toEqual([]);
 });

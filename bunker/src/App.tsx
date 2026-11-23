@@ -14,6 +14,7 @@ import { sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
 import { isBlockedBySignedList, signOutOnThisSite } from './lib/sharedSignIn';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import { useSharedSignIn } from './useSharedSignIn';
+import { useSyncedApps } from './useSyncedApps';
 import { useSignerTab } from './useSignerTab';
 import type { GestureReason } from './lib/passkeyRules';
 import type { KeyMaterial } from './lib/web3auth';
@@ -27,7 +28,7 @@ import { npubEncode } from 'nostr-tools/nip19';
 import { finalizeEvent } from 'nostr-tools/pure';
 import {
     answerEvolustr, createHostSigner, isEvolustrMethod, signerPasskeys, signThroughBridge,
-    loadCustody, saveCustody, loadAllowedApps, saveAllowedApps,
+    loadCustody, saveCustody, loadAllowedApps,
 } from './lib/evolustr';
 import type { Custody, EvolustrSigner, ConfirmRequest, SignerPasskeys } from './lib/evolustr';
 
@@ -147,12 +148,13 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     const custodyRef = useRef<Custody | null>(null);
     // Set by a step that already has the user's OK for a passkey enrollment.
     const enrollConsentRef = useRef(false);
-    const [evolustrApps, setEvolustrApps] = useState<string[]>([]);
     const [evolustrStatus, setEvolustrStatus] = useState<EvolustrStatus | null>(null);
     const [evolustrBusy, setEvolustrBusy] = useState(false);
     const [evolustrMsg, setEvolustrMsg] = useState('');
     // ── WNJ profile mode: set when bridge sends WNJ_SESSION ───────────────────────
     const [wnjPubkey, setWnjPubkey] = useState<string | null>(null);
+    const allowedApps = useSyncedApps({ pubkey: keyInfo?.publicKeyHex ?? null, synced: !!wnjPubkey, evolustr: () => evolustrRef.current }); // #88
+    const allowedAppsRef = useRef(allowedApps); allowedAppsRef.current = allowedApps; // for the effects below
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -417,7 +419,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         const pubkey = evolustrPubkey;
         const oauth = holdsNsec;
         custodyRef.current = oauth ? loadCustody(pubkey) : 'passkey';
-        setEvolustrApps(loadAllowedApps(pubkey));
         const askGesture = async (reason: GestureReason | 'unlock' | 'enrollPasskey') => { if ((await askEvolustr({ kind: 'gesture', reason })) === 'deny') throw new Error('Cancelled'); };
         const passkeys = signerPasskeys('Nostr Shard Signer', askGesture);
         passkeysRef.current = passkeys;
@@ -472,12 +473,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                     throw e;
                 }
             }
-            const next = loadAllowedApps(pubkey);
-            if (!next.includes(req.appId)) {
-                next.push(req.appId);
-                saveAllowedApps(pubkey, next);
-                setEvolustrApps(next);
-            }
+            void allowedAppsRef.current.allow(req.appId); // and syncs, M being unlocked now (#88)
             return true;
         };
 
@@ -497,7 +493,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             confirm,
             requestGesture: askGesture,
         });
-        evolustrRef.current = evolustr;
+        evolustrRef.current = evolustr; void allowedAppsRef.current.sync(); // M may be unlocked already (#88)
         for (const w of evolustrWaitersRef.current.splice(0)) w(evolustr);
         return () => {
             if (evolustrRef.current === evolustr) evolustrRef.current = null;
@@ -920,12 +916,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         else handleReject();
     }, [handleEvolustrAnswer, handleReject]);
 
-    const handleForgetApp = useCallback((appId: string) => {
-        if (!keyInfo) return;
-        const next = loadAllowedApps(keyInfo.publicKeyHex).filter(a => a !== appId);
-        saveAllowedApps(keyInfo.publicKeyHex, next);
-        setEvolustrApps(next);
-    }, [keyInfo]);
+    const handleForgetApp = useCallback((appId: string) => void allowedApps.forget(appId), [allowedApps]);
 
     // "Add a passkey" / "Use a passkey instead" in the settings.
     const handleEvolustrPasskey = useCallback(async () => {
@@ -1141,7 +1132,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 evolustrSection={
                     <EvolustrSettings
                         status={evolustrStatus}
-                        apps={evolustrApps}
+                        apps={allowedApps.apps}
                         holdsNsec={!wnjPubkey}
                         custody={custodyRef.current}
                         busy={evolustrBusy}

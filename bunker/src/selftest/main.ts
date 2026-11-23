@@ -5,10 +5,10 @@
 // window.selftest.
 
 import '../lib/bufferBase64url';
+import { Buffer as PolyBuffer } from 'buffer';
 import { getPublicKey } from 'nostr-tools/pure';
 import { deriveIdentity, deriveRoot } from '../lib/derive';
 import vectors from '../lib/derive.vectors.json';
-import { Buffer as PolyBuffer } from 'buffer';
 
 // The worst case for Evolu: a global Buffer (the polyfill's, as Web3Auth's code
 // puts in place in the signer) exists before Evolu loads, so Evolu uses it with
@@ -23,7 +23,8 @@ interface Check {
 }
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-const fromHex = (s: string) => new Uint8Array((s.match(/../g) ?? []).map((h) => Number.parseInt(h, 16)));
+const fromHex = (s: string) =>
+  new Uint8Array((s.match(/../g) ?? []).map((h) => Number.parseInt(h, 16)));
 
 async function derivation(): Promise<Check> {
   for (const v of vectors.vectors) {
@@ -46,7 +47,11 @@ function buffer(): Check {
   const url = B.from(bytes).toString('base64url' as BufferEncoding);
   const back = new Uint8Array(B.from(url, 'base64url' as BufferEncoding));
   const plain = B.from(bytes).toString('base64');
-  const ok = url === '-_8APj8' && hex(back) === hex(bytes) && plain === '+/8APj8=' && B.from('ab', 'hex')[0] === 0xab;
+  const ok =
+    url === '-_8APj8' &&
+    hex(back) === hex(bytes) &&
+    plain === '+/8APj8=' &&
+    B.from('ab', 'hex')[0] === 0xab;
   return { name: 'buffer', ok, detail: `${url} ${plain}` };
 }
 
@@ -55,10 +60,16 @@ async function evolu(): Promise<Check> {
   const { createQueryBuilder, NonEmptyTrimmedString100 } = await import('@evolu/common');
   const store = await openSiteStore(crypto.getRandomValues(new Uint8Array(32)), { sync: false });
   await new Promise<void>((resolve) => {
-    store.insert('setting', { name: NonEmptyTrimmedString100.orThrow('selftest'), value: 'ok' }, { onComplete: resolve });
+    store.insert(
+      'setting',
+      { name: NonEmptyTrimmedString100.orThrow('selftest'), value: 'ok' },
+      { onComplete: resolve }
+    );
   });
   const createQuery = createQueryBuilder(siteSchema);
-  const rows = await store.loadQuery(createQuery((db) => db.selectFrom('setting').select(['name', 'value'])));
+  const rows = await store.loadQuery(
+    createQuery((db) => db.selectFrom('setting').select(['name', 'value']))
+  );
   const ok = rows.some((r) => r.name === 'selftest' && r.value === 'ok');
   return { name: 'evolu', ok, detail: `${rows.length} rows` };
 }
@@ -84,6 +95,29 @@ async function globalList(): Promise<Check> {
   return { name: 'globalList', ok, detail: JSON.stringify(rows) };
 }
 
+/** The allowed-apps rows (#88): allow, forget, and read back after reopening. */
+async function syncedApps(): Promise<Check> {
+  const { openSyncedApps } = await import('../lib/syncedApps');
+  const secret = crypto.getRandomValues(new Uint8Array(32));
+  const first = await openSyncedApps(secret, { sync: false });
+  await first.allow('app-a');
+  await first.allow('app-b');
+  await first.forget('app-b');
+  await first.allow('app-a'); // again: still one row
+  await first.close();
+  const again = await openSyncedApps(secret, { sync: false });
+  const rows = await again.rows();
+  await again.close();
+  const sorted = [...rows].sort((x, y) => x.appId.localeCompare(y.appId));
+  const ok =
+    JSON.stringify(sorted) ===
+    JSON.stringify([
+      { appId: 'app-a', deleted: false },
+      { appId: 'app-b', deleted: true },
+    ]);
+  return { name: 'syncedApps', ok, detail: JSON.stringify(sorted) };
+}
+
 async function siteCache(): Promise<Check> {
   const { saveSiteCache, loadSiteCache, deleteSiteCache } = await import('../lib/siteCache');
   const cache = {
@@ -103,17 +137,35 @@ async function siteCache(): Promise<Check> {
   deleteSiteCache();
   const gone = await loadSiteCache();
   const ok =
-    JSON.stringify(back) === JSON.stringify(cache) && !sealed.includes('bbbb') && expired === null && gone === null;
-  return { name: 'siteCache', ok, detail: ok ? 'sealed, restored, expired, deleted' : JSON.stringify({ back, expired, gone }) };
+    JSON.stringify(back) === JSON.stringify(cache) &&
+    !sealed.includes('bbbb') &&
+    expired === null &&
+    gone === null;
+  return {
+    name: 'siteCache',
+    ok,
+    detail: ok ? 'sealed, restored, expired, deleted' : JSON.stringify({ back, expired, gone }),
+  };
 }
 
 async function main() {
   const results: Check[] = [];
-  for (const check of [derivation, async () => buffer(), evolu, globalList, siteCache]) {
+  for (const check of [
+    derivation,
+    async () => buffer(),
+    evolu,
+    globalList,
+    syncedApps,
+    siteCache,
+  ]) {
     try {
       results.push(await check());
     } catch (e) {
-      results.push({ name: check.name || 'check', ok: false, detail: String((e as Error)?.message ?? e) });
+      results.push({
+        name: check.name || 'check',
+        ok: false,
+        detail: String((e as Error)?.message ?? e),
+      });
     }
   }
   (window as { selftest?: Check[] }).selftest = results;
