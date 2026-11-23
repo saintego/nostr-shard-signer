@@ -6,7 +6,7 @@ import type { Event } from 'nostr-tools';
 import { createElement, useCallback, useRef, useState } from 'react';
 import { InlineContinue, InlineNoAccount, InlineSheet } from './components/InlineSignInViews';
 import { NewAccountView } from './components/NewAccountView';
-import { backgroundWrites, withTimeout } from './lib/backgroundWrites';
+import { backgroundWrites, timed, withTimeout } from './lib/backgroundWrites';
 import { flowDeps } from './lib/flowDeps';
 import type { HandedLogin } from './lib/globalPopup';
 import {
@@ -87,15 +87,21 @@ export function useInlineSignIn({
     try {
       const instance = await prepareInstance(document.documentElement.lang);
       instanceRef.current = instance;
-      const first = await loginOnce(instance, 'panel').finally(() => {
+      const first = await timed('provider login', loginOnce(instance, 'panel')).finally(() => {
+        // Closed whatever happened: left open, the emptied panel fell over the
+        // widget and hid the next step or the error (#123).
+        instance.loginModal?.closeModal();
         instanceRef.current = null;
       });
       setView('signing-in');
       postToParent({ type: 'RESIZE', state: 'button' });
-      const outcome = await withTimeout(
-        afterInlineLogin(first, site, inlineDeps()),
-        STEP_MAX_MS,
-        'Checking your account took too long'
+      const outcome = await timed(
+        'account lookup',
+        withTimeout(
+          afterInlineLogin(first, site, inlineDeps()),
+          STEP_MAX_MS,
+          'Checking your account took too long'
+        )
       );
       if (outcome.kind !== 'none') first.login.key.fill(0);
       await settle(outcome);

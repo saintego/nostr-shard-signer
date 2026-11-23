@@ -101,12 +101,6 @@ export function useSharedSignIn({
     [signedIn, setView, postToParent]
   );
 
-  /** Shows the sheet (the widget's Sign in, or the page's NostrBridge.login()). */
-  const openSheet = useCallback(() => {
-    setSheetOpen(true);
-    postToParent({ type: 'RESIZE', state: 'modal' });
-  }, [postToParent]);
-
   /** A failed sign-in, backup or manage; a failed manage keeps the current session. */
   const failed = useCallback(
     (e: unknown, managing: boolean) => {
@@ -167,18 +161,25 @@ export function useSharedSignIn({
     onCancel: showButton,
   });
 
+  /**
+   * The widget's Sign in, or the page's NostrBridge.login(): Web3Auth's panel
+   * straight away (#123), or with the signer's own buttons, the sheet that
+   * opens their window.
+   */
+  const openSheet = () => {
+    if (signInUi !== 'buttons') return void inline.start();
+    setSheetOpen(true);
+    postToParent({ type: 'RESIZE', state: 'modal' });
+  };
+
   const sheet =
     inline.view ??
     (sheetOpen
       ? createElement(SharedSignInSheet, {
           nostrSigner,
           poweredBy,
-          buttons: signInUi === 'buttons',
-          onGoogle: () => {
-            if (signInUi === 'buttons') return void google();
-            setSheetOpen(false);
-            void inline.start();
-          },
+          // Only with the signer's own buttons: they're in the window.
+          onGoogle: () => void google(),
           onNostrSigner: () => {
             showButton();
             postToParent({ type: 'OPEN_NOSTR_SIGNER' });

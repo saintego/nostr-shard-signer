@@ -4,8 +4,6 @@ import { defineMessages } from '../lib/i18n';
 export const sharedSignInMessages = defineMessages('sharedSignIn', {
   title: 'Sign in',
   google: 'Continue with Google, Apple, Facebook or X',
-  // With Web3Auth's panel in the window, which may offer more providers (#113)
-  panel: 'Continue with Google, X, Facebook and more',
   googleHint: 'Opens a sign-in window. Your account works on every site that uses this sign-in.',
   extension: 'Use my Nostr extension',
   bunker: 'Use my Nostr signer or bunker',

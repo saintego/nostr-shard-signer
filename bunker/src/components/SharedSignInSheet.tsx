@@ -9,8 +9,6 @@ interface Props {
   /** The page's own Nostr signer, if any. */
   nostrSigner: 'bunker' | 'extension' | null;
   poweredBy: boolean;
-  /** The window shows the signer's own provider buttons, not Web3Auth's panel (#113). */
-  buttons: boolean;
   /** Opens the global sign-in popup: must run in this click. */
   onGoogle: () => void;
   onNostrSigner: () => void;
@@ -24,7 +22,6 @@ interface Props {
 export function SharedSignInSheet({
   nostrSigner,
   poweredBy,
-  buttons,
   onGoogle,
   onNostrSigner,
   onCancel,
@@ -35,7 +32,7 @@ export function SharedSignInSheet({
       <h2 className="np-title">{m.title}</h2>
       <TestVersionNotice />
       <button type="button" className="np-button np-filled" onClick={onGoogle}>
-        {buttons ? m.google : m.panel}
+        {m.google}
       </button>
       <p className="np-hint">{m.googleHint}</p>
       {nostrSigner && (
