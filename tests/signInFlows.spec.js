@@ -219,3 +219,25 @@ test("the page's NostrBridge.logout() after a reload signs out on this site (#12
   await expect(signer.getByRole('button', { name: 'Sign in' })).toBeVisible();
   expect(await pubkey(page)).toBeNull();
 });
+
+test('the canary (#91): a site added to the shared project pauses new sign-ins', async ({
+  page,
+  pages,
+}) => {
+  // The shared project's public configuration (C15), with one unexpected site.
+  await page.route('https://api.web3auth.io/signer-service/api/v2/configuration**', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        enableKeyExport: true,
+        whitelist: { urls: [SECURE_SIGNER_ORIGIN, 'https://evil.example'], signed_urls: {} },
+      }),
+    })
+  );
+  const signer = await openApp(page, pages);
+  await signer.getByRole('button', { name: 'Sign in' }).click();
+  await expect(signer.getByText('Sign-in paused')).toBeVisible();
+  await expect(signer.getByRole('dialog', { name: 'Web3Auth sign-in' })).toHaveCount(0);
+  await snap(page, 'canary paused');
+  expect(await pubkey(page)).toBeNull();
+});

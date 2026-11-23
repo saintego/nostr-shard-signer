@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:fake": "VITE_FAKE_W3A=1 VITE_PREVIEW=1 VITE_PREVIEW_SHARED_CLIENT_ID=FAKE vite build --outDir dist-fake",
+    "build:fake": "VITE_FAKE_W3A=1 VITE_CANARY=enforce VITE_PREVIEW=1 VITE_PREVIEW_SHARED_CLIENT_ID=FAKE vite build --outDir dist-fake",
     "preview": "vite preview"
   },
   "dependencies": {

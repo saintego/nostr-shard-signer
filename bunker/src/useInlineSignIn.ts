@@ -23,6 +23,7 @@ import {
 } from './lib/inlineSignIn';
 import { loginOnce, prepareInstance } from './lib/popupLogin';
 import { publishToSignerRelays } from './lib/relayPublish';
+import { assertSharedSignInAllowed } from './lib/sharedCanary';
 import { keepAnswer, type SharedSession, signInGlobally } from './lib/sharedSignIn';
 import type { CacheSlot } from './lib/siteCache';
 
@@ -92,6 +93,7 @@ export function useInlineSignIn({
     setView('signing-in');
     postToParent({ type: 'RESIZE', state: 'button' });
     try {
+      await assertSharedSignInAllowed(); // the canary (#91)
       const instance = await prepareInstance(document.documentElement.lang);
       instanceRef.current = instance;
       setView('connecting');

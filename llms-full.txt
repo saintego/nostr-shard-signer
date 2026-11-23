@@ -15,7 +15,7 @@ Shared sign-in, what to tell the developer:
 - It works on any site, with no Web3Auth account and no registration. A user gets the same npub on every site that uses it.
 - It is free while donations cover the shared project's Web3Auth bill, and may later be limited per site, become paid, or be turned off.
 - Moving a live app from shared sign-in to its own `clientId` (or back) gives its OAuth users new, empty npubs. If the app will need its own keys or predictable costs, start with its own `clientId`.
-- Whoever runs the hosted signer can obtain shared-mode users' keys. The shared project's Web3Auth allowlist lists only the signer's origin, so sites can't.
+- Whoever runs the hosted signer can obtain shared-mode users' keys. The shared project's Web3Auth allowlist lists only the signer's origin, so sites can't. If a site is added to it, the signer pauses new shared sign-ins ("Sign-in paused"; sites already signed in keep working).
 - The operator can block a single site from it (warning `SHARED_BLOCKED`); that site keeps extension and bunker sign-in.
 - Users back up the whole account (master key and backup file) in the sign-in window, and restore only at `<signer>/restore/`, a page they open themselves. Apps can't start either; don't build flows around them.
 - Decrypts, replacing the profile, follows or relays, deletions, Evolustr app keys and key export are confirmed in a popup on the signer's origin (the widget shows "Review this request" first), so no page can cover the prompt. Expect two clicks for those.
@@ -234,6 +234,7 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 | `PROTOCOL_UNSUPPORTED` | `nostr-bridge.js` and the signer at `bunkerOrigin` are different versions (e.g. a copied or CDN-pinned bridge with a newer or self-hosted signer) | Load `nostr-bridge.js` from `<bunkerOrigin>/nostr-bridge.js`, or use the npm package's `loadNostrBridge()`, which does that |
 | `LOGIN_FAILED` | The OAuth login failed (not cancelled) | Usually transient; the user can retry |
 | `KEY_EXPORT_OFF` | The page's own Web3Auth project has key export turned off, so it can't give Nostr keys | Turn key export on in the Web3Auth dashboard, or leave `clientId` out for shared sign-in |
+| `SHARED_SIGN_IN_PAUSED` | Shared sign-in only: the hosted signer's shared Web3Auth project changed unexpectedly (a site added to its allowlist, or key export off), so the signer starts no new shared sign-in. Users already signed in keep working | Nothing to fix on the page; the operator is alerted. Pass your own `clientId` to avoid depending on the shared project |
 | "nostr-bridge: no clientId, so Google/Apple/X sign-in goes through the signer's shared project…" (info) | `init()` without `clientId` | Expected: shared sign-in. Pass a `clientId` for keys of your own project, or `nostrOnly: true` to turn it off |
 | "nostr-bridge: no clientId, so Google/Apple/X sign-in is off…" (warning) | `init()` without `clientId`, with a self-hosted signer that has no shared sign-in | Pass a `clientId` to add Google/Apple/X, or `nostrOnly: true` if that's intended |
 | "nostr-bridge: bunkerOrigin must be an absolute URL…" | Bad `bunkerOrigin` | Omit it, or pass a full https URL |

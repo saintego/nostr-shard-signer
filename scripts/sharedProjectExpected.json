@@ -1,0 +1,15 @@
+{
+  "_comment": "What the shared Web3Auth projects' public configuration must say (#91). scripts/checkSharedProject.mjs compares it hourly; update it in the same PR as an intended allowlist change.",
+  "production": {
+    "network": "sapphire_mainnet",
+    "urls": []
+  },
+  "preview": {
+    "network": "sapphire_devnet",
+    "urls": [
+      "https://preview.nostr-shard-signer.pages.dev",
+      "https://saintego.github.io/nostr-shard-signer",
+      "https://nostr-shard-checks.pages.dev"
+    ]
+  }
+}

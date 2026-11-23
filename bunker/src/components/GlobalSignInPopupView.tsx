@@ -1,8 +1,7 @@
 import type { Web3Auth } from '@web3auth/modal';
 import { useEffect, useRef, useState } from 'react';
-import { backgroundWrites, timed, withTimeout } from '../lib/backgroundWrites';
+import { timed, withTimeout } from '../lib/backgroundWrites';
 import type { BackupMethod } from '../lib/backup';
-import { flowDeps } from '../lib/flowDeps';
 import type { GlobalAccount, NewProfile } from '../lib/globalAccount';
 import { type GlobalOptions, type GlobalResult, serveGlobalPopup } from '../lib/globalPopup';
 import { format } from '../lib/i18n';
@@ -11,9 +10,10 @@ import { halfDoneLink, linkRefusal, lookUp, restrictedGrant } from '../lib/linki
 import { restoreUrl } from '../lib/masterKey';
 import { afterLogin, openLinked, openOwn, type Step } from '../lib/popupFlow';
 import { type Choice, loginOnce, type PopupLogin, prepareInstance } from '../lib/popupLogin';
-import { publishToSignerRelays } from '../lib/relayPublish';
 import { SHARED_SIGN_IN_CLIENT_ID } from '../lib/shared';
+import { assertSharedSignInAllowed, CANARY_PAUSED } from '../lib/sharedCanary';
 import { useMessages } from '../lib/useMessages';
+import { closeAfterWrites, depsFor, writes } from '../lib/windowWrites';
 import { AccountQuestionView } from './AccountQuestionView';
 import { globalSignInMessages } from './GlobalSignInMessages';
 import { LinkConfirmView, refusalText } from './LinkConfirmView';
@@ -55,19 +55,6 @@ type State =
     } & Omit<AccountStep, 'step'>)
   | { step: 'failed'; site: string; reason: string }
   | { step: 'done'; site: string; broughtOver?: boolean };
-
-/** Relay writes run in the background; the window waits for them only before closing (#110). */
-const writes = backgroundWrites(publishToSignerRelays);
-/** The longest the window stays open for unfinished writes after it's done. */
-const WRITES_MAX_MS = 20000;
-/** Closes the window once its writes are sent (or after WRITES_MAX_MS), `ms` after done at least. */
-const closeAfterWrites = (ms: number) =>
-  void Promise.all([writes.settled(WRITES_MAX_MS), new Promise((r) => setTimeout(r, ms))]).then(
-    () => window.close()
-  );
-
-/** Where the account reads and writes, and this site login's marker address (lib/flowDeps.ts). */
-const depsFor = (options: GlobalOptions) => flowDeps(writes, options.markerAddress);
 
 const hostOf = (origin: string) => {
   try {
@@ -164,7 +151,11 @@ export function GlobalSignInPopupView() {
     try {
       await step();
     } catch (e) {
-      setState({ step: 'failed', site, reason: reasonOf(e) });
+      setState({
+        step: 'failed',
+        site,
+        reason: reasonOf(e) === CANARY_PAUSED ? m.paused : reasonOf(e),
+      });
     } finally {
       setBusy(false);
     }
@@ -242,6 +233,7 @@ export function GlobalSignInPopupView() {
       setState({ step: 'working', site, phase: 'login' });
       wipe();
       accountRef.current = null;
+      await assertSharedSignInAllowed(); // the canary (#91)
       const first = await timed('provider login', loginOrCancel(choice));
       if (!first) return setState({ step: 'ready', site });
       await continueFrom(site, first);

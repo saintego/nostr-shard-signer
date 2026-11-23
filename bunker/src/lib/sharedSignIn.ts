@@ -167,6 +167,14 @@ export function signInFailure(
       message: 'Allow popups for this signer and try again.',
       code: 'POPUP_BLOCKED',
     };
+  // The canary (#91): the shared project's setup changed unexpectedly.
+  if (message === 'SHARED_SIGN_IN_PAUSED')
+    return {
+      title: 'Sign-in paused',
+      message:
+        'The shared sign-in changed in a way this signer didn’t expect, so new sign-ins are paused to keep your keys safe. Sites you’re already signed in to keep working.',
+      code: 'SHARED_SIGN_IN_PAUSED',
+    };
   if (/closed|cancel/i.test(message)) return 'quiet';
   return { title: 'Login failed', message, code: 'LOGIN_FAILED' };
 }

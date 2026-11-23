@@ -251,7 +251,8 @@ declare global {
         /**
          * CLIENT_ID_NOT_FOUND | DOMAIN_NOT_REGISTERED |
          * WEB3AUTH_INIT_FAILED | MISSING_ROOT_PUBKEY | NO_SIGN_IN_METHOD | NESTED_FRAME |
-         * NOT_EMBEDDED | PROTOCOL_UNSUPPORTED | INIT_ERROR | LOGIN_FAILED
+         * NOT_EMBEDDED | PROTOCOL_UNSUPPORTED | INIT_ERROR | LOGIN_FAILED |
+         * KEY_EXPORT_OFF | SHARED_SIGN_IN_PAUSED
          */
         code: string;
         message: string;

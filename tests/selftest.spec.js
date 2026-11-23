@@ -37,6 +37,7 @@ test('derivation, Buffer and Evolu work in the production build', async ({ page,
     'syncedApps',
     'noPersistPrompt',
     'siteCache',
+    'canary',
   ]);
   for (const r of results) expect(r, JSON.stringify(r)).toMatchObject({ ok: true });
   expect(errors).toEqual([]);

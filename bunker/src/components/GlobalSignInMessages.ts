@@ -21,6 +21,8 @@ export const globalSignInMessages = defineMessages('globalSignIn', {
   close: 'Close',
   retry: 'Try again',
   back: 'Back',
+  paused:
+    'The shared sign-in changed in a way this signer didn’t expect, so new sign-ins are paused to keep your keys safe. Sites you’re already signed in to keep working.',
   // What the window is doing (#110)
   phaseLogin: 'Waiting for the sign-in…',
   phaseChecking: 'Checking your account…',

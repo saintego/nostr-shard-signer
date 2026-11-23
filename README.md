@@ -178,7 +178,7 @@ The bridge detects a stored session on load and switches modes transparently. Bo
 | Owner of the clientId obtaining users' keys | **Not prevented.** The owner controls the Web3Auth project's allowlist, so they can run Web3Auth on a page of their own and get the key of any user who signs in there (true of every Web3Auth embedded wallet). Users trust the app owner with the identity they create in that app; users who don't sign in with their own extension or bunker |
 | Browser extension / XSS on parent page  | Same isolation — the iframe context is physically separate                                                        |
 | Domain spoofing to steal Web3Auth quota | The page origin must be in the NIP-33 registry on Nostr or in the clientId's Web3Auth allowlist (only its owner can edit it); the registrar only registers allowlisted origins. The registry's root key is built into the signer, so a page can't point the signer at a registry it signed itself. Shared sign-in is open to every site by design |
-| A site obtaining shared-mode users' keys | The shared project's Web3Auth allowlist lists only the signer's origin, so no site can run Web3Auth with its `clientId` |
+| A site obtaining shared-mode users' keys | The shared project's Web3Auth allowlist lists only the signer's origin, so no site can run Web3Auth with its `clientId`. If someone adds a site there, the signer pauses new shared sign-ins and an hourly check alerts the operator ([Watching the shared project](#watching-the-shared-project)) |
 | Rogue iframe injected by attacker       | `event.source === window.parent` check + `_parentOrigin` derived from `document.ancestorOrigins` (not URL params) |
 | Host page hiding or covering a prompt (clickjacking) | Approve, Allow, Unlock and reveal-key buttons react only 0.7 s after they appear, after the iframe is resized, or after the tab becomes visible again; in Chromium, also only while the browser vouches that nothing covers or hides them. In shared sign-in, where any site may embed the signer, decrypts, profile, follow-list and relay-list replacements, deletions, Evolustr app keys and key export are shown in a popup on the signer's own origin, which no page can frame or style (two clicks). Moving the iframe under the cursor without resizing it isn't detected in the iframe itself |
 | A third site framing the app            | The signer refuses to run when the page that embeds it is itself inside a frame (`NESTED_FRAME`): only the direct parent's origin is known |
@@ -721,6 +721,13 @@ Shared sign-in is open to every origin, and Web3Auth bills the shared project fo
 
 What it can't do: the embedding origin is known reliably (`ancestorOrigins`), but a blocked operator can move to another domain. Counting users per site ([#32](https://github.com/saintego/nostr-shard-signer/issues/32)) is what makes limits real.
 
+### Watching the shared project
+
+Whoever can edit the shared project's Web3Auth allowlist could add a page of their own and obtain shared-mode users' keys. Two checks read the project's public configuration (the one Web3Auth's SDK reads: allowlist and key export):
+
+- **In the signer (canary):** before a new shared sign-in, in the widget and in the sign-in window, the signer reads the configuration once per page. If the allowlist lists a site other than the signer's own address (and `VITE_SHARED_EXPECTED_ORIGINS`, comma-separated, at build time), or key export is off, it shows "Sign-in paused" and starts no sign-in. Sites already signed in keep working. If the configuration can't be read within 5 s, sign-in goes on. Previews only log it (their test project also lists the check kit), unless built with `VITE_CANARY=enforce`.
+- **Outside (monitor):** the workflow `Shared project monitor` runs `scripts/checkSharedProject.mjs` hourly and fails, so GitHub emails you, when a project's allowlist differs from `scripts/sharedProjectExpected.json` (a site added or missing) or key export is off. It checks the production project (`SHARED_CLIENT_ID`) and the preview's (`PREVIEW_SHARED_CLIENT_ID`), each skipped while unset. Change the expected list in the same PR as an intended allowlist change.
+
 ### Versioning
 
 The bridge passes its protocol version in the iframe URL (`signer.html?protocol=1&…`; bridges from before the handshake send none and speak 1). The signer answers `{ type: "SIGNER_HELLO", protocol }`, or, for a version it doesn't support, shows an error and posts `SIGNER_ERROR` with code `PROTOCOL_UNSUPPORTED`. Bump `PROTOCOL_VERSION` in `nostr-bridge.js` on breaking message changes, and keep the old version in the signer's `SUPPORTED_PROTOCOLS` while bridges speaking it may still be pinned or cached (jsDelivr, copies, older npm loaders on self-hosted signers).
@@ -894,7 +901,7 @@ curl -s https://nostr-shard-registrar.nostr-shard-signer.workers.dev/health     
 - [ ] Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub repository secrets
 - [ ] Enable GitHub Pages (Settings → Pages → Source: GitHub Actions)
 - [ ] Update `registrarUrl` (and `portalClientId`) in `site-config.js`
-- [ ] Shared sign-in: set `SHARED_CLIENT_ID` in `bunker/src/lib/shared.ts` to a Web3Auth project of your own whose allowlist lists only your signer's origin, or leave it empty for none
+- [ ] Shared sign-in: set `SHARED_CLIENT_ID` in `bunker/src/lib/shared.ts` to a Web3Auth project of your own whose allowlist lists only your signer's origin, or leave it empty for none; list that origin in `scripts/sharedProjectExpected.json` (`production`)
 
 **After first deploy**
 

@@ -165,6 +165,35 @@ async function siteCache(): Promise<Check> {
   };
 }
 
+/** The canary's verdicts (#91) on configurations like the one Web3Auth serves (C15). */
+async function canary(): Promise<Check> {
+  const { expectedSites, judgeConfig } = await import('../lib/canary');
+  const expected = expectedSites(
+    'https://signer.example/app/signer.html',
+    'https://checks.example'
+  );
+  const config = (urls: unknown, enableKeyExport: unknown = true) => ({
+    enableKeyExport,
+    whitelist: { urls },
+  });
+  const got = [
+    judgeConfig(config(['https://signer.example/', 'https://signer.example/app']), expected),
+    judgeConfig(config(['https://checks.example', 'https://evil.example']), expected),
+    judgeConfig(config(['https://signer.example'], false), expected),
+    judgeConfig({ whitelist: {} }, expected),
+    judgeConfig(null, expected),
+  ];
+  const want = [
+    { kind: 'ok' },
+    { kind: 'unknown-site', sites: ['https://evil.example'] },
+    { kind: 'key-export-off' },
+    { kind: 'unreadable' },
+    { kind: 'unreadable' },
+  ];
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  return { name: 'canary', ok, detail: JSON.stringify(got) };
+}
+
 async function main() {
   const results: Check[] = [];
   for (const check of [
@@ -175,6 +204,7 @@ async function main() {
     syncedApps,
     noPersistPrompt,
     siteCache,
+    canary,
   ]) {
     try {
       results.push(await check());

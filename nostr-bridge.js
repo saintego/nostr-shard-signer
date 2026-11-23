@@ -138,6 +138,11 @@
       "Your Web3Auth project has key export turned off, so it can't give users Nostr keys. Turn " +
       "it on in the project's settings in the Web3Auth dashboard, or leave " +
       "clientId out to use the hosted signer's shared sign-in. Extensions and bunkers still work.",
+    SHARED_SIGN_IN_PAUSED:
+      "The hosted signer's shared Web3Auth project changed unexpectedly (a site was added to its " +
+      "allowlist, or key export was turned off), so the signer paused new shared sign-ins to keep " +
+      "users' keys safe. Users already signed in, extensions and bunkers keep working. Nothing to " +
+      "fix on this page; pass your own clientId to avoid depending on the shared project.",
     NESTED_FRAME:
       "The page using the signer must be the top-level window. Inside another site's frame it " +
       "can't sign in, so that site can't hide or cover the signer's prompts. Open the app in its own tab.",
@@ -627,8 +632,9 @@
         "nostr-bridge: signer error " + code + ": " + message +
           (hint ? "\n→ " + hint : "") + "\nDocs: " + DOCS_URL,
       );
-      // A failed login (or key export off) leaves extension and bunker sign-in working.
-      if (code !== "LOGIN_FAILED" && code !== "KEY_EXPORT_OFF") {
+      // A failed login (key export off, or shared sign-in paused) leaves extension and
+      // bunker sign-in working.
+      if (code !== "LOGIN_FAILED" && code !== "KEY_EXPORT_OFF" && code !== "SHARED_SIGN_IN_PAUSED") {
         signerError = "nostr-bridge: signer error " + code + ": " + message;
         // Setup failed before the iframe reported AUTH_STATE: fail queued calls
         // now with the real cause instead of after the AUTH_STATE timeout. Not
