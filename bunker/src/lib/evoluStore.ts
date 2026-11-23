@@ -148,13 +148,21 @@ export interface StoreOptions {
   readonly memoryOnly?: boolean;
 }
 
+/**
+ * The test build of the whole sign-in only (VITE_FAKE_W3A, #127): no sync
+ * server, and stores on the device instead of in memory, so the widget and the
+ * sign-in window (on one origin in those tests) share them. Real users always
+ * go through memory and sync; that part isn't covered there.
+ */
+export const OFFLINE_TEST_STORES = import.meta.env?.VITE_FAKE_W3A === '1';
+
 const config = (name: string, ownerSecret: Uint8Array, options: StoreOptions) => ({
   appName: AppName.orThrow(`nss-${name}`),
   appOwner: createAppOwner(OwnerSecret.orThrow(ownerSecret)),
   // Don't reload the page when a database is deleted (Evolu's default).
   onDatabaseDeleted: () => {},
-  ...(options.sync === false ? { transports: [] } : {}),
-  ...(options.memoryOnly ? { memoryOnly: true } : {}),
+  ...(options.sync === false || OFFLINE_TEST_STORES ? { transports: [] } : {}),
+  ...(options.memoryOnly && !OFFLINE_TEST_STORES ? { memoryOnly: true } : {}),
 });
 
 // `ownerSecret` is the 32-byte key derived for the store (see the top).

@@ -75,6 +75,15 @@ export default defineConfig({
       ],
     },
   },
+  // The test build of the whole sign-in (#127): Web3Auth replaced by a fake
+  // that draws its panel as DOM and returns a fixed login. Never in a release.
+  ...(process.env.VITE_FAKE_W3A === "1"
+    ? {
+        resolve: {
+          alias: { "@web3auth/modal": new URL("./src/testing/fakeWeb3Auth.ts", import.meta.url).pathname },
+        },
+      }
+    : {}),
   // Evolu's database runs in ES module workers.
   worker: { format: "es" },
   build: {

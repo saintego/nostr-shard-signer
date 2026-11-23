@@ -14,7 +14,7 @@ import {
   sqliteTrue,
 } from '@evolu/common';
 import { canonicalOrigin, deriveGlobalStoreKey } from './derive';
-import { globalSchema, openGlobalStore, waitForSync } from './evoluStore';
+import { globalSchema, OFFLINE_TEST_STORES, openGlobalStore, waitForSync } from './evoluStore';
 import {
   buildList,
   type GlobalList,
@@ -84,7 +84,7 @@ export async function openGlobalList(
   });
   ownerSecret.fill(0);
   const sync = (ms: number) =>
-    options.sync === false
+    options.sync === false || OFFLINE_TEST_STORES
       ? Promise.resolve<SyncResult>('NoRelays')
       : waitForSync(evolu.name, evolu.appOwner.id, ms);
   const synced = await sync(OPEN_SYNC_MS);

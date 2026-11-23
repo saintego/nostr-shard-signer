@@ -3,7 +3,7 @@
 // for unlinking). Opened in memory in the sign-in popup, like the global list.
 
 import { createQueryBuilder, sqliteTrue } from '@evolu/common';
-import { envelopeSchema, openEnvelopeStore, waitForSync } from './evoluStore';
+import { envelopeSchema, OFFLINE_TEST_STORES, openEnvelopeStore, waitForSync } from './evoluStore';
 
 export interface EnvelopeCopies {
   /** False when Evolu didn't sync: a copy may be missing. */
@@ -32,10 +32,12 @@ export async function openEnvelopeCopies(
     ...(options.sync === false ? { sync: false } : {}),
   });
   const sync = (ms: number) =>
-    options.sync === false
+    options.sync === false || OFFLINE_TEST_STORES
       ? Promise.resolve('NoRelays')
       : waitForSync(evolu.name, evolu.appOwner.id, ms);
-  const synced = (await sync(OPEN_SYNC_MS)) === 'Synced';
+  const result = await sync(OPEN_SYNC_MS);
+  // NoRelays: sync off on purpose (the test build, #127).
+  const synced = result === 'Synced' || result === 'NoRelays';
   return {
     synced,
     contents: async () =>

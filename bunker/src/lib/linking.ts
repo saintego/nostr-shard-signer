@@ -112,7 +112,7 @@ export async function lookUp(loginKey: Uint8Array, deps: LinkingDeps): Promise<F
       counter !== null &&
       published !== null &&
       copies.synced &&
-      ownList.synced === 'Synced';
+      (ownList.synced === 'Synced' || ownList.synced === 'NoRelays'); // NoRelays: sync off on purpose (tests)
     return { envelope, own, answered, ownList };
   } finally {
     root.fill(0);

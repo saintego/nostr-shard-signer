@@ -17,10 +17,16 @@ function Sheet({ children }: { children: ReactNode }) {
   useEffect(() => {
     const el = ref.current;
     if (!el || !onHeight) return;
+    let last = 0;
+    // The content's height, sent only when it changes (the widget's size is
+    // animated, and the text rewraps while it grows).
     const report = () => {
       const style = getComputedStyle(el);
       const margins = Number.parseFloat(style.marginTop) + Number.parseFloat(style.marginBottom);
-      onHeight(Math.ceil(el.getBoundingClientRect().height + margins));
+      const height = Math.ceil(el.scrollHeight + margins);
+      if (height === last) return;
+      last = height;
+      onHeight(height);
     };
     const observer = new ResizeObserver(report);
     observer.observe(el);

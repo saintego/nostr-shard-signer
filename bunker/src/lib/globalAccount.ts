@@ -281,7 +281,7 @@ export async function openGlobalAccountFromRoot(
     get paired() {
       return pairedWith(current, origin);
     },
-    complete: list.synced === 'Synced',
+    complete: list.synced === 'Synced' || list.synced === 'NoRelays', // NoRelays: sync off on purpose (tests)
     isNew,
     pair: async (pubkey) => {
       const i = find(pubkey);
