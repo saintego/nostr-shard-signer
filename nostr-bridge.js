@@ -42,7 +42,7 @@
  *       mountSelector:  "#nostr-btn",                 // only used when layout === "in-place"
  *       poweredBy:      true,                         // false hides the library link on the sign-in sheet
  *       locale:         "es",                         // the widget's language, if the signer has it
- *       signInUi:       "panel",                      // shared sign-in window: "panel" (Web3Auth's) | "buttons" (the signer's own, fully translated)
+ *       signInUi:       "panel",                      // shared sign-in: "panel" (Web3Auth's, in the widget) | "buttons" (the signer's own, in its window)
  *     });
  *   </script>
  *

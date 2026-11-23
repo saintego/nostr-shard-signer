@@ -7,7 +7,12 @@
 import type { Web3Auth } from '@web3auth/modal';
 import type { BackupMethod } from './backup';
 import { fetchSharedBlocklist } from './blocklist';
-import { awaitGlobalResult, type GlobalOptions, openGlobalPopup } from './globalPopup';
+import {
+  awaitGlobalResult,
+  type GlobalAnswer,
+  type GlobalOptions,
+  openGlobalPopup,
+} from './globalPopup';
 import { keyMaterialFromSecret } from './identity';
 import { MARKER_KIND } from './marker';
 import { publishToSignerRelays } from './relayPublish';
@@ -93,25 +98,37 @@ export function signInGlobally(
 ): Promise<SharedSession> {
   const popup = openGlobalPopup();
   if (!popup) return Promise.reject(new Error('POPUP_BLOCKED'));
-  return awaitGlobalResult(popup, site, options).then(async ({ grant, backedUp, marker }) => {
-    const now = Date.now();
-    const checked = checkedMarker(marker, options.markerAddress);
-    const cache: SiteCache =
-      slot.kind === 'shared'
-        ? { ...grant, createdAt: now }
-        : {
-            ...grant,
-            createdAt: now,
-            lastSiteSignIn: now,
-            ...(checked ? { marker: checked } : {}),
-          };
-    await saveSiteCache(cache, slot);
-    if (slot.kind === 'site') {
-      setLastLogin(slot.loginHash);
-      resendMarker(cache);
-    }
-    return backedUp ? { ...session(cache), backedUp } : session(cache);
-  });
+  return awaitGlobalResult(popup, site, options).then((answer) =>
+    keepAnswer(answer, slot, options.markerAddress)
+  );
+}
+
+/**
+ * Keeps a global sign-in's answer (from the window, or from the widget itself,
+ * #122) in this site's cache, and returns the session.
+ */
+export async function keepAnswer(
+  { grant, backedUp, marker }: GlobalAnswer,
+  slot: CacheSlot = SHARED_SLOT,
+  markerAddress?: string
+): Promise<SharedSession> {
+  const now = Date.now();
+  const checked = checkedMarker(marker, markerAddress);
+  const cache: SiteCache =
+    slot.kind === 'shared'
+      ? { ...grant, createdAt: now }
+      : {
+          ...grant,
+          createdAt: now,
+          lastSiteSignIn: now,
+          ...(checked ? { marker: checked } : {}),
+        };
+  await saveSiteCache(cache, slot);
+  if (slot.kind === 'site') {
+    setLastLogin(slot.loginHash);
+    resendMarker(cache);
+  }
+  return backedUp ? { ...session(cache), backedUp } : session(cache);
 }
 
 /**

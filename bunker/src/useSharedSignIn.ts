@@ -17,6 +17,7 @@ import {
 } from './lib/sharedSignIn';
 import { type CacheSlot, SHARED_SLOT } from './lib/siteCache';
 import type { KeyMaterial } from './lib/web3auth';
+import { useInlineSignIn } from './useInlineSignIn';
 
 /** Which cache the global account fills, and the site login's marker address (own clientId). */
 export interface GlobalTarget {
@@ -24,7 +25,7 @@ export interface GlobalTarget {
   readonly markerAddress?: string;
 }
 
-type View = 'login' | 'signing-in';
+type View = 'login' | 'connecting' | 'signing-in';
 type ParentMessage =
   | { type: 'AUTH_STATE'; loggedIn: false; pubkey: null }
   | { type: 'RESIZE'; state: 'modal' | 'button' }
@@ -154,19 +155,37 @@ export function useSharedSignIn({
     [signedIn]
   );
 
-  const sheet = sheetOpen
-    ? createElement(SharedSignInSheet, {
-        nostrSigner,
-        poweredBy,
-        buttons: signInUi === 'buttons',
-        onGoogle: () => void google(),
-        onNostrSigner: () => {
-          showButton();
-          postToParent({ type: 'OPEN_NOSTR_SIGNER' });
-        },
-        onCancel: showButton,
-      })
-    : null;
+  // Web3Auth's panel in the widget itself, the window only when needed (#122);
+  // the signer's own buttons are window UI, so they keep the window.
+  const inline = useInlineSignIn({
+    site: parentOrigin,
+    slot: () => targetRef.current.slot,
+    setView,
+    postToParent,
+    onSession: signedIn,
+    onFailed: (e) => failed(e, false),
+    onCancel: showButton,
+  });
+
+  const sheet =
+    inline.view ??
+    (sheetOpen
+      ? createElement(SharedSignInSheet, {
+          nostrSigner,
+          poweredBy,
+          buttons: signInUi === 'buttons',
+          onGoogle: () => {
+            if (signInUi === 'buttons') return void google();
+            setSheetOpen(false);
+            void inline.start();
+          },
+          onNostrSigner: () => {
+            showButton();
+            postToParent({ type: 'OPEN_NOSTR_SIGNER' });
+          },
+          onCancel: showButton,
+        })
+      : null);
 
   const switcher = session
     ? createElement(IdentitySwitcher, {
@@ -220,5 +239,6 @@ export function useSharedSignIn({
     restoreIn,
     continueGlobal,
     currentSlot,
+    closePanel: inline.closePanel,
   };
 }

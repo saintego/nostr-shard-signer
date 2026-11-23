@@ -7,7 +7,8 @@ test.skip(!SHARED_SIGN_IN, "needs shared sign-in in the build");
 test("the widget's Google button opens the signer's popup, which serves only that widget", async ({ page, pages }) => {
   pages.set("/", bridgePage);
   await page.goto(`${APP}/`);
-  await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin }), BUNKER);
+  // The window path: with Web3Auth's panel the sign-in starts in the widget (#122).
+  await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin, signInUi: "buttons" }), BUNKER);
   const signer = page.frameLocator("#nostr-signer-iframe");
   await signer.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator("#nostr-signer-container")).toHaveCSS("height", "580px");

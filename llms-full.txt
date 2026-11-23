@@ -8,7 +8,7 @@ Types without npm: https://raw.githubusercontent.com/saintego/nostr-shard-signer
 
 ## 1. Prerequisites (the developer does these once, by hand)
 
-Nothing, by default: call `NostrBridge.init()` without a `clientId` and users sign in with Google/Apple/X through the hosted signer's **shared sign-in** (in a small window on the signer's origin, opened from the widget's sign-in sheet; `NostrBridge.login()` opens that sheet), or with an extension or NIP-46 bunker. The console notes (info) that the page uses shared sign-in.
+Nothing, by default: call `NostrBridge.init()` without a `clientId` and users sign in with Google/Apple/X through the hosted signer's **shared sign-in** (Web3Auth's panel in the widget, and a small window on the signer's origin for the account's own screens; `NostrBridge.login()` opens the sign-in sheet), or with an extension or NIP-46 bunker. The console notes (info) that the page uses shared sign-in.
 
 Shared sign-in, what to tell the developer:
 
@@ -149,7 +149,7 @@ Attributes map to the `init()` options: `data-client-id`, `data-nostr-only`, `da
 | `mountSelector` | string (CSS selector)               | none                                                 | Where the widget renders with `layout: "in-place"`; falls back to `<body>` |
 | `poweredBy`     | boolean                             | `true`                                               | `false`: hide the "Powered by nostr-shard-signer" link at the bottom of the sign-in sheet |
 | `locale`        | string                              | the browser's language                               | Language code for the widget (`"es"`, `"pt-BR"`). Used only if the signer has that language, else the browser's, else English. Pages can't supply or change the signer's text. |
-| `signInUi`      | `"panel"` \| `"buttons"`           | `"panel"`                                            | Shared sign-in window: Web3Auth's own panel (every provider the project offers, wallets hidden, Web3Auth's languages) or the signer's own Google, Apple, Facebook and X buttons (the signer's languages and design) |
+| `signInUi`      | `"panel"` \| `"buttons"`           | `"panel"`                                            | Shared sign-in: Web3Auth's own panel in the widget (every provider the project offers, wallets hidden, Web3Auth's languages) or the signer's own Google, Apple, Facebook and X buttons in the sign-in window (the signer's languages and design) |
 
 Rejects if `bunkerOrigin` is not a valid URL (a corrected call may then retry). Later calls return the first call's promise and ignore their config. On load it:
 1. Asks an installed NIP-07 extension for the pubkey (waits up to 5 s). If it answers, signing goes through it. If it doesn't (locked, or waiting for the user to approve), the sign-in chooser offers "Browser extension", and a late approval still signs the user in.

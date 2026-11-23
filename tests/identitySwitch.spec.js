@@ -22,7 +22,7 @@ test("the widget switches between the site's identities; the page sees each swit
   await page.evaluate((bunkerOrigin) => {
     window.authLog = [];
     NostrBridge.onAuthChange((s) => window.authLog.push(s.pubkey));
-    return NostrBridge.init({ bunkerOrigin });
+    return NostrBridge.init({ bunkerOrigin, signInUi: 'buttons' }); // the window path (#122)
   }, BUNKER);
   const signer = page.frameLocator('#nostr-signer-iframe');
   await signer.getByRole('button', { name: 'Sign in' }).click();

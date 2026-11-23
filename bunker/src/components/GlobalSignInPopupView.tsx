@@ -2,16 +2,16 @@ import type { Web3Auth } from '@web3auth/modal';
 import { useEffect, useRef, useState } from 'react';
 import { backgroundWrites, timed, withTimeout } from '../lib/backgroundWrites';
 import type { BackupMethod } from '../lib/backup';
-import { openEnvelopeCopies } from '../lib/envelopeStore';
+import { flowDeps } from '../lib/flowDeps';
 import type { GlobalAccount, NewProfile } from '../lib/globalAccount';
-import { openGlobalList } from '../lib/globalList';
 import { type GlobalOptions, type GlobalResult, serveGlobalPopup } from '../lib/globalPopup';
 import { format } from '../lib/i18n';
+import { fromHanded } from '../lib/inlineSignIn';
 import { halfDoneLink, linkRefusal, lookUp, restrictedGrant } from '../lib/linking';
 import { restoreUrl } from '../lib/masterKey';
-import { afterLogin, type FlowDeps, openLinked, openOwn, type Step } from '../lib/popupFlow';
+import { afterLogin, openLinked, openOwn, type Step } from '../lib/popupFlow';
 import { type Choice, loginOnce, type PopupLogin, prepareInstance } from '../lib/popupLogin';
-import { publishToSignerRelays, queryRelays } from '../lib/relayPublish';
+import { publishToSignerRelays } from '../lib/relayPublish';
 import { SHARED_SIGN_IN_CLIENT_ID } from '../lib/shared';
 import { useMessages } from '../lib/useMessages';
 import { AccountQuestionView } from './AccountQuestionView';
@@ -66,15 +66,8 @@ const closeAfterWrites = (ms: number) =>
     () => window.close()
   );
 
-/** Where the account reads and writes (relays, Evolu), and this site login's marker address. */
-const flowDeps = (options: GlobalOptions): FlowDeps => ({
-  openList: (root) => openGlobalList(root),
-  openCopies: (owner) => openEnvelopeCopies(owner),
-  query: (filter) => queryRelays(filter),
-  publish: writes.publish,
-  defer: writes.track,
-  ...(options.markerAddress ? { markerAddress: options.markerAddress } : {}),
-});
+/** Where the account reads and writes, and this site login's marker address (lib/flowDeps.ts). */
+const depsFor = (options: GlobalOptions) => flowDeps(writes, options.markerAddress);
 
 const hostOf = (origin: string) => {
   try {
@@ -127,6 +120,7 @@ export function GlobalSignInPopupView() {
     return () => window.removeEventListener('pagehide', wipe);
   });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, on opening; continueFrom only uses refs and state setters
   useEffect(() => {
     if (!SHARED_SIGN_IN_CLIENT_ID) return;
     // Ready before the click, so the provider's window opens from it.
@@ -137,6 +131,8 @@ export function GlobalSignInPopupView() {
       (site, reply, options) => {
         replyRef.current = reply;
         optionsRef.current = options;
+        // The widget already signed in (#122): continue from its login.
+        if (options.login) return void continueFrom(site, fromHanded(options.login));
         setState({ step: 'ready', site });
       },
       () => setState({ step: 'refused' })
@@ -245,12 +241,18 @@ export function GlobalSignInPopupView() {
       accountRef.current = null;
       const first = await timed('provider login', loginOrCancel(choice));
       if (!first) return setState({ step: 'ready', site });
+      await continueFrom(site, first);
+    });
+
+  /** After a login (made here, or handed over by the widget): look the account up and show it. */
+  const continueFrom = (site: string, first: PopupLogin) =>
+    run(site, async () => {
       sessionRef.current = first;
       setState({ step: 'working', site, phase: 'checking' });
       const step = await timed(
         'account lookup',
         withTimeout(
-          afterLogin(first, site, flowDeps(optionsRef.current)),
+          afterLogin(first, site, depsFor(optionsRef.current)),
           STEP_MAX_MS,
           phaseError('checking')
         )
@@ -265,7 +267,7 @@ export function GlobalSignInPopupView() {
       if (!second) return;
       setState({ step: 'working', site, phase: 'checking' });
       const step = await withTimeout(
-        afterLogin(second, site, flowDeps(optionsRef.current)),
+        afterLogin(second, site, depsFor(optionsRef.current)),
         STEP_MAX_MS,
         phaseError('checking')
       );
@@ -283,7 +285,7 @@ export function GlobalSignInPopupView() {
       const session = sessionRef.current;
       setState({ step: 'working', site, phase: 'checking' });
       const found = await withTimeout(
-        lookUp(candidate.login.key, flowDeps(optionsRef.current)),
+        lookUp(candidate.login.key, depsFor(optionsRef.current)),
         STEP_MAX_MS,
         phaseError('checking')
       );
@@ -362,17 +364,17 @@ export function GlobalSignInPopupView() {
             choices={choices}
             onCreate={() =>
               void run(s.site, async () =>
-                show(s.site, await openOwn(s.first, s.site, flowDeps(optionsRef.current)))
+                show(s.site, await openOwn(s.first, s.site, depsFor(optionsRef.current)))
               )
             }
             onRetry={() =>
               void run(s.site, async () =>
-                show(s.site, await afterLogin(s.first, s.site, flowDeps(optionsRef.current)))
+                show(s.site, await afterLogin(s.first, s.site, depsFor(optionsRef.current)))
               )
             }
             onChooseOwn={() =>
               void run(s.site, async () =>
-                show(s.site, await openOwn(s.first, s.site, flowDeps(optionsRef.current)))
+                show(s.site, await openOwn(s.first, s.site, depsFor(optionsRef.current)))
               )
             }
             onChooseLinked={() =>
@@ -380,7 +382,7 @@ export function GlobalSignInPopupView() {
               void run(s.site, async () =>
                 show(
                   s.site,
-                  await openLinked(s.first, s.root, s.primary, s.site, flowDeps(optionsRef.current))
+                  await openLinked(s.first, s.root, s.primary, s.site, depsFor(optionsRef.current))
                 )
               )
             }

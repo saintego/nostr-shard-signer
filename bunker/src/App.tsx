@@ -869,8 +869,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // which returns this iframe to the button.
     const handleNostrSigner = useCallback(() => {
         postToParent({ type: 'OPEN_NOSTR_SIGNER' });
-        web3authRef.current?.loginModal?.closeModal();
-    }, [postToParent]);
+        web3authRef.current?.loginModal?.closeModal(); sharedSignIn.closePanel(); // the widget's own panel (#122)
+    }, [postToParent, sharedSignIn]);
 
     const handleSignerCardHeight = useCallback((height: number) => {
         postToParent({ type: 'RESIZE', state: 'modal', height });

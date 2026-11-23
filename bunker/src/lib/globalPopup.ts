@@ -18,6 +18,20 @@ import { parseSiteGrant, type SiteGrant } from './siteGrant';
 
 export const GLOBAL_PARAM = 'global-signin';
 
+/**
+ * A login the widget already made (#122), handed to the window so the user
+ * doesn't sign in twice. Only between the signer's own widget and window.
+ */
+export interface HandedLogin {
+  /** The login key, hex. */
+  readonly key: string;
+  readonly provider: string;
+  readonly userId: string;
+  readonly masked: string;
+  readonly name?: string;
+  readonly picture?: string;
+}
+
 export interface GlobalRequest {
   readonly type: 'NSS_GLOBAL_REQUEST';
   /** The site's origin, as the widget verified it (its parent). */
@@ -28,6 +42,8 @@ export interface GlobalRequest {
   readonly active?: string;
   /** The page chose the signer's own provider buttons over Web3Auth's panel (#113). */
   readonly ui?: 'buttons';
+  /** A login the widget made; the window continues from it (#122). */
+  readonly login?: HandedLogin;
   /** Own-clientId sites: this site login's marker address (D7), derived in the iframe. */
   readonly markerAddress?: string;
   /**
@@ -45,6 +61,8 @@ export interface GlobalOptions {
   readonly active?: string;
   /** The signer's own provider buttons instead of Web3Auth's panel (#113). */
   readonly ui?: 'buttons';
+  /** A login the widget made; the window continues from it (#122). */
+  readonly login?: HandedLogin;
   /** Own-clientId sites: the marker's `d` tag (the site login key itself only with 'bring-over'). */
   readonly markerAddress?: string;
   /** 'bring-over' only: the site-only account's key (D9). */
@@ -176,6 +194,26 @@ export function checkOpener(opener: Window | null, site: string, signerPath: str
 }
 
 const isHex64 = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
+const text = (s: unknown, max: number): s is string => typeof s === 'string' && s.length <= max;
+
+/** A handed login, checked field by field (#122); null if anything is off. */
+export function parseHandedLogin(d: unknown): HandedLogin | null {
+  const l = d as Partial<Record<keyof HandedLogin, unknown>> | null;
+  if (!l || !isHex64(l.key) || typeof l.provider !== 'string' || !/^[a-z_]{1,40}$/.test(l.provider))
+    return null;
+  if (!text(l.userId, 300) || !text(l.masked, 300)) return null;
+  if (l.name !== undefined && !text(l.name, 300)) return null;
+  if (l.picture !== undefined && !(text(l.picture, 2000) && /^https:\/\//.test(l.picture)))
+    return null;
+  return {
+    key: l.key,
+    provider: l.provider,
+    userId: l.userId,
+    masked: l.masked,
+    ...(l.name !== undefined ? { name: l.name } : {}),
+    ...(l.picture !== undefined ? { picture: l.picture } : {}),
+  };
+}
 
 /** The widget's choices, checked field by field (anything else is dropped). */
 export function parseOptions(d: Partial<GlobalRequest>): GlobalOptions {
@@ -183,6 +221,7 @@ export function parseOptions(d: Partial<GlobalRequest>): GlobalOptions {
     ...(d.intent === 'backup' || d.intent === 'bring-over' ? { intent: d.intent } : {}),
     ...(isHex64(d.active) ? { active: d.active } : {}),
     ...(d.ui === 'buttons' ? { ui: 'buttons' as const } : {}),
+    ...(parseHandedLogin(d.login) ? { login: parseHandedLogin(d.login) as HandedLogin } : {}),
     ...(isHex64(d.markerAddress) ? { markerAddress: d.markerAddress } : {}),
     ...(d.intent === 'bring-over' && isHex64(d.siteKey) ? { siteKey: d.siteKey } : {}),
   };

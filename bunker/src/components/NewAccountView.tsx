@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { NewProfile } from '../lib/globalAccount';
 import { useMessages } from '../lib/useMessages';
 import { newAccountMessages } from './NewAccountMessages';
+import './WelcomeBack.css';
 
 /**
  * A new account's first identity (D15, chat decision): the sign-in account's
