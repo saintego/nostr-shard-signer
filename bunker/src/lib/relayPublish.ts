@@ -5,6 +5,7 @@
 import { type Filter, SimplePool } from 'nostr-tools';
 import type { Event } from 'nostr-tools/pure';
 import { publishToRelay } from './nostr';
+import { firstAnswers } from './quorum';
 
 /**
  * Relays for the signer's own events: the ones that kept markers, the counter
@@ -110,10 +111,31 @@ export const published = (results: readonly PublishResult[], eventId: string, at
 };
 
 const QUERY_WAIT_MS = 4000;
+/** Relays that must answer before a read is trusted, e.g. that nothing is there (#111). */
+export const QUERY_QUORUM = 3;
+
+/** One relay's events for `filter`: resolves at its EOSE, rejects if it closes first. */
+function queryOne(pool: SimplePool, relay: string, filter: Filter): Promise<Event[]> {
+  return new Promise((resolve, reject) => {
+    const events: Event[] = [];
+    const sub = pool.subscribeMany([relay], filter, {
+      onevent: (e) => events.push(e),
+      oneose: () => {
+        sub.close();
+        resolve(events);
+      },
+      onclose: (reasons) => reject(new Error(reasons.join('; '))),
+      // No maxWait: nostr-tools reports a timeout as EOSE, which would count a
+      // silent relay as "nothing there". firstAnswers caps the wait instead.
+    });
+  });
+}
 
 /**
- * Events matching `filter` on `relays`, or null when no relay answered (then
- * the caller mustn't assume there are none, e.g. before publishing a counter).
+ * Events matching `filter`, once QUERY_QUORUM relays have answered (a slow
+ * relay isn't waited for, #111), or what answered within QUERY_WAIT_MS. Null
+ * when no relay answered: then the caller mustn't assume there are none, e.g.
+ * before publishing a counter.
  */
 export async function queryRelays(
   filter: Filter,
@@ -121,12 +143,14 @@ export async function queryRelays(
 ): Promise<Event[] | null> {
   const pool = new SimplePool();
   try {
-    const events = await pool.querySync([...relays], filter, { maxWait: QUERY_WAIT_MS });
-    // A relay that timed out also ends the query: count only connected ones.
-    const connected = [...pool.listConnectionStatus().values()].some(Boolean);
-    return connected || events.length ? events : null;
-  } catch {
-    return null;
+    const answers = await firstAnswers(
+      relays.map((relay) => () => queryOne(pool, relay, filter)),
+      Math.min(QUERY_QUORUM, relays.length),
+      QUERY_WAIT_MS
+    );
+    if (answers.length === 0) return null;
+    const byId = new Map(answers.flat().map((e) => [e.id, e]));
+    return [...byId.values()];
   } finally {
     pool.destroy();
   }
