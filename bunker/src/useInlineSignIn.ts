@@ -4,7 +4,12 @@
 import type { Web3Auth } from '@web3auth/modal';
 import type { Event } from 'nostr-tools';
 import { createElement, useCallback, useRef, useState } from 'react';
-import { InlineContinue, InlineNoAccount, InlineSheet } from './components/InlineSignInViews';
+import {
+  InlineContinue,
+  InlineNoAccount,
+  InlineSheet,
+  SheetHeight,
+} from './components/InlineSignInViews';
 import { NewAccountView } from './components/NewAccountView';
 import { backgroundWrites, timed, withTimeout } from './lib/backgroundWrites';
 import { flowDeps } from './lib/flowDeps';
@@ -28,7 +33,7 @@ const inlineDeps = () => ({ ...flowDeps(writes), defer: writes.track });
 /** The most the lookup may take before the widget says so (#110). */
 const STEP_MAX_MS = 25000;
 
-type ParentMessage = { type: 'RESIZE'; state: 'modal' | 'button' };
+type ParentMessage = { type: 'RESIZE'; state: 'modal' | 'button'; height?: number };
 
 interface Deps {
   site: string;
@@ -189,5 +194,12 @@ export function useInlineSignIn({
   /** The page's Nostr signer was picked under the panel: close it (connect() then rejects). */
   const closePanel = () => instanceRef.current?.loginModal?.closeModal();
 
-  return { start, view, closePanel };
+  // The widget fits its card (#125): the page sizes the iframe to it.
+  const fit = useCallback(
+    (height: number) => postToParent({ type: 'RESIZE', state: 'modal', height }),
+    [postToParent]
+  );
+  const fitted = view && createElement(SheetHeight.Provider, { value: fit }, view);
+
+  return { start, view: fitted, closePanel };
 }

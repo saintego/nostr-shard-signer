@@ -142,9 +142,12 @@ export function GlobalSignInPopupView() {
   /** One login (Web3Auth's panel, or a provider's window); the next instance is prepared right after. */
   const login = async (choice: Choice) => {
     const instance = await (w3aRef.current ?? Promise.reject(new Error('not set up')));
+    // Web3Auth's panel covers the window only while a login is open (#125).
+    document.body.classList.add('w3a-open');
     try {
       return await loginOnce(instance, choice);
     } finally {
+      document.body.classList.remove('w3a-open');
       w3aRef.current = prepareInstance(document.documentElement.lang);
       w3aRef.current.catch(() => {});
     }

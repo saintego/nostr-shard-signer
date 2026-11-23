@@ -60,11 +60,12 @@ const linksQuery = query((db) =>
 );
 
 /**
- * How long opening waits for the list to sync (#110). Past it the window goes
- * on with what's on the device and the relays (`synced` says so); waiting
- * longer made every sign-in slow.
+ * How long opening waits for the list to sync. The list lives in memory only,
+ * so a returning user's identities, names and paired sites all come from this
+ * sync: 2.5 s (#110) left them out on a phone (#125). Past it the window goes
+ * on with the device and the relays (`synced` says so).
  */
-const OPEN_SYNC_MS = 2500;
+const OPEN_SYNC_MS = 8000;
 /** How long closing waits for writes to reach Evolu's relay. */
 const CLOSE_SYNC_MS = 8000;
 

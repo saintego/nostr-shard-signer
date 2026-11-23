@@ -69,3 +69,11 @@ test("the base reset sits under nostr-post's layers", () => {
   const styles = readFileSync(path.join(root, "bunker/src/styles.css"), "utf8");
   expect(styles).not.toMatch(/^\s*\*\s*,?[^{]*\{[^}]*padding:\s*0/m);
 });
+
+// Web3Auth's container stays in the sign-in window after its panel closes:
+// pinned over the window all the time, it swallowed every tap (#125).
+test("the window pins Web3Auth's container only while a login is open", () => {
+  const css = readFileSync(path.join(root, "bunker/src/components/GlobalSignInPopup.css"), "utf8");
+  expect(css).toContain("body.popup-page.w3a-open #w3a-parent-container");
+  expect(css).not.toMatch(/body\.popup-page #w3a-parent-container/);
+});

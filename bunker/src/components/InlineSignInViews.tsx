@@ -1,6 +1,6 @@
 // The widget's own global sign-in steps (#122): "no account uses this sign-in
 // yet", and the hand-over to the sign-in window. Rendered in the widget's sheet.
-import type { ReactNode } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useRef } from 'react';
 import { format } from '../lib/i18n';
 import { useMessages } from '../lib/useMessages';
 import { providerName } from './AccountQuestionView';
@@ -8,11 +8,30 @@ import { inlineSignInMessages } from './InlineSignInMessages';
 import { linkingMessages } from './LinkingMessages';
 import './SharedSignInSheet.css';
 
-const Sheet = ({ children }: { children: ReactNode }) => (
-  <div className="shared-sheet np-card" role="dialog">
-    {children}
-  </div>
-);
+/** Asks the page for this height (the card's, with its margins), so no empty panel shows (#125). */
+export const SheetHeight = createContext<((height: number) => void) | null>(null);
+
+function Sheet({ children }: { children: ReactNode }) {
+  const onHeight = useContext(SheetHeight);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !onHeight) return;
+    const report = () => {
+      const style = getComputedStyle(el);
+      const margins = Number.parseFloat(style.marginTop) + Number.parseFloat(style.marginBottom);
+      onHeight(Math.ceil(el.getBoundingClientRect().height + margins));
+    };
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onHeight]);
+  return (
+    <div ref={ref} className="shared-sheet np-card" role="dialog">
+      {children}
+    </div>
+  );
+}
 
 /** No account uses this sign-in yet: create one here, or link it to another in the window. */
 export function InlineNoAccount({

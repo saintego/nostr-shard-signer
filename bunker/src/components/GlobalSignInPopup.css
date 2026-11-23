@@ -33,8 +33,10 @@
 
 /* Web3Auth's panel (#113): its container comes with an inline
    `position: relative` at the end of the body, so in this full-height window
-   it lay below the content, off-screen. Over the window instead. */
-body.popup-page #w3a-parent-container {
+   it lay below the content, off-screen. Over the window instead, but only
+   while the panel is open (`w3a-open`): the container stays in the page after
+   it closes, and covering the window then swallowed every tap (#125). */
+body.popup-page.w3a-open #w3a-parent-container {
   position: fixed !important;
   inset: 0;
   z-index: 10;
