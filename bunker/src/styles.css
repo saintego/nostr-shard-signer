@@ -2,7 +2,6 @@
    see AGENTS.md, Styling). Rules move into per-component style modules as
    components are touched. TODO(#97): font sizes 13, 15, 20, 22 and 32px have no
    token yet; spacing still in px. */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body, #root {
   height: 100%;

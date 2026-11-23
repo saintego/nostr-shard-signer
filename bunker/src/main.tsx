@@ -1,4 +1,5 @@
 import './lib/bufferBase64url'; // before anything that loads Evolu (see the file)
+import './reset.css'; // the reset's layer; index.html puts it under nostr-post's
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';

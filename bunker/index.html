@@ -18,6 +18,9 @@
                  worker-src 'self' blob:;
                  font-src 'self' https:;" />
   <title>Nostr Signer</title>
+  <!-- Cascade layer order, before any stylesheet: the base reset under
+       @nostr-post/ui's primitives (src/reset.css, #107). -->
+  <style>@layer reset, np;</style>
 </head>
 <body>
   <div id="root"></div>

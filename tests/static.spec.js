@@ -56,3 +56,16 @@ test("the signer opens its windows without a name", () => {
   }
   expect(offenders).toEqual([]);
 });
+
+// Unlayered rules beat @nostr-post/ui's layered primitives whatever their
+// specificity, so a bare `* { margin: 0; padding: 0 }` stripped every badge and
+// small button (#107). The reset lives in `@layer reset`, ordered under `np`.
+test("the base reset sits under nostr-post's layers", () => {
+  const html = readFileSync(path.join(root, "bunker/index.html"), "utf8");
+  const order = html.indexOf("@layer reset, np;");
+  expect(order).toBeGreaterThan(0);
+  expect(order).toBeLessThan(html.indexOf("</head>"));
+  expect(readFileSync(path.join(root, "bunker/src/reset.css"), "utf8")).toMatch(/@layer reset\s*\{/);
+  const styles = readFileSync(path.join(root, "bunker/src/styles.css"), "utf8");
+  expect(styles).not.toMatch(/^\s*\*\s*,?[^{]*\{[^}]*padding:\s*0/m);
+});
