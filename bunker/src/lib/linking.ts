@@ -173,6 +173,20 @@ export function linkRefusal(
   return found.answered ? null : 'unknown';
 }
 
+/**
+ * A full envelope `found` has that already opens this account (`isRoot`): a
+ * link left half-done (#112). Its root (to pass to linkRefusal) and version.
+ */
+export function halfDoneLink(
+  found: Pick<Found, 'envelope'>,
+  isRoot: (rootHex: string) => boolean
+): { readonly root: string; readonly version: number } | null {
+  const e = found.envelope;
+  return e && 'scope' in e && e.scope === 'full' && isRoot(e.root)
+    ? { root: e.root, version: e.version }
+    : null;
+}
+
 /** What a new link opens: the whole account, or chosen identities (a restricted link). */
 export type LinkScope =
   | { readonly kind: 'full' }

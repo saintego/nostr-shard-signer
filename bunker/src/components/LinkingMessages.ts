@@ -8,6 +8,10 @@ export const linkingMessages = defineMessages('linking', {
   apple: 'Apple',
   facebook: 'Facebook',
   twitter: 'X',
+  email: 'Email',
+  phone: 'Phone',
+  // Web3Auth's panel (#113): one button instead of one per provider
+  signInOther: 'Sign in with another one',
   // After a login with nothing found (review 8, item 1)
   noneTitle: 'No account uses this {provider} sign-in yet',
   noneExplain:

@@ -1,26 +1,32 @@
 import { format } from '../lib/i18n';
 import type { Step } from '../lib/popupFlow';
-import { PROVIDERS, type Provider } from '../lib/popupLogin';
+import type { Choice } from '../lib/popupLogin';
 import { useMessages } from '../lib/useMessages';
 import { linkingMessages } from './LinkingMessages';
 
-/** A provider's name, for the user. */
-export const providerName = (provider: string, m: (typeof linkingMessages)['en']) =>
-  provider === 'google'
-    ? m.google
-    : provider === 'apple'
-      ? m.apple
-      : provider === 'facebook'
-        ? m.facebook
-        : provider === 'twitter'
-          ? m.twitter
-          : provider;
+/** A provider's name, for the user (Web3Auth's names, #113: others capitalized). */
+export const providerName = (provider: string, m: (typeof linkingMessages)['en']) => {
+  const known: Record<string, string> = {
+    google: m.google,
+    apple: m.apple,
+    facebook: m.facebook,
+    twitter: m.twitter,
+    email_passwordless: m.email,
+    sms_passwordless: m.phone,
+    github: 'GitHub',
+    linkedin: 'LinkedIn',
+    wechat: 'WeChat',
+  };
+  return known[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1);
+};
 
 interface Props {
   readonly step: Extract<Step, { step: 'question' }>;
   readonly busy: boolean;
   /** Sign in with another provider (the account's own), then link this one: from the click. */
-  readonly onProvider: (provider: Provider) => void;
+  readonly onProvider: (choice: Choice) => void;
+  /** What to offer: Web3Auth's panel (['panel']) or the signer's provider buttons (#113). */
+  readonly choices: readonly Choice[];
   readonly onCreate: () => void;
   readonly onRetry: () => void;
   readonly onChooseOwn: () => void;
@@ -35,6 +41,7 @@ export function AccountQuestionView({
   step,
   busy,
   onProvider,
+  choices,
   onCreate,
   onRetry,
   onChooseOwn,
@@ -80,7 +87,7 @@ export function AccountQuestionView({
         </button>
       </section>
     );
-  const others = PROVIDERS.filter((p) => p !== step.first.login.provider);
+  const others = choices.filter((p) => p !== step.first.login.provider);
   return (
     <section className="welcome-back">
       <h2 className="np-title">{format(m.noneTitle, { provider })}</h2>
@@ -94,7 +101,7 @@ export function AccountQuestionView({
           disabled={busy}
           onClick={() => onProvider(p)}
         >
-          {format(m.signInWith, { provider: providerName(p, m) })}
+          {p === 'panel' ? m.signInOther : format(m.signInWith, { provider: providerName(p, m) })}
         </button>
       ))}
       <button type="button" className="np-button np-filled" disabled={busy} onClick={onCreate}>

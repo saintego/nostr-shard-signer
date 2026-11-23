@@ -73,7 +73,7 @@ interface AppProps {
         protocol: number;
         poweredBy: boolean;
         nostrOnly: boolean;
-        globalLogin: GlobalLogin;
+        globalLogin: GlobalLogin; signInUi?: 'buttons'; // own buttons, not Web3Auth's panel (#113)
     };
 }
 
@@ -214,7 +214,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     }, [postToParent, publishRelays]);  // publish relays, not the registry relays
     // Shared sign-in (#80): the widget's cache, or the global sign-in popup.
     const signerTab = useSignerTab(parentOrigin); // the signer in its own tab (#90)
-    const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError, onSignOut: () => bridgeActionsRef.current.logout(), publishRelays, onBackedUp: () => setBackupAsk(false) });
+    const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError, onSignOut: () => bridgeActionsRef.current.logout(), publishRelays, onBackedUp: () => setBackupAsk(false), signInUi: urlParams.signInUi });
     const siteAccount = useSiteAccount({ parentOrigin, globalLogin: urlParams.globalLogin, global: sharedSignIn, onSiteOnly: onLoginSuccess, onCancel: () => { setView('login'); postToParent({ type: 'RESIZE', state: 'button' }); }, postToParent });
 
     const showNextConfirmation = useCallback(() => {
@@ -588,7 +588,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
             // Web3Auth init shows no UI and exposes nothing until a session is
             // resolved below, so it runs while the domain is being checked.
-            const w3aInit = initWeb3Auth(clientId).then(
+            const w3aInit = initWeb3Auth(clientId, undefined, undefined, document.documentElement.lang).then(
                 w3a => ({ w3a, err: null as unknown }),
                 (err: unknown) => ({ w3a: null, err }),
             );

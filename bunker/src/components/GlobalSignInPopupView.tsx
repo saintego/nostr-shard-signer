@@ -7,16 +7,10 @@ import type { GlobalAccount } from '../lib/globalAccount';
 import { openGlobalList } from '../lib/globalList';
 import { type GlobalOptions, type GlobalResult, serveGlobalPopup } from '../lib/globalPopup';
 import { format } from '../lib/i18n';
-import { linkRefusal, lookUp, restrictedGrant } from '../lib/linking';
+import { halfDoneLink, linkRefusal, lookUp, restrictedGrant } from '../lib/linking';
 import { restoreUrl } from '../lib/masterKey';
 import { afterLogin, type FlowDeps, openLinked, openOwn, type Step } from '../lib/popupFlow';
-import {
-  loginOnce,
-  type PopupLogin,
-  PROVIDERS,
-  type Provider,
-  prepareInstance,
-} from '../lib/popupLogin';
+import { type Choice, loginOnce, type PopupLogin, prepareInstance } from '../lib/popupLogin';
 import { publishToSignerRelays, queryRelays } from '../lib/relayPublish';
 import { SHARED_SIGN_IN_CLIENT_ID } from '../lib/shared';
 import { useMessages } from '../lib/useMessages';
@@ -25,13 +19,12 @@ import { globalSignInMessages } from './GlobalSignInMessages';
 import { LinkConfirmView } from './LinkConfirmView';
 import { linkingMessages } from './LinkingMessages';
 import { RestrictedView } from './RestrictedView';
+import { choicesFor, type Phase, SignInChoice, Working } from './SignInChoice';
 import { TestVersionNotice } from './TestVersionNotice';
 import { WelcomeBackView } from './WelcomeBackView';
 import './GlobalSignInPopup.css';
 
 type Reply = (result: Omit<GlobalResult, 'type'>) => void;
-/** What the window is doing while it works (#110). */
-type Phase = 'login' | 'checking' | 'saving';
 /** The most a step after the provider's login may take before the window says so (#110). */
 const STEP_MAX_MS = 25000;
 type AccountStep = Extract<Step, { step: 'account' }>;
@@ -96,26 +89,6 @@ const refusalText = (
         unknown: lm.refusedUnknown,
       }[refusal];
 
-/** The first step: Google, Apple, Facebook or X, each opening the provider's window from the click. */
-function ProviderButtons({ onSignIn }: { onSignIn: (provider: Provider) => void }) {
-  const m = useMessages(globalSignInMessages);
-  return (
-    <>
-      {PROVIDERS.map((p, i) => (
-        <button
-          key={p}
-          type="button"
-          className={`np-button ${i === 0 ? 'np-filled' : 'np-outlined'}`}
-          onClick={() => onSignIn(p)}
-        >
-          {{ google: m.google, apple: m.apple, facebook: m.facebook, twitter: m.x }[p]}
-        </button>
-      ))}
-      <p className="np-hint">{m.providerHint}</p>
-    </>
-  );
-}
-
 const reasonOf = (e: unknown) => (e as Error)?.message ?? String(e);
 
 /**
@@ -155,7 +128,7 @@ export function GlobalSignInPopupView() {
   useEffect(() => {
     if (!SHARED_SIGN_IN_CLIENT_ID) return;
     // Ready before the click, so the provider's window opens from it.
-    w3aRef.current = prepareInstance();
+    w3aRef.current = prepareInstance(document.documentElement.lang);
     w3aRef.current.catch(() => {});
     return serveGlobalPopup(
       location.pathname,
@@ -168,16 +141,22 @@ export function GlobalSignInPopupView() {
     );
   }, []);
 
-  /** One provider login, from the click; the next instance is prepared right after. */
-  const login = async (provider: Provider) => {
+  /** One login (Web3Auth's panel, or a provider's window); the next instance is prepared right after. */
+  const login = async (choice: Choice) => {
     const instance = await (w3aRef.current ?? Promise.reject(new Error('not set up')));
     try {
-      return await loginOnce(instance, provider);
+      return await loginOnce(instance, choice);
     } finally {
-      w3aRef.current = prepareInstance();
+      w3aRef.current = prepareInstance(document.documentElement.lang);
       w3aRef.current.catch(() => {});
     }
   };
+  /** The login, or null when its panel or window was closed without signing in (not an error). */
+  const loginOrCancel = (choice: Choice) =>
+    login(choice).catch((e: unknown) => {
+      if (/cancel|closed by the user|5114/i.test(reasonOf(e))) return null;
+      throw e;
+    });
 
   const run = async (site: string, step: () => Promise<void>) => {
     setBusy(true);
@@ -251,12 +230,13 @@ export function GlobalSignInPopupView() {
     setState({ site, ...step });
   };
 
-  const signIn = (site: string, provider: Provider) =>
+  const signIn = (site: string, choice: Choice) =>
     run(site, async () => {
       setState({ step: 'working', site, phase: 'login' });
       wipe();
       accountRef.current = null;
-      const first = await timed('provider login', login(provider));
+      const first = await timed('provider login', loginOrCancel(choice));
+      if (!first) return setState({ step: 'ready', site });
       sessionRef.current = first;
       setState({ step: 'working', site, phase: 'checking' });
       const step = await timed(
@@ -271,9 +251,10 @@ export function GlobalSignInPopupView() {
     });
 
   /** "Made one with another sign-in?": sign in with it, then link the first login to that account. */
-  const linkFirstTo = (site: string, first: PopupLogin, provider: Provider) =>
+  const linkFirstTo = (site: string, first: PopupLogin, provider: Choice) =>
     run(site, async () => {
-      const second = await login(provider);
+      const second = await loginOrCancel(provider);
+      if (!second) return;
       setState({ step: 'working', site, phase: 'checking' });
       const step = await withTimeout(
         afterLogin(second, site, flowDeps(optionsRef.current)),
@@ -287,9 +268,10 @@ export function GlobalSignInPopupView() {
     });
 
   /** "Link another sign-in" in Manage: sign in with it and check it before asking (review 8). */
-  const linkAnother = (site: string, current: AccountStep, provider: Provider) =>
+  const linkAnother = (site: string, current: AccountStep, provider: Choice) =>
     run(site, async () => {
-      const candidate = await login(provider);
+      const candidate = await loginOrCancel(provider);
+      if (!candidate) return;
       const session = sessionRef.current;
       setState({ step: 'working', site, phase: 'checking' });
       const found = await withTimeout(
@@ -299,13 +281,9 @@ export function GlobalSignInPopupView() {
       );
       await found.ownList.close(0).catch(() => {}); // only read here
       // An envelope that already opens this account: a link left half-done, linked again.
-      const half =
-        found.envelope && 'scope' in found.envelope && found.envelope.scope === 'full'
-          ? found.envelope
-          : null;
-      const ownRoot = half && current.account.isRoot(half.root) ? half.root : undefined;
+      const half = halfDoneLink(found, current.account.isRoot);
       const refusal = session
-        ? linkRefusal(session.login, candidate.login, found, ownRoot)
+        ? linkRefusal(session.login, candidate.login, found, half?.root)
         : 'unknown';
       const refused = refusalText(refusal, lm);
       setState({
@@ -314,7 +292,7 @@ export function GlobalSignInPopupView() {
         site,
         candidate,
         refused,
-        ...(ownRoot && half ? { after: half.version } : {}),
+        ...(half ? { after: half.version } : {}),
       });
     });
 
@@ -328,6 +306,15 @@ export function GlobalSignInPopupView() {
   };
 
   /** One step of the window (everything after the opener's request). */
+  // Web3Auth's panel by default; the signer's own buttons when the page asked (#113).
+  const choices = choicesFor(optionsRef.current.ui === 'buttons' ? 'buttons' : 'panel');
+  // With the panel, it opens by itself once: the provider's window opens from a click in it.
+  const panelOpened = useRef(false);
+  useEffect(() => {
+    if (state.step !== 'ready' || choices[0] !== 'panel' || panelOpened.current) return;
+    panelOpened.current = true;
+    void signIn(state.site, 'panel');
+  });
   const renderStep = (s: Exclude<State, { step: 'waiting' } | { step: 'refused' }>) => {
     const site = hostOf(s.site);
     const backToAccount = (from: Omit<AccountStep, 'step'>) =>
@@ -342,13 +329,16 @@ export function GlobalSignInPopupView() {
       <>
         <p className="global-site np-badge np-primary">{format(m.forSite, { site })}</p>
         <p className="global-explain">{format(m.explain, { site })}</p>
-        {s.step === 'ready' && <ProviderButtons onSignIn={(p) => void signIn(s.site, p)} />}
+        {s.step === 'ready' && (
+          <SignInChoice choices={choices} onSignIn={(c) => void signIn(s.site, c)} />
+        )}
         {s.step === 'working' && <Working phase={s.phase} />}
         {s.step === 'question' && (
           <AccountQuestionView
             step={s}
             busy={busy}
             onProvider={(p) => void linkFirstTo(s.site, s.first, p)}
+            choices={choices}
             onCreate={() =>
               void run(s.site, async () =>
                 show(s.site, await openOwn(s.first, s.site, flowDeps(optionsRef.current)))
@@ -435,6 +425,7 @@ export function GlobalSignInPopupView() {
             onFinish={(pubkey) => void finish(s.site, pubkey)}
             onError={(reason) => setState({ step: 'failed', site: s.site, reason })}
             onLinkProvider={(p) => void linkAnother(s.site, s, p)}
+            choices={choices}
             onUnlink={(pointer) => s.account.unlink(pointer)}
           />
         )}
@@ -474,26 +465,5 @@ export function GlobalSignInPopupView() {
         {m.close}
       </button>
     </main>
-  );
-}
-
-/** What the window is doing, with a note once it's slow (#110). */
-function Working({ phase }: { phase: Phase }) {
-  const m = useMessages(globalSignInMessages);
-  const [slow, setSlow] = useState(false);
-  useEffect(() => {
-    setSlow(false);
-    if (phase === 'login') return;
-    const timer = setTimeout(() => setSlow(true), 6000);
-    return () => clearTimeout(timer);
-  }, [phase]);
-  const text = { login: m.phaseLogin, checking: m.phaseChecking, saving: m.phaseSaving }[phase];
-  return (
-    <>
-      <p className="np-loading" aria-live="polite">
-        {text}
-      </p>
-      {slow && <p className="np-hint">{m.slowHint}</p>}
-    </>
   );
 }

@@ -4,7 +4,7 @@ import type { BackupMethod } from '../lib/backup';
 import type { GlobalAccount, NewProfile } from '../lib/globalAccount';
 import type { ListedIdentity } from '../lib/globalListModel';
 import { format } from '../lib/i18n';
-import type { Provider } from '../lib/popupLogin';
+import type { Choice } from '../lib/popupLogin';
 import { useMessages } from '../lib/useMessages';
 import { BackupView } from './BackupView';
 import { LinkedSignIns } from './LinkedSignIns';
@@ -29,7 +29,9 @@ interface Props {
   /** The user saved a backup (#87). */
   readonly onBackedUp: (method: BackupMethod) => void;
   /** Linking (D25, #98): another provider's sign-in, from the click; then the popup asks to link it. */
-  readonly onLinkProvider: (provider: Provider) => void;
+  readonly onLinkProvider: (choice: Choice) => void;
+  /** Web3Auth's panel (['panel']) or the signer's provider buttons (#113). */
+  readonly choices: readonly Choice[];
   readonly onUnlink: (pointerPubkey: string) => Promise<void>;
   /** Signed in through a link: who created the account (D25). */
   readonly createdWith?: { readonly provider: string; readonly masked: string } | null;
@@ -63,6 +65,7 @@ export function WelcomeBackView({
   restoreAddress,
   onBackedUp,
   onLinkProvider,
+  choices,
   onUnlink,
   createdWith = null,
 }: Props) {
@@ -149,6 +152,7 @@ export function WelcomeBackView({
           account={account}
           busy={busy}
           onLink={onLinkProvider}
+          choices={choices}
           onUnlink={(pointer) => void run(() => onUnlink(pointer))}
         />
       </section>

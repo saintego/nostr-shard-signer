@@ -41,6 +41,8 @@ const urlParams = {
     nostrOnly: searchParams.get('nostrOnly') === '1',
     // Own-clientId sites: whether to offer the global account (#73 D3, #83).
     globalLogin: parseGlobalLogin(searchParams.get('globalLogin')),
+    // "buttons": the signer's own provider buttons instead of Web3Auth's panel (#113).
+    signInUi: searchParams.get('signInUi') === 'buttons' ? ('buttons' as const) : undefined,
 };
 
 // The passkey popup (src/lib/passkeyPopup.ts) is this same page, top-level.

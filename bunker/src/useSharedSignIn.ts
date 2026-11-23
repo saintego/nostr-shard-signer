@@ -44,6 +44,8 @@ interface Deps {
   publishRelays: string[];
   /** The user backed up their account in the popup (#87). */
   onBackedUp: () => void;
+  /** The page chose the signer's own provider buttons over Web3Auth's panel (#113). */
+  signInUi?: 'buttons';
 }
 
 export function useSharedSignIn({
@@ -57,6 +59,7 @@ export function useSharedSignIn({
   onSignOut,
   publishRelays,
   onBackedUp,
+  signInUi,
 }: Deps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const targetRef = useRef<GlobalTarget>({ slot: SHARED_SLOT });
@@ -125,6 +128,7 @@ export function useSharedSignIn({
         parentOrigin,
         {
           intent,
+          ...(signInUi ? { ui: signInUi } : {}),
           ...(session ? { active: session.cache.active } : {}),
           ...(markerAddress ? { markerAddress } : {}),
         },
@@ -138,7 +142,7 @@ export function useSharedSignIn({
       }
       await pending.then(signedIn).catch((e: unknown) => failed(e, managing));
     },
-    [parentOrigin, session, signedIn, setView, postToParent, failed]
+    [parentOrigin, session, signedIn, setView, postToParent, failed, signInUi]
   );
 
   /** Another identity of this site (D14): the page sees it through onAuthChange. */
@@ -154,6 +158,7 @@ export function useSharedSignIn({
     ? createElement(SharedSignInSheet, {
         nostrSigner,
         poweredBy,
+        buttons: signInUi === 'buttons',
         onGoogle: () => void google(),
         onNostrSigner: () => {
           showButton();

@@ -26,6 +26,8 @@ export interface GlobalRequest {
   readonly intent?: GlobalIntent;
   /** The identity the widget uses now, to keep it active after a backup. */
   readonly active?: string;
+  /** The page chose the signer's own provider buttons over Web3Auth's panel (#113). */
+  readonly ui?: 'buttons';
   /** Own-clientId sites: this site login's marker address (D7), derived in the iframe. */
   readonly markerAddress?: string;
   /**
@@ -41,6 +43,8 @@ export type GlobalIntent = 'sign-in' | 'backup' | 'bring-over';
 export interface GlobalOptions {
   readonly intent?: GlobalIntent;
   readonly active?: string;
+  /** The signer's own provider buttons instead of Web3Auth's panel (#113). */
+  readonly ui?: 'buttons';
   /** Own-clientId sites: the marker's `d` tag (the site login key itself only with 'bring-over'). */
   readonly markerAddress?: string;
   /** 'bring-over' only: the site-only account's key (D9). */
@@ -178,6 +182,7 @@ export function parseOptions(d: Partial<GlobalRequest>): GlobalOptions {
   return {
     ...(d.intent === 'backup' || d.intent === 'bring-over' ? { intent: d.intent } : {}),
     ...(isHex64(d.active) ? { active: d.active } : {}),
+    ...(d.ui === 'buttons' ? { ui: 'buttons' as const } : {}),
     ...(isHex64(d.markerAddress) ? { markerAddress: d.markerAddress } : {}),
     ...(d.intent === 'bring-over' && isHex64(d.siteKey) ? { siteKey: d.siteKey } : {}),
   };

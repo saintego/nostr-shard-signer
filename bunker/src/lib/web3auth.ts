@@ -1,4 +1,10 @@
-import { type AuthLoginParams, authConnector, WEB3AUTH_NETWORK, Web3Auth } from '@web3auth/modal';
+import {
+  type AuthLoginParams,
+  authConnector,
+  WALLET_CONNECTORS,
+  WEB3AUTH_NETWORK,
+  Web3Auth,
+} from '@web3auth/modal';
 import { getPublicKey } from 'nostr-tools';
 import { npubEncode, nsecEncode } from 'nostr-tools/nip19';
 import { hexToBytes } from './hex';
@@ -49,10 +55,20 @@ function sessionOptions(names: SessionNames) {
   };
 }
 
+/** Languages Web3Auth's own sign-in panel has; others show it in English. */
+const PANEL_LANGUAGES = ['en', 'ja', 'ko', 'de', 'zh', 'es', 'fr', 'pt', 'nl', 'tr'] as const;
+type PanelLanguage = (typeof PANEL_LANGUAGES)[number];
+const panelLanguage = (locale: string): PanelLanguage => {
+  const base = locale.toLowerCase().split(/[-_]/)[0] ?? 'en';
+  return (PANEL_LANGUAGES as readonly string[]).includes(base) ? (base as PanelLanguage) : 'en';
+};
+
 export async function initWeb3Auth(
   clientId: string,
   names: SessionNames = SITE_SESSION,
-  network: 'sapphire_mainnet' | 'sapphire_devnet' = 'sapphire_mainnet'
+  network: 'sapphire_mainnet' | 'sapphire_devnet' = 'sapphire_mainnet',
+  /** The signer's language, for Web3Auth's own panel (#113). */
+  locale = 'en'
 ): Promise<Web3Auth> {
   const instance = new Web3Auth({
     clientId,
@@ -60,8 +76,15 @@ export async function initWeb3Auth(
       network === 'sapphire_devnet'
         ? WEB3AUTH_NETWORK.SAPPHIRE_DEVNET
         : WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
-    uiConfig: {
-      // loginMethodsOrder: ["google", "apple", "twitter", "email_passwordless"],
+    uiConfig: { defaultLanguage: panelLanguage(locale) },
+    // Wallets can't give a Nostr key: only the social and email sign-ins (#113).
+    modalConfig: {
+      hideWalletDiscovery: true,
+      connectors: {
+        [WALLET_CONNECTORS.METAMASK]: { label: 'MetaMask', showOnModal: false },
+        [WALLET_CONNECTORS.WALLET_CONNECT_V2]: { label: 'WalletConnect', showOnModal: false },
+        [WALLET_CONNECTORS.COINBASE]: { label: 'Coinbase', showOnModal: false },
+      },
     },
     ...sessionOptions(names),
   });

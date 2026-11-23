@@ -172,6 +172,13 @@ declare global {
      * English. Pages can't supply the signer's text.
      */
     locale?: string;
+    /**
+     * The shared sign-in window's sign-in: "panel" (default) shows Web3Auth's own
+     * panel with every provider the project offers, in Web3Auth's languages;
+     * "buttons" shows the signer's own Google, Apple, Facebook and X buttons,
+     * in the signer's languages. Pages can't supply the signer's text.
+     */
+    signInUi?: "panel" | "buttons";
   }
 
   interface NostrBridgeAuthState {

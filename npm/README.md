@@ -44,7 +44,7 @@ useEffect(() => {
 }, []);
 ```
 
-`loadNostrBridge(config)` takes the same options as `NostrBridge.init(config)`: `clientId`, `nostrOnly`, `globalLogin`, `layout`, `buttonSize`, `mountSelector`, `forceIframe`, `poweredBy`, `locale`, and `bunkerOrigin` for a self-hosted signer.
+`loadNostrBridge(config)` takes the same options as `NostrBridge.init(config)`: `clientId`, `nostrOnly`, `globalLogin`, `layout`, `buttonSize`, `mountSelector`, `forceIframe`, `poweredBy`, `locale`, `signInUi`, and `bunkerOrigin` for a self-hosted signer.
 
 ## OAuth login on Nostr
 

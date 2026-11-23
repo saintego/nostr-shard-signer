@@ -14,11 +14,16 @@ import { endSession, GLOBAL_SESSION, sweepGlobalSession } from './web3authSessio
 /** Web3Auth's names for Google, Apple, Facebook and X. */
 export type Provider = 'google' | 'apple' | 'facebook' | 'twitter';
 
-/** The sign-ins the window offers, in this order (#106). */
+/** The sign-ins the window's own buttons offer, in this order (#106). */
 export const PROVIDERS: readonly Provider[] = ['google', 'apple', 'facebook', 'twitter'];
+
+/** What a click opens: Web3Auth's own panel (the default, #113), or one provider's window. */
+export type Choice = Provider | 'panel';
 
 /** Web3Auth's user info, the fields read here. */
 interface UserInfo {
+  /** The provider Web3Auth used ("google", "facebook", "email_passwordless"…). */
+  readonly authConnection?: string;
   readonly email?: string;
   readonly name?: string;
   readonly profileImage?: string;
@@ -27,9 +32,9 @@ interface UserInfo {
 }
 
 /** A fresh instance for the next click: a leftover global session swept first (#79). */
-export const prepareInstance = (): Promise<Web3Auth> =>
+export const prepareInstance = (locale = 'en'): Promise<Web3Auth> =>
   sweepGlobalSession().then(() =>
-    initWeb3Auth(SHARED_SIGN_IN_CLIENT_ID, GLOBAL_SESSION, SHARED_SIGN_IN_NETWORK)
+    initWeb3Auth(SHARED_SIGN_IN_CLIENT_ID, GLOBAL_SESSION, SHARED_SIGN_IN_NETWORK, locale)
   );
 
 /** The sign-in account's name and picture, offered for new identities (D15). */
@@ -45,15 +50,18 @@ export interface PopupLogin {
  * Signs in with `provider` on a prepared instance, then ends the global session
  * whatever happens. The login key stays in this window's memory.
  */
-export async function loginOnce(instance: Web3Auth, provider: Provider): Promise<PopupLogin> {
+export async function loginOnce(instance: Web3Auth, choice: Choice): Promise<PopupLogin> {
   try {
-    await loginWith(instance, provider);
+    if (choice === 'panel') {
+      // Web3Auth's panel: null when the user closed it without signing in.
+      if (!(await instance.connect())) throw new Error('Sign-in cancelled');
+    } else await loginWith(instance, choice);
     const km = await extractKey(instance);
     const info = (await instance.getUserInfo().catch(() => null)) as UserInfo | null;
     return {
       login: {
         key: km.privateKeyBytes,
-        provider,
+        provider: choice === 'panel' ? (info?.authConnection ?? 'unknown') : choice,
         userId: info?.verifierId ?? info?.userId ?? info?.email ?? '',
         masked: maskIdentifier(info?.email || info?.name || ''),
       },
