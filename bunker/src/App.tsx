@@ -1126,7 +1126,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 autoApproveKinds={autoApproveKinds}
                 origin={parentOrigin}
                 isWnjMode={!!wnjPubkey}
-                shared={shared}
+                shared={shared} keyInWindow={popupPrompts}
                 backupAsk={backupAsk}
                 onBackupLater={handleBackupLater}
                 onSaveProfile={handleSaveProfile}

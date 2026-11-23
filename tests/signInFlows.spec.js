@@ -152,3 +152,23 @@ test('Sign in: no empty panel while Web3Auth loads; the widget waits button-size
   expect(box?.height ?? 0).toBeLessThan(100);
   await expect(signer.getByRole('dialog', { name: 'Web3Auth sign-in' })).toBeVisible();
 });
+
+test("shared mode: the widget's Keys tab doesn't show the nsec; Export key opens the window", async ({
+  page,
+  pages,
+}) => {
+  const signer = await openApp(page, pages);
+  await signUp(page, signer);
+  await expect(async () => {
+    await signer.getByRole('button', { name: 'Open Nostr profile' }).click({ timeout: 1000 });
+    await signer.getByRole('button', { name: 'Keys' }).click({ timeout: 1000 });
+  }).toPass({ timeout: 15000 });
+  await expect(signer.getByText('Public key (npub)')).toBeVisible();
+  // A page could cover the widget and get the user to reveal or copy it (#62, #130).
+  await expect(signer.getByText('Secret key (nsec)')).toHaveCount(0);
+  await expect(signer.getByRole('button', { name: /Reveal|Copy nsec/ })).toHaveCount(0);
+  await snap(page, '7 keys tab');
+  const opened = page.waitForEvent('popup');
+  await signer.getByRole('button', { name: 'Export key' }).click();
+  await opened;
+});

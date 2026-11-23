@@ -19,6 +19,8 @@ interface Props {
     isWnjMode?: boolean;
     /** Signed in through the shared project (src/lib/shared.ts), not the app's own. */
     shared?: boolean;
+    /** The secret key is shown only in the signer's window (#62, #130), not here. */
+    keyInWindow?: boolean;
     /** The user hasn't backed up their key yet: show the backup banner. */
     backupAsk?: boolean;
     onBackupLater?: () => void;
@@ -46,6 +48,7 @@ export function ProfileModal({
     origin,
     isWnjMode = false,
     shared = false,
+    keyInWindow = false,
     backupAsk = false,
     onBackupLater,
     onSaveProfile,
@@ -59,6 +62,7 @@ export function ProfileModal({
     evolustrSection,
     identitySection,
 }: Props) {
+    const m = useMessages(profileModalMessages);
     const [activeTab, setActiveTab] = useState<TabId>('profile');
 
     // --- Profile tab state ---
@@ -301,6 +305,9 @@ export function ProfileModal({
                                 </div>
                             </div>
 
+                            {keyInWindow ? (
+                                <p className="settings-hint">{m.keyInWindow}</p>
+                            ) : (
                             <div className="key-section">
                                 <label>Secret key (nsec)</label>
                                 <div className="key-row">
@@ -325,6 +332,7 @@ export function ProfileModal({
                                     )}
                                 </div>
                             </div>
+                            )}
 
                             <div className="modal-actions">
                                 <button className="action-btn btn-secondary" onClick={onExportKey}>
