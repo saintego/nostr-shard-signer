@@ -53,12 +53,10 @@ export function IdentitySwitcher({ identities, active, onSwitch, onManage }: Pro
         ))}
       </ul>
       {identities.length > 1 && <p className="np-hint">{m.linkable}</p>}
-      <p className="np-hint">
-        {m.manageHint}{' '}
-        <button type="button" className="np-button np-text np-small" onClick={onManage}>
-          {m.manage}
-        </button>
-      </p>
+      <button type="button" className="np-button np-tonal" onClick={onManage}>
+        {m.manage}
+      </button>
+      <p className="np-hint">{m.manageHint}</p>
     </section>
   );
 }
