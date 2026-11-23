@@ -3,6 +3,10 @@ import { defineMessages } from '../lib/i18n';
 
 export const profileModalMessages = defineMessages('profileModal', {
   openInTab: 'Open in a new tab',
+  tabAccount: 'Account',
+  tabProfile: 'Profile',
+  tabKeys: 'Keys',
+  tabSettings: 'Settings',
   keyInWindow:
     'To see or copy your secret key, use Export key: it opens in the signer’s own window, where this site can’t see or cover it.',
   openInTabHint: 'Want to see where your account lives? Open the signer in its own tab.',

@@ -6,8 +6,9 @@ import type { UserProfile, KeyInfo } from '../types';
 import { KIND_GROUPS } from '../lib/approval';
 import { SUPPORT_URL } from '../lib/shared';
 import { TrustSetting } from './TrustSetting';
+import { AccountTab } from './AccountTab';
 
-type TabId = 'profile' | 'keys' | 'settings';
+type TabId = 'account' | 'profile' | 'keys' | 'settings';
 
 interface Props {
     keyInfo: KeyInfo;
@@ -63,7 +64,7 @@ export function ProfileModal({
     identitySection,
 }: Props) {
     const m = useMessages(profileModalMessages);
-    const [activeTab, setActiveTab] = useState<TabId>('profile');
+    const [activeTab, setActiveTab] = useState<TabId>('account');
 
     // --- Profile tab state ---
     const [name, setName] = useState(profile.name ?? '');
@@ -202,22 +203,34 @@ export function ProfileModal({
                 </div>
             ) : (
                 <>
-                    <div className="tab-bar">
-                        {(['profile', 'keys', 'settings'] as TabId[]).map(tab => (
+                    <div className="tab-bar" role="tablist">
+                        {(['account', 'profile', 'keys', 'settings'] as TabId[]).map(tab => (
                             <button
                                 key={tab}
+                                type="button"
+                                role="tab"
+                                aria-selected={activeTab === tab}
                                 className={`tab-btn${activeTab === tab ? ' active' : ''}`}
                                 onClick={() => setActiveTab(tab)}
                             >
-                                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                {{ account: m.tabAccount, profile: m.tabProfile, keys: m.tabKeys, settings: m.tabSettings }[tab]}
                             </button>
                         ))}
                     </div>
 
+                    {/* ── Account tab (#132): switching, back up, log out ── */}
+                    {activeTab === 'account' && (
+                        <AccountTab
+                            identitySection={identitySection}
+                            onBackUp={onBackUp}
+                            onLogout={onLogout}
+                            extra={<OpenInTab onOpenTab={onOpenTab} />}
+                        />
+                    )}
+
                     {/* ── Profile tab ── */}
                     {activeTab === 'profile' && (
                         <div className="tab-content">
-                            {identitySection}
                             <div className="field-row">
                                 <label htmlFor="pm-name">Display name</label>
                                 <input
@@ -258,7 +271,6 @@ export function ProfileModal({
                                     placeholder="user@wallet.example"
                                 />
                             </div>
-                            <OpenInTab onOpenTab={onOpenTab} />
                             <div className="modal-actions">
                                 {saveMsg && <span className="save-msg">{saveMsg}</span>}
                                 <button
@@ -267,9 +279,6 @@ export function ProfileModal({
                                     disabled={saving}
                                 >
                                     {saving ? 'Saving…' : 'Save to relays'}
-                                </button>
-                                <button className="action-btn btn-danger" onClick={onLogout}>
-                                    Log out
                                 </button>
                             </div>
                         </div>

@@ -1,0 +1,13 @@
+/* AccountTab: layout only; the look comes from np-* primitives and --np-*
+   tokens (AGENTS.md, Styling). */
+.account-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--np-space-2);
+}
+.account-tab > .np-button {
+  width: 100%;
+}
+.account-tab > .np-hint {
+  margin: 0 0 var(--np-space-2);
+}

@@ -161,7 +161,7 @@ test("shared mode: the widget's Keys tab doesn't show the nsec; Export key opens
   await signUp(page, signer);
   await expect(async () => {
     await signer.getByRole('button', { name: 'Open Nostr profile' }).click({ timeout: 1000 });
-    await signer.getByRole('button', { name: 'Keys' }).click({ timeout: 1000 });
+    await signer.getByRole('tab', { name: 'Keys' }).click({ timeout: 1000 });
   }).toPass({ timeout: 15000 });
   await expect(signer.getByText('Public key (npub)')).toBeVisible();
   // A page could cover the widget and get the user to reveal or copy it (#62, #130).
@@ -171,4 +171,34 @@ test("shared mode: the widget's Keys tab doesn't show the nsec; Export key opens
   const opened = page.waitForEvent('popup');
   await signer.getByRole('button', { name: 'Export key' }).click();
   await opened;
+});
+
+test('Account tab: switching, Back up and Log out without scrolling; Back up opens the window at Backup', async ({
+  page,
+  pages,
+}) => {
+  const signer = await openApp(page, pages);
+  await signUp(page, signer);
+  await expect(async () => {
+    await signer.getByRole('button', { name: 'Open Nostr profile' }).click({ timeout: 1000 });
+    await expect(signer.getByRole('tab', { name: 'Account' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+      { timeout: 1000 }
+    );
+  }).toPass({ timeout: 15000 });
+  await settled(page);
+  // In view, without scrolling (#132).
+  await expect(signer.getByRole('button', { name: 'Log out' })).toBeInViewport();
+  await expect(signer.getByRole('button', { name: 'Back up your account' })).toBeInViewport();
+  await snap(page, '8 account tab');
+  const opened = page.waitForEvent('popup');
+  await signer.getByRole('button', { name: 'Back up your account' }).click();
+  const win = await opened;
+  await win.setViewportSize(pixel.viewport);
+  await win.getByRole('button', { name: 'Fake google' }).click();
+  await expect(win.getByRole('heading', { name: 'Back up your account' })).toBeVisible({
+    timeout: 20000,
+  });
+  await snap(win, '9 window: backup');
 });
