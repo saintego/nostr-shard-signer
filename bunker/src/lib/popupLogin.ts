@@ -11,8 +11,11 @@ import { SHARED_SIGN_IN_CLIENT_ID, SHARED_SIGN_IN_NETWORK } from './shared';
 import { extractKey, initWeb3Auth, loginWith } from './web3auth';
 import { endSession, GLOBAL_SESSION, sweepGlobalSession } from './web3authSession';
 
-/** Web3Auth's names for Google, Apple and X. */
-export type Provider = 'google' | 'apple' | 'twitter';
+/** Web3Auth's names for Google, Apple, Facebook and X. */
+export type Provider = 'google' | 'apple' | 'facebook' | 'twitter';
+
+/** The sign-ins the window offers, in this order (#106). */
+export const PROVIDERS: readonly Provider[] = ['google', 'apple', 'facebook', 'twitter'];
 
 /** Web3Auth's user info, the fields read here. */
 interface UserInfo {

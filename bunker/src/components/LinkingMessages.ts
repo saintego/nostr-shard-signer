@@ -6,6 +6,7 @@ import { defineMessages } from '../lib/i18n';
 export const linkingMessages = defineMessages('linking', {
   google: 'Google',
   apple: 'Apple',
+  facebook: 'Facebook',
   twitter: 'X',
   // After a login with nothing found (review 8, item 1)
   noneTitle: 'No account uses this {provider} sign-in yet',

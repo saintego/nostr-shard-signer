@@ -28,7 +28,7 @@ test("the widget switches between the site's identities; the page sees each swit
   await signer.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.locator('#nostr-signer-container')).toHaveCSS('height', '580px');
   const popupOpened = page.waitForEvent('popup');
-  await signer.getByRole('button', { name: 'Continue with Google, Apple or X' }).click();
+  await signer.getByRole('button', { name: 'Continue with Google, Apple, Facebook or X' }).click();
   const popup = await popupOpened;
   await expect(popup.getByText('For localhost:4173')).toBeVisible();
   // What the popup hands over after Welcome back: two identities, A active.

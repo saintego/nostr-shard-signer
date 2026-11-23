@@ -264,7 +264,7 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 
 - Web3Auth's MPC network returns the user's secp256k1 key after the OAuth login; the signer iframe uses it as the Nostr keypair. The same account gets the same key on every sign-in. Nothing is stored on the app's server.
 - Keys are scoped to the Web3Auth project: the same Google account gets a different npub under another `clientId`. Shared sign-in is one project, so a user has the same npub on every site that uses it. Never change the `clientId` of a live app, add one to a live app that used shared sign-in, or remove it; OAuth users would get new, empty identities.
-- With shared sign-in, one account can have several sign-ins (Google, Apple, X): the user links them in the sign-in window, and each opens the same identities (or chosen ones). With your own `clientId`, Google, Apple and X give different keys.
+- With shared sign-in, one account can have several sign-ins (Google, Apple, Facebook, X): the user links them in the sign-in window, and each opens the same identities (or chosen ones). With your own `clientId`, Google, Apple and X give different keys.
 - The widget's profile menu has an "Export key" button that shows the nsec, so users can move to an extension or bunker and keep their identity.
 - Users who already have a Nostr key should sign in with their extension or bunker, offered in the same Sign in sheet, not with OAuth.
 

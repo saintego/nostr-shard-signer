@@ -9,7 +9,13 @@ import { format } from '../lib/i18n';
 import { linkRefusal, lookUp, restrictedGrant } from '../lib/linking';
 import { restoreUrl } from '../lib/masterKey';
 import { afterLogin, type FlowDeps, openLinked, openOwn, type Step } from '../lib/popupFlow';
-import { loginOnce, type PopupLogin, type Provider, prepareInstance } from '../lib/popupLogin';
+import {
+  loginOnce,
+  type PopupLogin,
+  PROVIDERS,
+  type Provider,
+  prepareInstance,
+} from '../lib/popupLogin';
 import { publishToSignerRelays, queryRelays } from '../lib/relayPublish';
 import { SHARED_SIGN_IN_CLIENT_ID } from '../lib/shared';
 import { useMessages } from '../lib/useMessages';
@@ -70,19 +76,19 @@ const refusalText = (
         unknown: lm.refusedUnknown,
       }[refusal];
 
-/** The first step: Google, Apple or X, each opening the provider's window from the click. */
+/** The first step: Google, Apple, Facebook or X, each opening the provider's window from the click. */
 function ProviderButtons({ onSignIn }: { onSignIn: (provider: Provider) => void }) {
   const m = useMessages(globalSignInMessages);
   return (
     <>
-      {(['google', 'apple', 'twitter'] as const).map((p, i) => (
+      {PROVIDERS.map((p, i) => (
         <button
           key={p}
           type="button"
           className={`np-button ${i === 0 ? 'np-filled' : 'np-outlined'}`}
           onClick={() => onSignIn(p)}
         >
-          {p === 'google' ? m.google : p === 'apple' ? m.apple : m.x}
+          {{ google: m.google, apple: m.apple, facebook: m.facebook, twitter: m.x }[p]}
         </button>
       ))}
       <p className="np-hint">{m.providerHint}</p>

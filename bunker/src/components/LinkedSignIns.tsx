@@ -1,8 +1,9 @@
 import type { GlobalAccount } from '../lib/globalAccount';
 import { format } from '../lib/i18n';
 import type { Provider } from '../lib/popupLogin';
+import { PROVIDERS } from '../lib/popupLogin';
 import { useMessages } from '../lib/useMessages';
-import { PROVIDERS, providerName } from './AccountQuestionView';
+import { providerName } from './AccountQuestionView';
 import { linkingMessages } from './LinkingMessages';
 
 interface Props {

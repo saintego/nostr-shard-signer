@@ -52,7 +52,7 @@ The **Sign in** sheet offers Google, Apple and X, through your own Web3Auth `cli
 
 - The npub is a normal Nostr identity that works in every client. The widget's profile menu has an **Export key** button, so users can take their nsec to an extension or bunker at any time.
 - Keys belong to the Web3Auth project: the same Google account gets a different npub in an app with another `clientId` (shared sign-in is one more project). **Never change the `clientId` of a live app**, add one to an app that used shared sign-in, or remove it, or OAuth users get new, empty identities.
-- With shared sign-in, the user can link Google, Apple and X to one account in the sign-in window; with your own `clientId` they give different keys.
+- With shared sign-in, the user can link Google, Apple, Facebook and X to one account in the sign-in window; with your own `clientId` they give different keys.
 - With shared sign-in, a user can have several identities on one site and switch between them in the widget; `onAuthChange` reports the new `pubkey`.
 - The signer keeps the key away from your page's code, not from the owner of the `clientId`: whoever owns the Web3Auth project decides which sites may use it, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. Users trust an app's owner with the identity they create in that app. With shared sign-in, that owner is whoever runs the hosted signer.
 

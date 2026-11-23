@@ -12,7 +12,7 @@ test("the widget's Google button opens the signer's popup, which serves only tha
   await signer.getByRole("button", { name: "Sign in" }).click();
   await expect(page.locator("#nostr-signer-container")).toHaveCSS("height", "580px");
   const popupOpened = page.waitForEvent("popup");
-  await signer.getByRole("button", { name: "Continue with Google, Apple or X" }).click();
+  await signer.getByRole("button", { name: "Continue with Google, Apple, Facebook or X" }).click();
   const popup = await popupOpened;
   expect(new URL(popup.url()).searchParams.get("global-signin")).toBe("1");
   // The handshake succeeded: the popup names the site the widget is on.

@@ -1,10 +1,8 @@
 import { format } from '../lib/i18n';
 import type { Step } from '../lib/popupFlow';
-import type { Provider } from '../lib/popupLogin';
+import { PROVIDERS, type Provider } from '../lib/popupLogin';
 import { useMessages } from '../lib/useMessages';
 import { linkingMessages } from './LinkingMessages';
-
-export const PROVIDERS: readonly Provider[] = ['google', 'apple', 'twitter'];
 
 /** A provider's name, for the user. */
 export const providerName = (provider: string, m: (typeof linkingMessages)['en']) =>
@@ -12,9 +10,11 @@ export const providerName = (provider: string, m: (typeof linkingMessages)['en']
     ? m.google
     : provider === 'apple'
       ? m.apple
-      : provider === 'twitter'
-        ? m.twitter
-        : provider;
+      : provider === 'facebook'
+        ? m.facebook
+        : provider === 'twitter'
+          ? m.twitter
+          : provider;
 
 interface Props {
   readonly step: Extract<Step, { step: 'question' }>;
