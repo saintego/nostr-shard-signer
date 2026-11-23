@@ -19,6 +19,12 @@ export const globalSignInMessages = defineMessages('globalSignIn', {
     'Your account from {site} is now in your global account. On other sites, pair it from “Welcome back”.',
   close: 'Close',
   retry: 'Try again',
+  // What the window is doing (#110)
+  phaseLogin: 'Waiting for the sign-in…',
+  phaseChecking: 'Checking your account…',
+  phaseSaving: 'Saving…',
+  slowHint: 'This is taking longer than usual: a relay or your connection is slow.',
+  timedOut: 'This took too long ({phase}). Check your connection and try again.',
   failed: 'Sign-in failed: {reason}',
   refused: 'This window can only be opened from the sign-in widget on a site.',
   notSetUp: 'This sign-in isn’t available yet.',

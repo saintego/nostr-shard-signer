@@ -10,14 +10,18 @@ export interface EnvelopeCopies {
   readonly synced: boolean;
   readonly contents: () => Promise<string[]>;
   readonly write: (content: string) => Promise<void>;
-  readonly close: () => Promise<void>;
+  /** Waits up to `timeoutMs` for writes to sync (0: only read here), then closes. */
+  readonly close: (timeoutMs?: number) => Promise<void>;
 }
 
 const query = createQueryBuilder(envelopeSchema);
 const all = query((db) =>
   db.selectFrom('envelope').select(['id', 'content']).where('isDeleted', 'is not', sqliteTrue)
 );
-const SYNC_WAIT_MS = 6000;
+/** How long opening waits for the relay's copy (#110): past it, the relays' pointer decides. */
+const OPEN_SYNC_MS = 2500;
+/** How long closing waits for writes to reach Evolu's relay. */
+const CLOSE_SYNC_MS = 8000;
 
 export async function openEnvelopeCopies(
   ownerSecret: Uint8Array,
@@ -31,7 +35,7 @@ export async function openEnvelopeCopies(
     options.sync === false
       ? Promise.resolve('NoRelays')
       : waitForSync(evolu.name, evolu.appOwner.id, ms);
-  const synced = (await sync(SYNC_WAIT_MS)) === 'Synced';
+  const synced = (await sync(OPEN_SYNC_MS)) === 'Synced';
   return {
     synced,
     contents: async () =>
@@ -42,8 +46,8 @@ export async function openEnvelopeCopies(
       new Promise<void>((resolve) =>
         evolu.insert('envelope', { content }, { onComplete: () => resolve() })
       ),
-    close: async () => {
-      await sync(SYNC_WAIT_MS);
+    close: async (timeoutMs = CLOSE_SYNC_MS) => {
+      if (timeoutMs > 0) await sync(timeoutMs);
       await evolu[Symbol.asyncDispose]();
     },
   };

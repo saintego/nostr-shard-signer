@@ -1,6 +1,6 @@
 import type { Web3Auth } from '@web3auth/modal';
 import { useEffect, useRef, useState } from 'react';
-import { backgroundWrites, timed } from '../lib/backgroundWrites';
+import { backgroundWrites, timed, withTimeout } from '../lib/backgroundWrites';
 import type { BackupMethod } from '../lib/backup';
 import { openEnvelopeCopies } from '../lib/envelopeStore';
 import type { GlobalAccount } from '../lib/globalAccount';
@@ -30,19 +30,27 @@ import { WelcomeBackView } from './WelcomeBackView';
 import './GlobalSignInPopup.css';
 
 type Reply = (result: Omit<GlobalResult, 'type'>) => void;
+/** What the window is doing while it works (#110). */
+type Phase = 'login' | 'checking' | 'saving';
+/** The most a step after the provider's login may take before the window says so (#110). */
+const STEP_MAX_MS = 25000;
 type AccountStep = Extract<Step, { step: 'account' }>;
 
 type State =
   | { step: 'waiting' }
   | { step: 'refused' }
   | { step: 'ready'; site: string }
-  | { step: 'working'; site: string }
+  | { step: 'working'; site: string; phase: Phase }
   | ({ site: string } & Step)
   /** Before sealing a link: who is being linked (review 8, item 7), or why it can't be. */
-  | ({ step: 'link-confirm'; site: string; candidate: PopupLogin; refused: string | null } & Omit<
-      AccountStep,
-      'step'
-    >)
+  | ({
+      step: 'link-confirm';
+      site: string;
+      candidate: PopupLogin;
+      refused: string | null;
+      /** The version of an envelope the candidate already has (a link left half-done). */
+      after?: number;
+    } & Omit<AccountStep, 'step'>)
   | { step: 'failed'; site: string; reason: string }
   | { step: 'done'; site: string; broughtOver?: boolean };
 
@@ -62,6 +70,7 @@ const flowDeps = (options: GlobalOptions): FlowDeps => ({
   openCopies: (owner) => openEnvelopeCopies(owner),
   query: (filter) => queryRelays(filter),
   publish: writes.publish,
+  defer: writes.track,
   ...(options.markerAddress ? { markerAddress: options.markerAddress } : {}),
 });
 
@@ -118,6 +127,9 @@ const reasonOf = (e: unknown) => (e as Error)?.message ?? String(e);
 export function GlobalSignInPopupView() {
   const m = useMessages(globalSignInMessages);
   const lm = useMessages(linkingMessages);
+  const phaseText = (phase: Phase) =>
+    ({ login: m.phaseLogin, checking: m.phaseChecking, saving: m.phaseSaving })[phase];
+  const phaseError = (phase: Phase) => format(m.timedOut, { phase: phaseText(phase) });
   const [state, setState] = useState<State>({ step: 'waiting' });
   const [busy, setBusy] = useState(false);
   const replyRef = useRef<Reply | null>(null);
@@ -182,13 +194,14 @@ export function GlobalSignInPopupView() {
   const finish = async (site: string, pubkey: string | 'none') => {
     const account = accountRef.current;
     if (!account) return;
+    setState({ step: 'working', site, phase: 'saving' });
     try {
       if (pubkey === 'none') {
         // Leaving the global account on this site: "unpaired" on own-clientId sites (D7).
         await account.leaveSite();
         replyRef.current?.({ error: 'NO_IDENTITY' });
       } else {
-        const grant = await account.grant(pubkey);
+        const grant = await withTimeout(account.grant(pubkey), STEP_MAX_MS, phaseError('saving'));
         const backedUp = backedUpRef.current;
         const marker = await account.siteMarker();
         replyRef.current?.({
@@ -203,7 +216,8 @@ export function GlobalSignInPopupView() {
       setState({ step: 'failed', site, reason: reasonOf(e) });
     } finally {
       accountRef.current = null;
-      await account.close();
+      // Its writes sync to Evolu's relay before the window closes (#110).
+      writes.track(account.close());
     }
   };
 
@@ -218,7 +232,7 @@ export function GlobalSignInPopupView() {
       replyRef.current?.({ error: 'BROUGHT_OVER' });
       setState({ step: 'done', site, broughtOver: true });
       accountRef.current = null;
-      await step.account.close();
+      writes.track(step.account.close());
       closeAfterWrites(2500);
       return;
     }
@@ -239,14 +253,19 @@ export function GlobalSignInPopupView() {
 
   const signIn = (site: string, provider: Provider) =>
     run(site, async () => {
-      setState({ step: 'working', site });
+      setState({ step: 'working', site, phase: 'login' });
       wipe();
       accountRef.current = null;
       const first = await timed('provider login', login(provider));
       sessionRef.current = first;
+      setState({ step: 'working', site, phase: 'checking' });
       const step = await timed(
         'account lookup',
-        afterLogin(first, site, flowDeps(optionsRef.current))
+        withTimeout(
+          afterLogin(first, site, flowDeps(optionsRef.current)),
+          STEP_MAX_MS,
+          phaseError('checking')
+        )
       );
       await timed('account step', show(site, step));
     });
@@ -255,7 +274,12 @@ export function GlobalSignInPopupView() {
   const linkFirstTo = (site: string, first: PopupLogin, provider: Provider) =>
     run(site, async () => {
       const second = await login(provider);
-      const step = await afterLogin(second, site, flowDeps(optionsRef.current));
+      setState({ step: 'working', site, phase: 'checking' });
+      const step = await withTimeout(
+        afterLogin(second, site, flowDeps(optionsRef.current)),
+        STEP_MAX_MS,
+        phaseError('checking')
+      );
       if (step.step !== 'account') return setState({ site, ...step });
       sessionRef.current = second;
       accountRef.current = step.account;
@@ -267,11 +291,31 @@ export function GlobalSignInPopupView() {
     run(site, async () => {
       const candidate = await login(provider);
       const session = sessionRef.current;
-      const found = await lookUp(candidate.login.key, flowDeps(optionsRef.current));
-      await found.ownList.close().catch(() => {});
-      const refusal = session ? linkRefusal(session.login, candidate.login, found) : 'unknown';
+      setState({ step: 'working', site, phase: 'checking' });
+      const found = await withTimeout(
+        lookUp(candidate.login.key, flowDeps(optionsRef.current)),
+        STEP_MAX_MS,
+        phaseError('checking')
+      );
+      await found.ownList.close(0).catch(() => {}); // only read here
+      // An envelope that already opens this account: a link left half-done, linked again.
+      const half =
+        found.envelope && 'scope' in found.envelope && found.envelope.scope === 'full'
+          ? found.envelope
+          : null;
+      const ownRoot = half && current.account.isRoot(half.root) ? half.root : undefined;
+      const refusal = session
+        ? linkRefusal(session.login, candidate.login, found, ownRoot)
+        : 'unknown';
       const refused = refusalText(refusal, lm);
-      setState({ ...current, step: 'link-confirm', site, candidate, refused });
+      setState({
+        ...current,
+        step: 'link-confirm',
+        site,
+        candidate,
+        refused,
+        ...(ownRoot && half ? { after: half.version } : {}),
+      });
     });
 
   /** Closing with the account open still tells the site what's left (after unpairing). */
@@ -299,7 +343,7 @@ export function GlobalSignInPopupView() {
         <p className="global-site np-badge np-primary">{format(m.forSite, { site })}</p>
         <p className="global-explain">{format(m.explain, { site })}</p>
         {s.step === 'ready' && <ProviderButtons onSignIn={(p) => void signIn(s.site, p)} />}
-        {s.step === 'working' && <p className="np-loading">{m.working}</p>}
+        {s.step === 'working' && <Working phase={s.phase} />}
         {s.step === 'question' && (
           <AccountQuestionView
             step={s}
@@ -360,7 +404,12 @@ export function GlobalSignInPopupView() {
             busy={busy}
             onConfirm={(scope) =>
               void run(s.site, async () => {
-                await s.account.link(s.candidate.login, scope);
+                setState({ step: 'working', site: s.site, phase: 'saving' });
+                await withTimeout(
+                  s.account.link(s.candidate.login, scope, s.after),
+                  STEP_MAX_MS,
+                  phaseError('saving')
+                );
                 s.candidate.login.key.fill(0);
                 backToAccount(s);
               })
@@ -425,5 +474,26 @@ export function GlobalSignInPopupView() {
         {m.close}
       </button>
     </main>
+  );
+}
+
+/** What the window is doing, with a note once it's slow (#110). */
+function Working({ phase }: { phase: Phase }) {
+  const m = useMessages(globalSignInMessages);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (phase === 'login') return;
+    const timer = setTimeout(() => setSlow(true), 6000);
+    return () => clearTimeout(timer);
+  }, [phase]);
+  const text = { login: m.phaseLogin, checking: m.phaseChecking, saving: m.phaseSaving }[phase];
+  return (
+    <>
+      <p className="np-loading" aria-live="polite">
+        {text}
+      </p>
+      {slow && <p className="np-hint">{m.slowHint}</p>}
+    </>
   );
 }

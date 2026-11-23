@@ -59,7 +59,14 @@ const linksQuery = query((db) =>
     .where('isDeleted', 'is not', sqliteTrue)
 );
 
-const SYNC_WAIT_MS = 6000;
+/**
+ * How long opening waits for the list to sync (#110). Past it the window goes
+ * on with what's on the device and the relays (`synced` says so); waiting
+ * longer made every sign-in slow.
+ */
+const OPEN_SYNC_MS = 2500;
+/** How long closing waits for writes to reach Evolu's relay. */
+const CLOSE_SYNC_MS = 8000;
 
 const done = (run: (onComplete: () => void) => void) =>
   new Promise<void>((resolve) => run(resolve));
@@ -79,7 +86,7 @@ export async function openGlobalList(
     options.sync === false
       ? Promise.resolve<SyncResult>('NoRelays')
       : waitForSync(evolu.name, evolu.appOwner.id, ms);
-  const synced = await sync(SYNC_WAIT_MS);
+  const synced = await sync(OPEN_SYNC_MS);
 
   const load = async () => {
     const [ids, pairs] = await Promise.all([
@@ -192,8 +199,8 @@ export async function openGlobalList(
           evolu.update('identity', { id: r.id, usedElsewhere }, { onComplete })
         );
     },
-    close: async (timeoutMs = SYNC_WAIT_MS) => {
-      const result = await sync(timeoutMs);
+    close: async (timeoutMs = CLOSE_SYNC_MS) => {
+      const result: SyncResult = timeoutMs > 0 ? await sync(timeoutMs) : 'Syncing';
       await evolu[Symbol.asyncDispose]();
       return result;
     },

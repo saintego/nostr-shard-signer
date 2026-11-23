@@ -96,7 +96,7 @@ export async function afterLogin(first: PopupLogin, site: string, deps: FlowDeps
     });
     return { step: 'account', account, profile: first.profile, createdWith: null };
   }
-  await found.ownList.close().catch(() => {});
+  await found.ownList.close(0).catch(() => {}); // only read here
   if (r.kind === 'linked') return openLinked(first, r.root, r.primary, site, deps);
   if (r.kind === 'restricted') return { step: 'restricted', envelope: r.envelope, first };
   if (r.kind === 'both')

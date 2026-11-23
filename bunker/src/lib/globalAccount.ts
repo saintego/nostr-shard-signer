@@ -46,6 +46,8 @@ export interface AccountDeps {
   readonly primary?: Primary;
   /** Signed in through an envelope: that login's pointer pubkey. */
   readonly viaPointer?: string;
+  /** Background work to wait for later (LinkingDeps.defer, #110). */
+  readonly defer?: (work: Promise<unknown>) => void;
 }
 
 export interface GlobalAccount {
@@ -101,7 +103,13 @@ export interface GlobalAccount {
    * Links another sign-in (proven in this popup session) to this account:
    * 'full', or a restricted link to these identities (pubkeys, #98).
    */
-  readonly link: (login: Login, scope: 'full' | readonly string[]) => Promise<void>;
+  /**
+   * Links `login`. `after`: the version of an envelope it already has (a link
+   * left half-done), so the new one is newer.
+   */
+  readonly link: (login: Login, scope: 'full' | readonly string[], after?: number) => Promise<void>;
+  /** Whether `rootHex` is this account's root (an envelope that opens this account). */
+  readonly isRoot: (rootHex: string) => boolean;
   /** Unlinks a sign-in from this session, with the stored keys (review 8, item 3). */
   readonly unlink: (pointerPubkey: string) => Promise<void>;
   /** Waits for the list to sync, then wipes the root. */
@@ -175,6 +183,7 @@ export async function openGlobalAccountFromRoot(
       openCopies: deps.openCopies,
       openList: deps.openList,
       now,
+      ...(deps.defer ? { defer: deps.defer } : {}),
     };
   };
   /** The identities a restricted link opens, with their keys (derived, or stored). */
@@ -332,7 +341,9 @@ export async function openGlobalAccountFromRoot(
       return links;
     },
     unlinkedVia: via?.unlinkedAt ?? null,
-    link: async (login, scope) => {
+    isRoot: (rootHex) =>
+      rootHex === Array.from(root, (x) => x.toString(16).padStart(2, '0')).join(''),
+    link: async (login, scope, after = 0) => {
       if (!deps.primary) throw new Error('The account’s first sign-in isn’t known here');
       const { pubkey } = await pointerAddress(login.key);
       const previous = links.find((l) => l.pointerPubkey === pubkey);
@@ -341,7 +352,7 @@ export async function openGlobalAccountFromRoot(
         login,
         await linkScope(scope),
         deps.primary,
-        (previous?.version ?? 0) + 1,
+        Math.max(previous?.version ?? 0, after) + 1,
         linkingDeps()
       );
       await list.saveLink(record);

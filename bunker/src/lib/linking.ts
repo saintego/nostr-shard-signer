@@ -47,9 +47,21 @@ export interface LinkingDeps {
   readonly openCopies: (ownerSecret: Uint8Array) => Promise<EnvelopeCopies>;
   readonly openList: (root: Uint8Array) => Promise<GlobalList>;
   readonly now?: () => number;
+  /**
+   * Background work the caller waits for later (e.g. the sign-in window before
+   * it closes, #110). Without it, the Evolu copy's sync is awaited here.
+   */
+  readonly defer?: (work: Promise<unknown>) => void;
 }
 
 const nowS = () => Math.floor(Date.now() / 1000);
+
+/** Closes an envelope copy after a write: its sync deferred when the caller can wait later (#110). */
+const closeCopies = async (copies: EnvelopeCopies, deps: Pick<LinkingDeps, 'defer'>) => {
+  const closing = copies.close();
+  if (deps.defer) deps.defer(closing);
+  else await closing;
+};
 const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 const fromHex = (h: string) => Uint8Array.from(h.match(/../g) ?? [], (x) => Number.parseInt(x, 16));
 
@@ -92,7 +104,7 @@ export async function lookUp(loginKey: Uint8Array, deps: LinkingDeps): Promise<F
     }
     for (const c of await copies.contents())
       envelope = newer(envelope, await readCopy(c, loginKey));
-    await copies.close();
+    await copies.close(0); // only read here
     const rows = await ownList.load();
     const own = rows.length > 0 || (counter?.length ?? 0) > 0 || (published?.length ?? 0) > 0;
     const answered =
@@ -145,7 +157,9 @@ export function resolve(found: Pick<Found, 'envelope' | 'own' | 'answered'>): Re
 export function linkRefusal(
   current: { readonly key: Uint8Array; readonly userId: string },
   candidate: { readonly key: Uint8Array; readonly userId: string },
-  found: Pick<Found, 'envelope' | 'own' | 'answered'>
+  found: Pick<Found, 'envelope' | 'own' | 'answered'>,
+  /** This account's root (hex): an envelope already opening it is a link left half-done, linked again. */
+  ownRoot?: string
 ): 'same-login' | 'own-account' | 'linked-elsewhere' | 'unknown' | null {
   if (
     toHex(current.key) === toHex(candidate.key) ||
@@ -154,7 +168,8 @@ export function linkRefusal(
     return 'same-login';
   if (found.own) return 'own-account';
   const e = found.envelope;
-  if (e && !('unlinked' in e)) return 'linked-elsewhere';
+  if (e && !('unlinked' in e) && !(ownRoot && e.scope === 'full' && e.root === ownRoot))
+    return 'linked-elsewhere';
   return found.answered ? null : 'unknown';
 }
 
@@ -196,7 +211,7 @@ export async function sealLink(
     await deps.publish([event]);
     const copies = await deps.openCopies(owner);
     await copies.write(JSON.stringify(sealed));
-    await copies.close();
+    await closeCopies(copies, deps);
     return {
       provider: login.provider,
       masked: login.masked,
@@ -230,7 +245,7 @@ export async function unlinkRecord(link: LinkRecord, deps: LinkingDeps): Promise
   await deps.publish([event]);
   const copies = await deps.openCopies(fromHex(link.envelopeOwner));
   await copies.write(content);
-  await copies.close();
+  await closeCopies(copies, deps);
   return {
     ...link,
     version,

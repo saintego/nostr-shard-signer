@@ -230,6 +230,14 @@ test('scenarios 55, 61, 62 and item 8: what linking refuses, and asking which ac
   const other = login('google', 'b…@gmail.com');
   await w.ownAccount(other.key);
   expect(linkRefusal(other, x, await lookUp(x.key, w.deps))).toBe('linked-elsewhere');
+  // Linked to this same account but its record went missing (a link left
+  // half-done, #110): it may be linked again, finishing the record.
+  const hex = Buffer.from(rootG).toString('hex');
+  expect(linkRefusal(google, x, await lookUp(x.key, w.deps), hex)).toBeNull();
+  // Another account's root doesn't count.
+  expect(linkRefusal(google, x, await lookUp(x.key, w.deps), 'ab'.repeat(32))).toBe(
+    'linked-elsewhere'
+  );
   // A login with both its own account and an envelope: ask (61).
   await sealLink(rootG, apple, { kind: 'full' }, primary, 1, w.deps);
   expect(resolve(await lookUp(apple.key, w.deps)).kind).toBe('both');
