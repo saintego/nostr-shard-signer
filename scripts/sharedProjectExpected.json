@@ -1,5 +1,5 @@
 {
-  "_comment": "What the shared Web3Auth projects' public configuration must say (#91). scripts/checkSharedProject.mjs compares it hourly; update it in the same PR as an intended allowlist change.",
+  "_comment": "What the shared Web3Auth projects' public configuration must say (#91). scripts/checkSharedProject.mjs compares it every 6 hours; update it in the same PR as an intended allowlist change.",
   "production": {
     "network": "sapphire_mainnet",
     "urls": []

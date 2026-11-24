@@ -1,12 +1,12 @@
 name: Shared project monitor
 
-# The outside monitor for the shared Web3Auth projects (#91): hourly, it checks
+# The outside monitor for the shared Web3Auth projects (#91): every 6 hours, it checks
 # their public configuration against scripts/sharedProjectExpected.json. A
 # failed run (GitHub emails it) means the allowlist or key export changed.
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:
