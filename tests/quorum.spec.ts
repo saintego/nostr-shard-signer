@@ -29,3 +29,14 @@ test('failures do not count; all finished ends it early; the cap ends it otherwi
   expect(await firstAnswers([failing(5)], 1, 1000)).toEqual([]);
   expect(await firstAnswers([], 1, 1000)).toEqual([]);
 });
+
+test('"nothing there" needs two relays to say so (#139, #141)', async () => {
+  const { readAnswers } = await import('../bunker/src/lib/relayPublish.ts');
+  const e = { id: 'a' } as import('nostr-tools').Event;
+  expect(readAnswers([], 6)).toBeNull(); // none answered (offline, refused)
+  expect(readAnswers([[]], 6)).toBeNull(); // one empty answer: can't say
+  expect(readAnswers([[], []], 6)).toEqual([]); // two: nothing there
+  expect(readAnswers([[e]], 6)).toEqual([e]); // one that has it: found
+  expect(readAnswers([[e], [e]], 6)).toEqual([e]); // deduplicated
+  expect(readAnswers([[]], 1)).toEqual([]); // a single relay configured
+});

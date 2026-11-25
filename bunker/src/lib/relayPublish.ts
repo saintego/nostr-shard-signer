@@ -111,8 +111,10 @@ export const published = (results: readonly PublishResult[], eventId: string, at
 };
 
 const QUERY_WAIT_MS = 4000;
-/** Relays that must answer before a read is trusted, e.g. that nothing is there (#111). */
+/** Relays that must answer before a read stops waiting for the others (#111). */
 export const QUERY_QUORUM = 3;
+/** Relays that must answer before "nothing there" is believed (D5, #139). */
+export const MIN_EMPTY_ANSWERS = 2;
 
 /** One relay's events for `filter`: resolves at its EOSE, rejects if it closes first. */
 function queryOne(pool: SimplePool, relay: string, filter: Filter): Promise<Event[]> {
@@ -132,25 +134,43 @@ function queryOne(pool: SimplePool, relay: string, filter: Filter): Promise<Even
 }
 
 /**
+ * What relays' answers say: their events (deduplicated), [] when at least
+ * MIN_EMPTY_ANSWERS relays (or all of them, if fewer) answered with none, and
+ * null otherwise: one relay may lag or have dropped it (#139, #141).
+ */
+export function readAnswers(
+  answers: readonly (readonly Event[])[],
+  relayCount: number
+): Event[] | null {
+  const byId = new Map(answers.flat().map((e) => [e.id, e]));
+  if (byId.size > 0) return [...byId.values()];
+  return answers.length > 0 && answers.length >= Math.min(MIN_EMPTY_ANSWERS, relayCount)
+    ? []
+    : null;
+}
+
+/**
  * Events matching `filter`, once QUERY_QUORUM relays have answered (a slow
- * relay isn't waited for, #111), or what answered within QUERY_WAIT_MS. Null
- * when no relay answered: then the caller mustn't assume there are none, e.g.
- * before publishing a counter.
+ * relay isn't waited for, #111), or what answered within QUERY_WAIT_MS. With
+ * `all`, it waits for every relay up to QUERY_WAIT_MS: for a read a write
+ * builds on, e.g. before publishing a counter (#140).
+ *
+ * Null when it can't say: no event and fewer than MIN_EMPTY_ANSWERS relays
+ * answered (#139). Then the caller mustn't assume there are none.
  */
 export async function queryRelays(
   filter: Filter,
-  relays: readonly string[] = SIGNER_RELAYS
+  relays: readonly string[] = SIGNER_RELAYS,
+  opts: { readonly all?: boolean } = {}
 ): Promise<Event[] | null> {
   const pool = new SimplePool();
   try {
     const answers = await firstAnswers(
       relays.map((relay) => () => queryOne(pool, relay, filter)),
-      Math.min(QUERY_QUORUM, relays.length),
+      opts.all ? relays.length : Math.min(QUERY_QUORUM, relays.length),
       QUERY_WAIT_MS
     );
-    if (answers.length === 0) return null;
-    const byId = new Map(answers.flat().map((e) => [e.id, e]));
-    return [...byId.values()];
+    return readAnswers(answers, relays.length);
   } finally {
     pool.destroy();
   }

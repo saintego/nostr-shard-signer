@@ -37,7 +37,9 @@ test('an envelope opens only with its login; tampering fails', async () => {
   expect(sealed.ct).not.toContain('abab');
   expect(await openEnvelope(login, sealed)).toEqual(body);
   expect(await openEnvelope(generateSecretKey(), sealed)).toBeNull();
-  expect(await openEnvelope(login, { ...sealed, ct: `A${sealed.ct.slice(1)}` })).toBeNull();
+  // Always a different first character (with "A" it was the same 1 time in 64).
+  const tampered = `${sealed.ct[0] === 'A' ? 'B' : 'A'}${sealed.ct.slice(1)}`;
+  expect(await openEnvelope(login, { ...sealed, ct: tampered })).toBeNull();
 });
 
 test('the newest version wins; "unlinked" wins a tie', () => {
