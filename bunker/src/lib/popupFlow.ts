@@ -10,6 +10,7 @@ import {
   type NewProfile,
   openGlobalAccountFromRoot,
 } from './globalAccount';
+import type { GlobalOptions } from './globalPopup';
 import { type LinkingDeps, lookUp, resolve } from './linking';
 import type { PopupLogin } from './popupLogin';
 
@@ -51,12 +52,21 @@ const primaryOf = (p: PopupLogin): Primary => ({
   masked: p.login.masked,
 });
 
-/** The login's own account (it's the primary): Welcome back, or a new account. */
-export async function openOwn(first: PopupLogin, site: string, deps: FlowDeps): Promise<Step> {
+/**
+ * The login's own account (it's the primary): Welcome back, or a new account.
+ * `existing`: the lookup already found it (#136).
+ */
+export async function openOwn(
+  first: PopupLogin,
+  site: string,
+  deps: FlowDeps,
+  existing = false
+): Promise<Step> {
   const root = await deriveRoot(first.login.key);
   const account = await openGlobalAccountFromRoot(root, site, {
     ...deps,
     primary: primaryOf(first),
+    knownExisting: existing,
   });
   return { step: 'account', account, profile: first.profile, createdWith: null };
 }
@@ -93,6 +103,7 @@ export async function afterLogin(first: PopupLogin, site: string, deps: FlowDeps
       ...deps,
       openList: async () => found.ownList,
       primary: primaryOf(first),
+      knownExisting: found.own, // #136
     });
     return { step: 'account', account, profile: first.profile, createdWith: null };
   }
@@ -104,4 +115,30 @@ export async function afterLogin(first: PopupLogin, site: string, deps: FlowDeps
   if (r.kind === 'none')
     return { step: 'question', kind: 'none', wasUnlinked: r.wasUnlinked, first };
   return { step: 'question', kind: 'unknown', first };
+}
+
+/** What the window does with an account step (#109, #137, D8, D9). */
+export type AccountNext =
+  | { readonly kind: 'bring-over'; readonly siteKey: string }
+  | { readonly kind: 'new'; readonly pubkey: string }
+  | { readonly kind: 'finish'; readonly pubkey: string }
+  | { readonly kind: 'show' };
+
+export function accountNext(
+  account: Pick<GlobalAccount, 'isNew' | 'list' | 'paired'>,
+  options: Pick<GlobalOptions, 'intent' | 'siteKey' | 'active'>
+): AccountNext {
+  const { intent, siteKey } = options;
+  // "Use this account on other sites" (D9): stored, then a backup or a skip (#137).
+  if (intent === 'bring-over' && siteKey) return { kind: 'bring-over', siteKey };
+  // A new account: identity 0, straight away (D8: Welcome back only for an existing account).
+  const first = account.list[0];
+  if (account.isNew && first && intent !== 'backup') return { kind: 'new', pubkey: first.pubkey };
+  // Signing in again where identities are already in use: no Welcome back, no
+  // extra click (#109). "Add or manage identities" (it sends `active`) and
+  // backup still show it.
+  const pairedHere = account.paired[0];
+  if (pairedHere && intent !== 'backup' && intent !== 'manage' && !options.active)
+    return { kind: 'finish', pubkey: pairedHere.pubkey };
+  return { kind: 'show' };
 }

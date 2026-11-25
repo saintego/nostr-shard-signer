@@ -3,8 +3,8 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import type { Event } from 'nostr-tools';
-import { getPublicKey } from 'nostr-tools/pure';
-import { buildCounter } from '../bunker/src/lib/counter.ts';
+import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
+import { buildCounter, readCounter } from '../bunker/src/lib/counter.ts';
 import { processRpc } from '../bunker/src/lib/crypto.ts';
 import { deriveRoot } from '../bunker/src/lib/derive.ts';
 import { type AccountDeps, openGlobalAccount } from '../bunker/src/lib/globalAccount.ts';
@@ -302,4 +302,56 @@ test('D14: sign_event for another identity is refused; an empty pubkey is fine',
   expect(
     JSON.parse(await processRpc('sign_event', [evt(id(0).pubkey)], key, id(0).pubkey)).pubkey
   ).toBe(id(0).pubkey);
+});
+
+test('#136: new only on evidence: unsynced, unanswered or already found means an existing account', async () => {
+  const login = () => bytes(v.globalLoginKey);
+  // Evolu didn't sync: the list may just be missing.
+  let a = await openGlobalAccount(login(), SITE, deps(fakeList([], [], 'Offline').list).d);
+  expect(a.isNew).toBe(false);
+  expect(a.listMissing).toBe(true);
+  // The relays didn't answer the counter query.
+  a = await openGlobalAccount(login(), SITE, deps(fakeList([], [], 'Synced').list, null).d);
+  expect(a.isNew).toBe(false);
+  // The lookup found the account (events by identity 0, a counter, a list).
+  a = await openGlobalAccount(login(), SITE, {
+    ...deps(fakeList([], [], 'Synced').list).d,
+    knownExisting: true,
+  });
+  expect(a.isNew).toBe(false);
+  expect(a.listMissing).toBe(true);
+  // Everything answered, nothing anywhere: new.
+  a = await openGlobalAccount(login(), SITE, deps(fakeList([], [], 'Synced').list).d);
+  expect(a.isNew).toBe(true);
+  expect(a.listMissing).toBe(false);
+});
+
+test('#136: a profile is never published over an existing one, nor when relays are silent', async () => {
+  const existing = finalizeEvent(
+    {
+      kind: 0,
+      created_at: 1,
+      tags: [],
+      content: JSON.stringify({ about: 'mine', lud16: 'a@b.c' }),
+    },
+    bytes(id(0).secret)
+  );
+  const withProfile = deps(fakeList([], [], 'Synced').list, [existing]);
+  let a = await openGlobalAccount(bytes(v.globalLoginKey), SITE, withProfile.d);
+  expect(await a.profileFree(id(0).pubkey)).toBe(false);
+  expect(await a.publishProfile(id(0).pubkey, { name: 'Alice' })).toBe(false);
+  expect(withProfile.published.filter((e) => e.kind === 0)).toEqual([]);
+  const silent = deps(fakeList([], [], 'Synced').list, null);
+  a = await openGlobalAccount(bytes(v.globalLoginKey), SITE, silent.d);
+  expect(await a.publishProfile(id(0).pubkey, { name: 'Alice' })).toBe(false);
+  expect(silent.published.filter((e) => e.kind === 0)).toEqual([]);
+});
+
+test('#136: a missing counter is written from the synced list', async () => {
+  const { list } = fakeList([row(0), row(1)], [], 'Synced');
+  const { d, published } = deps(list, []);
+  await openGlobalAccount(bytes(v.globalLoginKey), SITE, d);
+  await expect.poll(() => published.length).toBe(1);
+  const root = await deriveRoot(bytes(v.globalLoginKey));
+  expect(await readCounter(published, root)).toBe(2);
 });

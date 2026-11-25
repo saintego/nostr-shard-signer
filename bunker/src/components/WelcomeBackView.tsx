@@ -163,6 +163,11 @@ export function WelcomeBackView({
     <section className="welcome-back">
       <h2 className="np-title">{m.title}</h2>
       <p>{format(m.choose, { site: host })}</p>
+      {account.complete && account.listMissing && (
+        <p className="np-message np-warning">
+          {format(m.listMissing, { restore: restoreAddress })}
+        </p>
+      )}
       {!account.complete && <p className="np-message np-warning">{m.incomplete}</p>}
       <LinkNotices account={account} createdWith={createdWith} />
       {account.markerStatus === 'not-yours' && (

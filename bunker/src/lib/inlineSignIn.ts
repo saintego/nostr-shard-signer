@@ -76,7 +76,12 @@ async function fromAccount(
   if (account.isNew && identity0) {
     await account.pair(identity0.pubkey);
     const profile = step.profile;
-    if (profile && (profile.name || profile.picture))
+    // Offered only when identity 0 has no profile yet, on relays that answered (#136).
+    if (
+      profile &&
+      (profile.name || profile.picture) &&
+      (await account.profileFree(identity0.pubkey))
+    )
       return { kind: 'new-account', account, pubkey: identity0.pubkey, profile };
     return { kind: 'signed-in', answer: await answerFor(account, identity0.pubkey, deps.defer) };
   }

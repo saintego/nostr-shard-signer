@@ -198,17 +198,20 @@ async function setup(markers: Event[]) {
 }
 
 test('D7: pairing an own-clientId site writes a marker; an existing one is handed back, not rewritten', async () => {
-  const { published, deps } = await setup([]);
+  const { address, published, deps } = await setup([]);
   const account = await openGlobalAccount(bytes(v.globalLoginKey), SITE, deps);
   expect(account.markerStatus).toBe('none');
   const json = await account.siteMarker();
   const marker = JSON.parse(json ?? '{}') as Event;
   expect(marker.kind).toBe(MARKER_KIND);
-  expect(published.map((e) => e.id)).toEqual([marker.id]);
+  // Markers only: the list knows identities without a counter, so that's written too (#136).
+  const markers = () =>
+    published.filter((e) => e.tags.some((t) => t[0] === 'd' && t[1] === address));
+  expect(markers().map((e) => e.id)).toEqual([marker.id]);
   expect(account.markerStatus).toBe('paired');
   // Asking again doesn't publish again.
   expect(await account.siteMarker()).toBe(json);
-  expect(published).toHaveLength(1);
+  expect(markers()).toHaveLength(1);
 });
 
 test('D7: re-pairing after "unpaired" writes a newer marker; leaving the site writes "unpaired"', async () => {

@@ -8,7 +8,7 @@ import { format } from '../lib/i18n';
 import { fromHanded } from '../lib/inlineSignIn';
 import { halfDoneLink, linkRefusal, lookUp, restrictedGrant } from '../lib/linking';
 import { restoreUrl } from '../lib/masterKey';
-import { afterLogin, openLinked, openOwn, type Step } from '../lib/popupFlow';
+import { accountNext, afterLogin, openLinked, openOwn, type Step } from '../lib/popupFlow';
 import { type Choice, loginOnce, type PopupLogin, prepareInstance } from '../lib/popupLogin';
 import { SHARED_SIGN_IN_CLIENT_ID } from '../lib/shared';
 import { assertSharedSignInAllowed, CANARY_PAUSED } from '../lib/sharedCanary';
@@ -211,7 +211,9 @@ export function GlobalSignInPopupView() {
   const newAccount = async (site: string, step: AccountStep, pubkey: string) => {
     await step.account.pair(pubkey);
     const profile = step.profile;
-    if (!profile || !(profile.name || profile.picture)) return finish(site, pubkey);
+    // Offered only when the identity has no profile yet, on relays that answered (#136).
+    if (!profile || !(profile.name || profile.picture) || !(await step.account.profileFree(pubkey)))
+      return finish(site, pubkey);
     setState({ step: 'new-account', site, account: step.account, profile, pubkey });
   };
 
@@ -219,23 +221,14 @@ export function GlobalSignInPopupView() {
   const show = async (site: string, step: Step) => {
     if (step.step !== 'account') return setState({ site, ...step });
     accountRef.current = step.account;
-    const { intent, siteKey } = optionsRef.current;
-    // "Use this account on other sites" (D9): stored, then a backup or a skip (#137).
-    if (intent === 'bring-over' && siteKey) {
-      await step.account.addStored(siteKey);
+    const next = accountNext(step.account, optionsRef.current);
+    if (next.kind === 'bring-over') {
+      await step.account.addStored(next.siteKey);
       bringOverRef.current = true;
       return setState({ ...step, step: 'stored-backup', site });
     }
-    const first = step.account.list[0];
-    // A new account: identity 0, straight away (D8: Welcome back only for an existing account).
-    if (step.account.isNew && first && intent !== 'backup')
-      return newAccount(site, step, first.pubkey);
-    // Signing in again where identities are already in use: no Welcome back, no
-    // extra click (#109). "Add or manage identities" (it sends `active`) and
-    // backup still show it.
-    const pairedHere = step.account.paired[0];
-    if (pairedHere && intent !== 'backup' && intent !== 'manage' && !optionsRef.current.active)
-      return finish(site, pairedHere.pubkey);
+    if (next.kind === 'new') return newAccount(site, step, next.pubkey);
+    if (next.kind === 'finish') return finish(site, next.pubkey);
     setState({ site, ...step });
   };
 
@@ -376,7 +369,7 @@ export function GlobalSignInPopupView() {
             choices={choices}
             onCreate={() => next(s.site, (d) => openOwn(s.first, s.site, d))}
             onRetry={() => next(s.site, (d) => afterLogin(s.first, s.site, d))}
-            onChooseOwn={() => next(s.site, (d) => openOwn(s.first, s.site, d))}
+            onChooseOwn={() => next(s.site, (d) => openOwn(s.first, s.site, d, true))}
             onChooseLinked={() =>
               s.kind === 'both' &&
               next(s.site, (d) => openLinked(s.first, s.root, s.primary, s.site, d))

@@ -48,6 +48,8 @@ export interface AccountDeps {
   readonly viaPointer?: string;
   /** Background work to wait for later (LinkingDeps.defer, #110). */
   readonly defer?: (work: Promise<unknown>) => void;
+  /** The lookup already found this account (lookUp's `own`): never new (#136). */
+  readonly knownExisting?: boolean;
 }
 
 export interface GlobalAccount {
@@ -57,11 +59,21 @@ export interface GlobalAccount {
   readonly paired: readonly ListedIdentity[];
   /** False when Evolu didn't sync: names and pairings may be missing (never identities). */
   readonly complete: boolean;
-  /** A first sign-in: no identity known anywhere. */
+  /**
+   * A first sign-in, proven (#136): the list is empty and synced, the relays
+   * answered without a counter, and the lookup found nothing.
+   */
   readonly isNew: boolean;
+  /** Not new, yet the list is empty: Evolu's copy was lost or didn't sync (#136, #137). */
+  readonly listMissing: boolean;
+  /** The identity has no profile (kind 0) on relays that answered: one may be offered (#136). */
+  readonly profileFree: (pubkey: string) => Promise<boolean>;
   readonly pair: (pubkey: string) => Promise<void>;
-  /** Publishes a name and picture (kind 0) for one of the account's identities (D15). */
-  readonly publishProfile: (pubkey: string, profile: NewProfile) => Promise<void>;
+  /**
+   * Publishes a name and picture (kind 0) for one of the account's identities
+   * (D15), only when it has no profile yet (#136): false when it didn't.
+   */
+  readonly publishProfile: (pubkey: string, profile: NewProfile) => Promise<boolean>;
   readonly unpair: (pubkey: string) => Promise<void>;
   /**
    * Creates the next identity (D12), paired with this site. With `profile`
@@ -255,10 +267,30 @@ export async function openGlobalAccountFromRoot(
     );
   };
 
+  const complete = list.synced === 'Synced' || list.synced === 'NoRelays'; // NoRelays: sync off on purpose (tests)
+  // New only on evidence (#136): an empty list that didn't sync, relays that
+  // didn't answer, or anything the lookup found, mean an existing account.
+  const isNew =
+    current.length === 0 &&
+    complete &&
+    counterEvents !== null &&
+    relayCounter === null &&
+    deps.knownExisting !== true;
+  const listMissing = current.length === 0 && !isNew;
+  // A counter missing although the list knows identities (relays didn't
+  // answer at creation, #136): write it now, from the synced list only.
+  const listed = current.map((i) => i.index ?? 0);
+  if (!isNew && complete && counterEvents !== null && relayCounter === null && listed.length > 0)
+    void buildCounter(root, Math.max(...listed) + 1, now())
+      .then((e) => deps.publish([e]))
+      .catch(() => {});
+  const profileFree = async (pubkey: string) => {
+    const found = await deps.query({ kinds: [0], authors: [pubkey], limit: 1 });
+    return found !== null && found.length === 0;
+  };
   // A first sign-in, or a new device that didn't sync: identity 0 exists for
   // sure (it's derived), so it's listed even without Evolu (never a second
   // account, D5).
-  const isNew = current.length === 0 && relayCounter === null;
   if (current.length === 0) {
     const pubkey0 = await pubkeyOf(0);
     current = [
@@ -281,8 +313,10 @@ export async function openGlobalAccountFromRoot(
     get paired() {
       return pairedWith(current, origin);
     },
-    complete: list.synced === 'Synced' || list.synced === 'NoRelays', // NoRelays: sync off on purpose (tests)
+    complete,
     isNew,
+    listMissing,
+    profileFree,
     pair: async (pubkey) => {
       const i = find(pubkey);
       if (!i) throw new Error('Not an identity of this account');
@@ -300,6 +334,8 @@ export async function openGlobalAccountFromRoot(
     publishProfile: async (pubkey, profile) => {
       const i = find(pubkey);
       if (!i) throw new Error('Not an identity of this account');
+      // Never over an existing profile, nor when the relays can't say (#136).
+      if (!(await profileFree(pubkey))) return false;
       const k = i.storedKey ? fromHexKey(i.storedKey) : await deriveIdentity(root, i.index ?? 0);
       const event = finalizeEvent(
         { kind: 0, created_at: now(), tags: [], content: JSON.stringify(profile) },
@@ -307,6 +343,7 @@ export async function openGlobalAccountFromRoot(
       );
       k.fill(0);
       await deps.publish([event]);
+      return true;
     },
     unpair: async (pubkey) => {
       await list.unpair(pubkey, origin);
