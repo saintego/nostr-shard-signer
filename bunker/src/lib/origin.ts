@@ -1,13 +1,13 @@
 /** Derives the authoritative parent origin from ancestorOrigins (cannot be spoofed by URL params). */
 export function deriveParentOrigin(): string {
-  let parentOrigin = "";
+  let parentOrigin = '';
   try {
     if (
-      typeof document.location.ancestorOrigins !== "undefined" &&
+      typeof document.location.ancestorOrigins !== 'undefined' &&
       document.location.ancestorOrigins.length > 0
     ) {
       const ancestor = document.location.ancestorOrigins[0];
-      if (ancestor && ancestor !== "null") {
+      if (ancestor && ancestor !== 'null') {
         parentOrigin = new URL(ancestor).origin;
       }
     }
@@ -23,15 +23,60 @@ export function deriveParentOrigin(): string {
   return parentOrigin;
 }
 
+/** True when the browser can't tell the embedding origin (Firefox): deriveParentOrigin used the referrer. */
+export const parentFromReferrer = (): boolean =>
+  typeof document.location.ancestorOrigins === 'undefined' ||
+  document.location.ancestorOrigins.length === 0;
+
+/** How long the embedding page has to answer SIGNER_PING. */
+export const PARENT_PING_MS = 2000;
+
+/**
+ * Confirms that the parent really has `origin` (#67). The referrer is the page
+ * that navigated this frame, which can differ from the one that embeds it. The
+ * browser delivers a message posted with targetOrigin = origin only if the
+ * parent has that origin, and nostr-bridge.js answers with the same nonce.
+ */
+export function confirmParentOrigin(origin: string, timeoutMs = PARENT_PING_MS): Promise<boolean> {
+  if (!origin || window.parent === window) return Promise.resolve(false);
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
+    b.toString(16).padStart(2, '0')
+  ).join('');
+  return new Promise((resolve) => {
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      window.removeEventListener('message', onMessage);
+      resolve(ok);
+    };
+    const onMessage = (e: MessageEvent) => {
+      const d = e.data as { type?: unknown; nonce?: unknown } | null;
+      if (
+        e.source === window.parent &&
+        e.origin === origin &&
+        d?.type === 'SIGNER_PONG' &&
+        d.nonce === nonce
+      )
+        done(true);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    window.addEventListener('message', onMessage);
+    try {
+      window.parent.postMessage({ type: 'SIGNER_PING', nonce }, origin);
+    } catch (_) {
+      done(false);
+    }
+  });
+}
+
 /** Returns true only if the page is embedded inside an authorized iframe. */
 export function validateEmbedding(parentOrigin: string): boolean {
   if (!parentOrigin) return false;
 
   // Primary check: ancestorOrigins is authoritative and available in most browsers
-  if (typeof document.location.ancestorOrigins !== "undefined") {
+  if (typeof document.location.ancestorOrigins !== 'undefined') {
     const anc = document.location.ancestorOrigins;
     if (anc.length === 0) return false; // opened standalone
-    if (anc[0] === "null") return false; // sandboxed without allow-same-origin
+    if (anc[0] === 'null') return false; // sandboxed without allow-same-origin
     return true;
   }
 
@@ -49,7 +94,7 @@ export function validateEmbedding(parentOrigin: string): boolean {
 export function isLocalhostOrigin(origin: string): boolean {
   try {
     const { hostname } = new URL(origin);
-    return hostname === "localhost" || hostname === "127.0.0.1";
+    return hostname === 'localhost' || hostname === '127.0.0.1';
   } catch (_) {
     return false;
   }

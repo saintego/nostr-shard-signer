@@ -587,11 +587,11 @@
         if (!res.ok) {
           showResult(resultRegister, "error", data.error || "Registration failed.");
         } else {
-          showResult(resultRegister, "success",
-            `✓ Registered! Event ID: <code>${data.event}</code><br>
-             Published to ${data.published}/${data.total} relays.` +
-            (data.note ? `<br>Note: ${escapeHtml(data.note)}` : "")
-          );
+          showResult(resultRegister, "success", [
+            `✓ Registered! Event ID: ${data.event}`,
+            `Published to ${data.published}/${data.total} relays.`,
+            ...(data.note ? [`Note: ${data.note}`] : []),
+          ]);
         }
       } catch (e) {
         showResult(resultRegister, "error", "Network error: " + e.message);
@@ -681,11 +681,11 @@
         if (!phase2.ok) {
           showResult(resultUpdate, "error", data2.error || "Update failed.");
         } else {
-          showResult(resultUpdate, "success",
-            `✓ Domains updated! Event ID: <code>${data2.event}</code><br>
-             Domains: ${data2.domains.join(", ")}` +
-            (data2.note ? `<br>Note: ${escapeHtml(data2.note)}` : "")
-          );
+          showResult(resultUpdate, "success", [
+            `✓ Domains updated! Event ID: ${data2.event}`,
+            `Domains: ${data2.domains.join(", ")}`,
+            ...(data2.note ? [`Note: ${data2.note}`] : []),
+          ]);
         }
       } catch (e) {
         showResult(resultUpdate, "error", "Network error: " + e.message);
@@ -858,10 +858,16 @@
     loadRegistryStats().catch(() => {});
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
-    function showResult(el, type, html) {
+    // Text only (#67): registrar answers and error messages never become markup.
+    // `text` is a string, or lines shown one under the other.
+    function showResult(el, type, text) {
       el.style.display = "block";
       el.className = "notice " + type;
-      el.innerHTML = html;
+      el.replaceChildren();
+      (Array.isArray(text) ? text : [text]).forEach((line, i) => {
+        if (i) el.appendChild(document.createElement("br"));
+        el.appendChild(document.createTextNode(String(line)));
+      });
     }
 
     function escapeHtml(str) {

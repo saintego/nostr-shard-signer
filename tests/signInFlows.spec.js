@@ -291,4 +291,52 @@ test('#66: app keys in shared mode name the shared sign-in, and adding a passkey
   await expect(signer.getByRole('button', { name: 'Add a passkey' })).toBeVisible();
   await expect(signer.getByText(/with you alone/)).toHaveCount(0);
   await expect(signer.getByRole('button', { name: /passkey instead/ })).toHaveCount(0);
+  // #67: the unlocked master key stays in memory, not in the origin's sessionStorage.
+  const frame = page.frames().find((f) => f.url().includes('signer.html'));
+  const stored = await frame.evaluate(() =>
+    Object.keys(sessionStorage).filter((k) => k.startsWith('evolustr_m:'))
+  );
+  expect(stored).toEqual([]);
+});
+
+test('#67: during a signer session the page can neither claim another pubkey nor end it', async ({
+  page,
+  pages,
+}) => {
+  const signer = await openApp(page, pages);
+  await signUp(page, signer);
+  const own = await pubkey(page);
+  const send = (msg) =>
+    page.evaluate(
+      ([m, origin]) =>
+        document.querySelector('#nostr-signer-iframe').contentWindow.postMessage(m, origin),
+      [msg, SECURE_SIGNER_ORIGIN]
+    );
+  await send({ type: 'WNJ_SESSION', pubkey: 'ab'.repeat(32) });
+  await send({ type: 'WNJ_DISCONNECT' });
+  await page.waitForTimeout(500);
+  expect(await pubkey(page)).toBe(own);
+  expect(await page.evaluate(() => window.auth.at(-1))).toBe(own);
+  await expect(signer.getByRole('button', { name: 'Open Nostr profile' })).toBeVisible();
+});
+
+test('#67: the bridge confirms to the signer that this page embeds it (the Firefox check)', async ({
+  page,
+  pages,
+}) => {
+  const signer = await openApp(page, pages);
+  await expect(signer.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  const frame = page.frames().find((f) => f.url().includes('signer.html'));
+  const answer = await frame.evaluate(
+    (origin) =>
+      new Promise((resolve) => {
+        window.addEventListener('message', (e) => {
+          if (e.source === window.parent && e.data?.type === 'SIGNER_PONG') resolve(e.data.nonce);
+        });
+        window.parent.postMessage({ type: 'SIGNER_PING', nonce: 'n-123' }, origin);
+        setTimeout(() => resolve(null), 2000);
+      }),
+    SECURE_SIGNER_ORIGIN
+  );
+  expect(answer).toBe('n-123');
 });

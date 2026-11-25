@@ -88,23 +88,18 @@ export const loadAllowedApps = (pubkey: string): string[] => {
 export const saveAllowedApps = (pubkey: string, apps: string[]): void =>
     safeSet(localStorage, appsKey(pubkey), JSON.stringify(apps));
 
-// The unlocked M stays for this tab only (sessionStorage): leaving it in
-// localStorage would hand every app key to anyone with the device's storage.
-// The signer vault copy is public data and is kept (evolustr #41).
-const mKey = (pubkey: string) => `evolustr_m:${pubkey}`;
+// The unlocked M stays in this page's memory only (#67): in sessionStorage any
+// script on the signer's origin could read it, and in localStorage anyone with
+// the device's storage. After a reload a passkey unlocks it again; a login-
+// protected M unlocks without asking. The signer vault copy is public data and
+// is kept (evolustr #41).
+const unlocked = new Map<string, Bytes>();
 const vaultKey = (pubkey: string) => `evolustr_signer_vault:${pubkey}`;
 
-const toHex = (b: Bytes) => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
-const fromHex = (s: string): Bytes | null =>
-    /^[0-9a-f]{64}$/.test(s) ? new Uint8Array(s.match(/../g)!.map(h => parseInt(h, 16))) : null;
-
 const cache = {
-    get: async (pubkey: string) => {
-        const v = safeGet(sessionStorage, mKey(pubkey));
-        return v === null ? null : fromHex(v);
-    },
-    set: async (pubkey: string, m: Bytes) => safeSet(sessionStorage, mKey(pubkey), toHex(m)),
-    remove: async (pubkey: string) => safeSet(sessionStorage, mKey(pubkey), null),
+    get: async (pubkey: string) => unlocked.get(pubkey) ?? null,
+    set: async (pubkey: string, m: Bytes) => void unlocked.set(pubkey, m),
+    remove: async (pubkey: string) => void unlocked.delete(pubkey),
     getVault: async (pubkey: string) => safeGet(localStorage, vaultKey(pubkey)),
     setVault: async (pubkey: string, json: string) => safeSet(localStorage, vaultKey(pubkey), json),
 };

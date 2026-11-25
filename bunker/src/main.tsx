@@ -3,7 +3,7 @@ import './reset.css'; // the reset's layer; index.html puts it under nostr-post'
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
-import { deriveParentOrigin } from './lib/origin';
+import { confirmParentOrigin, deriveParentOrigin, parentFromReferrer } from './lib/origin';
 import { POPUP_PARAM } from './lib/passkeyPopup';
 import { PasskeyPopupView } from './components/PasskeyPopupView';
 import { CONFIRM_PARAM } from './lib/confirmPopup';
@@ -63,10 +63,17 @@ if (isPasskeyPopup || isConfirmPopup) void sweepGlobalSession();
 const locale = resolveLocale(searchParams.get('locale'), navigator.languages ?? [navigator.language]);
 document.documentElement.lang = locale;
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const render = (embedder: string) => ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
         <LocaleContext.Provider value={locale}>
-            {isPasskeyPopup ? <PasskeyPopupView /> : isConfirmPopup ? <ConfirmPopupView /> : isGlobalPopup ? <GlobalSignInPopupView /> : isSignerTab ? <SignerTabView /> : <App parentOrigin={parentOrigin} urlParams={urlParams} />}
+            {isPasskeyPopup ? <PasskeyPopupView /> : isConfirmPopup ? <ConfirmPopupView /> : isGlobalPopup ? <GlobalSignInPopupView /> : isSignerTab ? <SignerTabView /> : <App parentOrigin={embedder} urlParams={urlParams} />}
         </LocaleContext.Provider>
     </React.StrictMode>,
 );
+
+// The widget, where the browser gives only the referrer (Firefox): the page
+// must confirm it embeds this frame before anything runs (#67). Bridges from
+// before the check don't answer, and the signer reports NOT_EMBEDDED.
+const isWidget = !isPasskeyPopup && !isConfirmPopup && !isGlobalPopup && !isSignerTab;
+if (isWidget && parentOrigin && parentFromReferrer()) void confirmParentOrigin(parentOrigin).then(ok => render(ok ? parentOrigin : ''));
+else render(parentOrigin);

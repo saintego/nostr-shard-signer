@@ -159,6 +159,7 @@ export function ProfileModal({
             {/* ── WNJ profile mode: read-only view, no signing capabilities ── */}
             {isWnjMode ? (
                 <div className="tab-content">
+                    <p className="np-hint wnj-via">{m.viaExtension}</p>
                     <div className="key-section">
                         <label>Public key (npub)</label>
                         <div className="key-row">

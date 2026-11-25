@@ -9,5 +9,7 @@ export const profileModalMessages = defineMessages('profileModal', {
   tabSettings: 'Settings',
   keyInWindow:
     'To see or copy your secret key, use Export key: it opens in the signer’s own window, where this site can’t see or cover it.',
+  viaExtension:
+    'Signed in through your extension or bunker. It tells this signer which account you use; the signer never holds that key.',
   openInTabHint: 'Want to see where your account lives? Open the signer in its own tab.',
 });

@@ -159,7 +159,8 @@
       "allowlist can authorize this origin. Omit bunkerOrigin to use the hosted signer, or rebuild " +
       "your self-hosted signer with its registrar's key.",
     NOT_EMBEDDED:
-      "signer.html only works inside the iframe that nostr-bridge.js creates; do not open or embed it directly.",
+      "signer.html only works inside the iframe that nostr-bridge.js creates; do not open or embed it directly. " +
+      "In Firefox, also update a copied or pinned nostr-bridge.js: the signer checks the page that embeds it.",
     PROTOCOL_UNSUPPORTED:
       "This nostr-bridge.js and the signer at bunkerOrigin are different versions. Load " +
       "nostr-bridge.js from the signer's own origin (<bunkerOrigin>/nostr-bridge.js), or use " +
@@ -519,6 +520,13 @@
 
     const data = event.data;
     if (!data || typeof data !== "object") return;
+
+    // The signer's check that this page embeds it, where the browser can't tell
+    // it (Firefox, #67): answer with its nonce, to its origin only.
+    if (data.type === "SIGNER_PING" && typeof data.nonce === "string") {
+      event.source.postMessage({ type: "SIGNER_PONG", nonce: data.nonce }, event.origin);
+      return;
+    }
 
     // ── UI/State messages (custom schema) ────────────────────────────────────
     if (data.type === "AUTH_STATE" || data.type === "AUTH_SUCCESS") {

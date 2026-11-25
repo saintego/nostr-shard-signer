@@ -15,7 +15,7 @@ Shared sign-in, what to tell the developer:
 - It works on any site, with no Web3Auth account and no registration. A user gets the same npub on every site that uses it.
 - It is free while donations cover the shared project's Web3Auth bill, and may later be limited per site, become paid, or be turned off.
 - Moving a live app from shared sign-in to its own `clientId` (or back) gives its OAuth users new, empty npubs. If the app will need its own keys or predictable costs, start with its own `clientId`.
-- Whoever runs the hosted signer can obtain shared-mode users' keys. The shared project's Web3Auth allowlist lists only the signer's origin, so sites can't. If a site is added to it, the signer pauses new shared sign-ins ("Sign-in paused"; sites already signed in keep working).
+- Whoever runs the hosted signer can obtain shared-mode users' keys: everyone who can change the code served on the signer's origin (repository write access, CI and its secrets, the hosting provider, the build's dependencies). The shared project's Web3Auth allowlist lists only the signer's origin, so sites can't. If a site is added to it, the signer pauses new shared sign-ins ("Sign-in paused"; sites already signed in keep working).
 - The operator can block a single site from it (warning `SHARED_BLOCKED`); that site keeps extension and bunker sign-in.
 - Users back up the whole account (master key and backup file) in the sign-in window, and restore only at `<signer>/restore/`, a page they open themselves. Apps can't start either; don't build flows around them.
 - Decrypts, replacing the profile, follows or relays, deletions, Evolustr app keys and key export are confirmed in a popup on the signer's origin (the widget shows "Review this request" first), so no page can cover the prompt. Expect two clicks for those.
@@ -230,7 +230,7 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 | `NOT_ALLOWLISTED` (warning) | The origin is registered in the portal but not in the Web3Auth allowlist | Add it to the Web3Auth Allowlist URLs |
 | `WEB3AUTH_INIT_FAILED` | Wrong clientId, or the signer origin is not allowlisted | Check the clientId; add `https://saintego.github.io` to the Web3Auth Allowlist URLs |
 | `MISSING_ROOT_PUBKEY` | The signer was built without a registry root key, and the origin isn't in the Web3Auth allowlist | Omit `bunkerOrigin` to use the hosted signer; if self-hosting, build it with `VITE_ROOT_PUBKEY_HEX` |
-| `NOT_EMBEDDED` | `signer.html` was opened directly | Only load it through `nostr-bridge.js` |
+| `NOT_EMBEDDED` | `signer.html` was opened directly, or (Firefox) the page that embeds it didn't confirm it: a copied or pinned `nostr-bridge.js` from before that check | Only load it through `nostr-bridge.js`, from `<bunkerOrigin>/nostr-bridge.js` or the npm package's `loadNostrBridge()` |
 | `PROTOCOL_UNSUPPORTED` | `nostr-bridge.js` and the signer at `bunkerOrigin` are different versions (e.g. a copied or CDN-pinned bridge with a newer or self-hosted signer) | Load `nostr-bridge.js` from `<bunkerOrigin>/nostr-bridge.js`, or use the npm package's `loadNostrBridge()`, which does that |
 | `LOGIN_FAILED` | The OAuth login failed (not cancelled) | Usually transient; the user can retry |
 | `KEY_EXPORT_OFF` | The page's own Web3Auth project has key export turned off, so it can't give Nostr keys | Turn key export on in the Web3Auth dashboard, or leave `clientId` out for shared sign-in |

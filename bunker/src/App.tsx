@@ -12,6 +12,7 @@ import type { Authorization } from './lib/registry';
 import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
 import { sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
 import { isBlockedBySignedList, signOutOnThisSite } from './lib/sharedSignIn';
+import { acceptedWnjPubkey } from './lib/wnjSession';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import { useSharedSignIn } from './useSharedSignIn';
 import { useSyncedApps } from './useSyncedApps';
@@ -305,8 +306,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (!event.data || typeof event.data !== 'object') return;
 
             // ── WNJ control messages (no id/method) ────────────────────────────────
-            if (event.data.type === 'WNJ_SESSION' && typeof event.data.pubkey === 'string') {
-                const pk = event.data.pubkey as string;
+            if (event.data.type === 'WNJ_SESSION') {
+                const pk = acceptedWnjPubkey(event.data, !!privateKeyRef.current); if (!pk) return; // #67
                 setWnjPubkey(pk);
                 setKeyInfo({ publicKeyHex: pk, nsecStr: '', npubStr: npubEncode(pk) });
                 postToParent({ type: 'AUTH_STATE', loggedIn: true, pubkey: pk });
@@ -332,10 +333,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (event.data.type === 'EVOLUSTR_SIGN_RESULT') return;
 
             if (event.data.type === 'WNJ_DISCONNECT') {
-                rejectAllConfirmations('Logged out');
-                lockEvolustr();
-                setWnjPubkey(null);
-                setBackupAsk(false);
+                if (privateKeyRef.current) return; // #67: the signer's own session isn't the page's to end
+                rejectAllConfirmations('Logged out'); lockEvolustr();
+                setWnjPubkey(null); setBackupAsk(false);
                 setKeyInfo(null);
                 setUserProfile({});
                 setView('login');
