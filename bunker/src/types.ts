@@ -17,7 +17,13 @@ export interface KeyInfo {
  * login and a passkey (OAuth), or a new passkey.
  */
 export type EvolustrPrompt =
-  | { kind: "appKey"; appId: string; setup: "none" | "choose" | "passkey" }
+  | {
+      kind: "appKey";
+      appId: string;
+      setup: "none" | "choose" | "passkey";
+      /** Shared sign-in: the signer's operator, not the site, runs the Web3Auth project (#66). */
+      shared?: boolean;
+    }
   | { kind: "enrollPasskey" }
   | { kind: "gesture"; reason: "unlock" | "enrollPasskey" | "retry" | "popup" };
 

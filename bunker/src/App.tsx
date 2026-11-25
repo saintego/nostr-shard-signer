@@ -446,8 +446,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (req.kind === 'rotateMaster') return false; // "Replace my key" isn't offered here yet
             // What does allowing this app also need? Read the signer vault first (no prompt, nothing published).
             const caps = await evolustr.capabilities(selfCaller);
-            if (caps.ok && oauth && custodyRef.current === null) {
-                // Chosen on another site or device: the vault on the relays says how.
+            if (caps.ok && oauth) {
+                // The vault on the relays says how, also over this site's memory (#66).
                 if (caps.value.nsecProtected) setCustody('sk');
                 else if (caps.value.signerPasskey) setCustody('passkey');
             }
@@ -457,7 +457,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const apps = loadAllowedApps(pubkey);
             if (setup === 'none' && apps.includes(req.appId)) return true;
 
-            const answer = await askEvolustr({ kind: 'appKey', appId: req.appId, setup });
+            const answer = await askEvolustr({ kind: 'appKey', appId: req.appId, setup, shared });
             if (answer === 'deny') return false;
             if (answer === 'allow-sk') setCustody('sk');
             if (answer === 'allow-passkey') {
@@ -498,7 +498,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         return () => {
             if (evolustrRef.current === evolustr) evolustrRef.current = null;
         };
-    }, [evolustrPubkey, holdsNsec, publishRelaysKey, askEvolustr, postToParent]);
+    }, [evolustrPubkey, holdsNsec, publishRelaysKey, askEvolustr, postToParent, shared]);
 
     // Status for the settings: read when they open.
     // biome-ignore lint/correctness/useExhaustiveDependencies: re-read when the identity changes too (evolustrPubkey), selfCaller is constant
@@ -510,7 +510,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         evolustr.capabilities(selfCaller).then(r => {
             if (stale || !r.ok) return;
             const c = r.value;
-            setEvolustrStatus({ setUp: c.ready || c.signerPasskey || c.nsecProtected, nsecProtected: c.nsecProtected, signerPasskey: c.signerPasskey });
+            setEvolustrStatus({ setUp: c.ready || c.signerPasskey || c.nsecProtected, nsecProtected: c.nsecProtected, signerPasskey: c.signerPasskey, nsecExposed: c.nsecExposed });
         });
         return () => { stale = true; };
     }, [view, evolustrPubkey]);
@@ -918,7 +918,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     const handleForgetApp = useCallback((appId: string) => void allowedApps.forget(appId), [allowedApps]);
 
-    // "Add a passkey" / "Use a passkey instead" in the settings.
+    // "Add a passkey" in the settings (#66: it doesn't take the login's access away).
     const handleEvolustrPasskey = useCallback(async () => {
         const evolustr = evolustrRef.current;
         if (!evolustr || !keyInfo) return;
@@ -939,7 +939,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             setEvolustrMsg('Passkey added ✓');
             const caps = await evolustr.capabilities(selfCaller);
             if (caps.ok) setEvolustrStatus({
-                setUp: true, nsecProtected: caps.value.nsecProtected, signerPasskey: caps.value.signerPasskey,
+                setUp: true, nsecProtected: caps.value.nsecProtected, signerPasskey: caps.value.signerPasskey, nsecExposed: caps.value.nsecExposed,
             });
         } catch (e) {
             custodyRef.current = before;
@@ -1134,7 +1134,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                         status={evolustrStatus}
                         apps={allowedApps.apps}
                         holdsNsec={!wnjPubkey}
-                        custody={custodyRef.current}
+                        custody={custodyRef.current} shared={shared}
                         busy={evolustrBusy}
                         message={evolustrMsg}
                         onForgetApp={handleForgetApp}

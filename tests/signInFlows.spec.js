@@ -260,3 +260,35 @@ test('#134: "Create a new account" and "Continue" ignore clicks until they are a
   await expect(next).toHaveAttribute('data-armed', 'false');
   await expect(next).toHaveAttribute('data-armed', 'true');
 });
+
+test('#66: app keys in shared mode name the shared sign-in, and adding a passkey promises nothing more', async ({
+  page,
+  pages,
+}) => {
+  const signer = await openApp(page, pages);
+  await signUp(page, signer);
+  // An app asks for its own key: the choice opens in the signer's window (#62).
+  void page.evaluate(() => window.nostr.evolustr.getWrapKey().catch(() => {}));
+  const opened = page.waitForEvent('popup');
+  await signer.getByRole('button', { name: 'Review this request' }).click();
+  const popup = await opened;
+  await expect(popup.getByText(/whoever runs the shared sign-in you used/)).toBeVisible();
+  await expect(popup.getByText(/this site's Web3Auth project/)).toHaveCount(0);
+  await expect(
+    popup.getByText('This choice can’t be changed later for data you already have.')
+  ).toBeVisible();
+  await popup.getByRole('button', { name: 'With my login' }).click();
+  await expect(async () => {
+    await signer.getByRole('button', { name: 'Open Nostr profile' }).click({ timeout: 1000 });
+    await signer.getByRole('tab', { name: 'Settings' }).click({ timeout: 1000 });
+  }).toPass({ timeout: 15000 });
+  await expect(
+    signer.getByText(/whoever runs the shared sign-in you used could recover keys/)
+  ).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(signer.getByText(/doesn’t take their access away/)).toBeVisible();
+  await expect(signer.getByRole('button', { name: 'Add a passkey' })).toBeVisible();
+  await expect(signer.getByText(/with you alone/)).toHaveCount(0);
+  await expect(signer.getByRole('button', { name: /passkey instead/ })).toHaveCount(0);
+});
