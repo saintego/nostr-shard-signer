@@ -9,6 +9,7 @@ import * as nip04 from 'nostr-tools/nip04';
 import * as nip44 from 'nostr-tools/nip44';
 import { isProtectedEvent } from '../vendor/evolustr/evolustr.js';
 import { requiresConfirmation } from './approval';
+import { queryRelays } from './relayPublish';
 import {
   addedEntries,
   type CurrentEvent,
@@ -122,7 +123,10 @@ async function currentAt(
     const filter = isAddressable(evt.kind)
       ? { kinds: [evt.kind], authors: [pubkey], '#d': [dTag(evt.tags)] }
       : { kinds: [evt.kind], authors: [pubkey] };
-    const events = await withTimeout(pool.querySync(all, filter));
+    // Counted answers (#141): relays that can't be reached, or one relay
+    // answering empty, are no proof that nothing is there (D13).
+    const events = await queryRelays(filter, all);
+    if (events === null) return undefined;
     const newest = events.sort((a, b) => b.created_at - a.created_at)[0];
     return newest ? { id: newest.id, tags: newest.tags, content: newest.content } : null;
   } catch {
