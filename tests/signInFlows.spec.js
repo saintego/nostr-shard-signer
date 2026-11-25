@@ -340,3 +340,46 @@ test('#67: the bridge confirms to the signer that this page embeds it (the Firef
   );
   expect(answer).toBe('n-123');
 });
+
+test('#137: bringing an account over waits for a backup or an explicit skip', async ({
+  page,
+  pages,
+}) => {
+  const signer = await openApp(page, pages);
+  await signUp(page, signer);
+  const frame = page.frames().find((f) => f.url().includes('signer.html'));
+  // What the widget sends for "Use this account on other sites" (D9).
+  const opened = page.waitForEvent('popup');
+  await frame.evaluate((site) => {
+    window.results = [];
+    const key = Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) =>
+      b.toString(16).padStart(2, '0')
+    ).join('');
+    const w = window.open(`${location.pathname}?global-signin=1`, '_blank');
+    window.addEventListener('message', (e) => {
+      if (e.source !== w) return;
+      if (e.data?.type === 'NSS_GLOBAL_READY')
+        w.postMessage(
+          { type: 'NSS_GLOBAL_REQUEST', site, intent: 'bring-over', siteKey: key },
+          location.origin
+        );
+      if (e.data?.type === 'NSS_GLOBAL_RESULT') window.results.push(e.data);
+    });
+  }, SECURE_SIGNER_ORIGIN);
+  const popup = await opened;
+  await popup.getByRole('button', { name: 'Fake google' }).click();
+  await expect(popup.getByText('Back up the account you brought over')).toBeVisible({
+    timeout: 20000,
+  });
+  await snap(popup, 'bring-over backup step');
+  // Nothing reported yet: the site isn't told until the user backs up or skips.
+  expect(await frame.evaluate(() => window.results)).toEqual([]);
+  await popup.getByRole('button', { name: 'Back up now' }).click();
+  await expect(popup.getByRole('button', { name: /Back up|Save|Download/ }).first()).toBeVisible();
+  expect(await frame.evaluate(() => window.results)).toEqual([]);
+  await popup.getByRole('button', { name: /^Close$/ }).click();
+  // Closing without a backup counts as skipping it.
+  await expect
+    .poll(() => frame.evaluate(() => window.results.map((r) => r.error)))
+    .toEqual(['BROUGHT_OVER']);
+});

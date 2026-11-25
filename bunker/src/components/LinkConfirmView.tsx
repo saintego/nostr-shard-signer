@@ -111,6 +111,8 @@ export function LinkConfirmView({
       <p className="np-message np-warning">
         {format(scope === 'full' ? m.linkWarnFull : m.linkWarnRestricted, { provider: name })}
       </p>
+      {/* Where the link's record lives, and what a reset of it means (#137). */}
+      <p className="np-hint">{format(m.linkRecord, { provider: name })}</p>
       {primary && (
         <p className="np-hint">
           {format(m.linkPrimary, { provider: providerName(primary.provider, m) })}

@@ -21,6 +21,7 @@ import { linkingMessages } from './LinkingMessages';
 import { NewAccountView } from './NewAccountView';
 import { RestrictedView } from './RestrictedView';
 import { choicesFor, type Phase, SignInChoice, StepFooter, Working } from './SignInChoice';
+import { StoredBackupView } from './StoredBackupView';
 import { TestVersionNotice } from './TestVersionNotice';
 import { WelcomeBackView } from './WelcomeBackView';
 import './GlobalSignInPopup.css';
@@ -54,7 +55,9 @@ type State =
       after?: number;
     } & Omit<AccountStep, 'step'>)
   | { step: 'failed'; site: string; reason: string }
-  | { step: 'done'; site: string; broughtOver?: boolean };
+  | { step: 'done'; site: string; broughtOver?: boolean }
+  // After a bring-over: back up, or skip knowingly (#137).
+  | (Omit<AccountStep, 'step'> & { step: 'stored-backup'; site: string });
 
 const hostOf = (origin: string) => {
   try {
@@ -90,6 +93,8 @@ export function GlobalSignInPopupView() {
   const optionsRef = useRef<GlobalOptions>({});
   // Set when the user saved a backup here (#87), sent with the grant.
   const backedUpRef = useRef<BackupMethod | undefined>(undefined);
+  /** A bring-over waits for its backup or skip (#137). */
+  const bringOverRef = useRef(false);
 
   // The account screen last shown: where Back goes after an error there.
   const lastAccountRef = useRef<Extract<State, { step: 'account' }> | null>(null);
@@ -192,6 +197,16 @@ export function GlobalSignInPopupView() {
     }
   };
 
+  /** The bring-over is done (backed up or skipped): tell the site, and close. */
+  const broughtOver = (site: string, account: GlobalAccount) => {
+    bringOverRef.current = false;
+    replyRef.current?.({ error: 'BROUGHT_OVER' });
+    setState({ step: 'done', site, broughtOver: true });
+    accountRef.current = null;
+    writes.track(account.close());
+    closeAfterWrites(2500);
+  };
+
   /** A new account's identity 0: paired, then its name and picture asked about (D15), if any. */
   const newAccount = async (site: string, step: AccountStep, pubkey: string) => {
     await step.account.pair(pubkey);
@@ -205,15 +220,11 @@ export function GlobalSignInPopupView() {
     if (step.step !== 'account') return setState({ site, ...step });
     accountRef.current = step.account;
     const { intent, siteKey } = optionsRef.current;
-    // "Use this account on other sites" (D9): stored, and the window closes.
+    // "Use this account on other sites" (D9): stored, then a backup or a skip (#137).
     if (intent === 'bring-over' && siteKey) {
       await step.account.addStored(siteKey);
-      replyRef.current?.({ error: 'BROUGHT_OVER' });
-      setState({ step: 'done', site, broughtOver: true });
-      accountRef.current = null;
-      writes.track(step.account.close());
-      closeAfterWrites(2500);
-      return;
+      bringOverRef.current = true;
+      return setState({ ...step, step: 'stored-backup', site });
     }
     const first = step.account.list[0];
     // A new account: identity 0, straight away (D8: Welcome back only for an existing account).
@@ -301,9 +312,15 @@ export function GlobalSignInPopupView() {
       });
     });
 
+  /** Runs a flow step with this window's dependencies, then shows where it leads. */
+  const next = (site: string, step: (deps: ReturnType<typeof depsFor>) => Promise<Step>) =>
+    void run(site, async () => show(site, await step(depsFor(optionsRef.current))));
+
   /** Closing with the account open still tells the site what's left (after unpairing). */
   const close = () => {
     const account = accountRef.current;
+    // Closing at the backup step after a bring-over counts as skipping it (#137).
+    if (account && bringOverRef.current && 'site' in state) return broughtOver(state.site, account);
     if (account && state.step === 'new-account') return void finish(state.site, state.pubkey);
     if (account && state.step === 'account')
       return void finish(state.site, account.paired[0]?.pubkey ?? 'none');
@@ -357,29 +374,12 @@ export function GlobalSignInPopupView() {
             busy={busy}
             onProvider={(p) => void linkFirstTo(s.site, s.first, p)}
             choices={choices}
-            onCreate={() =>
-              void run(s.site, async () =>
-                show(s.site, await openOwn(s.first, s.site, depsFor(optionsRef.current)))
-              )
-            }
-            onRetry={() =>
-              void run(s.site, async () =>
-                show(s.site, await afterLogin(s.first, s.site, depsFor(optionsRef.current)))
-              )
-            }
-            onChooseOwn={() =>
-              void run(s.site, async () =>
-                show(s.site, await openOwn(s.first, s.site, depsFor(optionsRef.current)))
-              )
-            }
+            onCreate={() => next(s.site, (d) => openOwn(s.first, s.site, d))}
+            onRetry={() => next(s.site, (d) => afterLogin(s.first, s.site, d))}
+            onChooseOwn={() => next(s.site, (d) => openOwn(s.first, s.site, d))}
             onChooseLinked={() =>
               s.kind === 'both' &&
-              void run(s.site, async () =>
-                show(
-                  s.site,
-                  await openLinked(s.first, s.root, s.primary, s.site, depsFor(optionsRef.current))
-                )
-              )
+              next(s.site, (d) => openLinked(s.first, s.root, s.primary, s.site, d))
             }
           />
         )}
@@ -425,6 +425,12 @@ export function GlobalSignInPopupView() {
             onCancel={() => backToAccount(s)}
           />
         )}
+        {s.step === 'stored-backup' && (
+          <StoredBackupView
+            onBackUp={() => setState({ ...s, step: 'account' })}
+            onSkip={() => broughtOver(s.site, s.account)}
+          />
+        )}
         {s.step === 'account' && (
           <WelcomeBackView
             site={s.site}
@@ -432,12 +438,15 @@ export function GlobalSignInPopupView() {
             signInProfile={s.profile}
             createdWith={s.createdWith}
             initialMode={
-              ({ backup: 'backup', manage: 'manage' } as const)[
-                optionsRef.current.intent as 'backup' | 'manage'
-              ] ?? 'choose'
+              bringOverRef.current
+                ? 'backup'
+                : (({ backup: 'backup', manage: 'manage' } as const)[
+                    optionsRef.current.intent as 'backup' | 'manage'
+                  ] ?? 'choose')
             }
             restoreAddress={restoreUrl(new URL('.', location.href).href)}
             onBackedUp={(method) => {
+              if (bringOverRef.current) return broughtOver(s.site, s.account);
               backedUpRef.current = method;
               // Asked from the widget's "Back up now": done, keep its identity.
               const active = optionsRef.current.active;
