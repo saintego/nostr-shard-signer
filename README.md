@@ -615,9 +615,11 @@ All PRs share the URL, so the most recent push wins. The preview uses the produc
 
 **Option A — Portal UI** (recommended)
 
-Open `https://<user>.github.io/nostr-shard-signer/portal/`, connect your Nostr key (Alby or any NIP-07 extension), fill in your `clientId` and domain, and click **Register**.
+Open `https://<user>.github.io/nostr-shard-signer/portal/`, connect your Nostr key (Alby or any NIP-07 extension), fill in your `clientId` and domain, and click **Register**. Your key signs once, to prove the npub is yours.
 
 **Option B — curl**
+
+Two requests, like `/update`: the first returns a nonce; sign a kind-27235 event whose content is that nonce with the npub's key, and send the same body again with `nonce` and `signedEvent`.
 
 ```bash
 curl -X POST https://nostr-shard-registrar.<account>.workers.dev/register \
@@ -627,6 +629,7 @@ curl -X POST https://nostr-shard-registrar.<account>.workers.dev/register \
     "npub":     "npub1yourpublickey...",
     "domain":   "https://yourapp.com"
   }'
+# → { "ok": true, "nonce": "…", "expiresIn": 300 }; then the same body plus "nonce" and "signedEvent"
 ```
 
 A successful response returns the Nostr event ID of the published NIP-33 record:
@@ -810,13 +813,20 @@ Approval settings are stored per host site. Confirmations are queued and shown o
 
 ### `POST /register`
 
-Claim a new clientId. First-come, first-served. The same npub can add more domains idempotently. The domain and the signer origin (`SIGNER_ORIGIN`, default `https://saintego.github.io`) must be in the clientId's Web3Auth Allowlist URLs; `/update` checks every domain the same way. If Web3Auth's config endpoint can't be reached, the request is accepted without that check and the response carries a `note` saying so.
+Claim a clientId, with proof that you hold the npub's key (two phases, as `/update`). The first signed claim wins; the same npub can add more domains. The domain and the signer origin (`SIGNER_ORIGIN`, default `https://saintego.github.io`) must be in the clientId's Web3Auth Allowlist URLs; `/update` checks every domain the same way.
+
+- **Web3Auth's settings unreadable:** `/register` and `/update` answer `503` ("try again later"); sites already registered keep working. Emergency switch for the operator: the Worker variable `ALLOW_UNCHECKED = "true"` accepts them without that check, with a `note` saying so.
+- **Registrants named by the project owner:** an allowlist entry `https://<npub>.nostr-registrant.invalid` names that npub. Only the project owner can edit the allowlist, so such an npub may claim the clientId even over another npub's claim; once a project lists any, only those npubs can claim it.
 
 ```jsonc
-// Request
+// Phase 1
 { "clientId": "string", "npub": "npub1...", "domain": "https://app.example.com" }
+// → 200 { "ok": true, "nonce": "<64 hex>", "expiresIn": 300 }
 
-// 201 Created
+// Phase 2: the same, plus
+{ "nonce": "<nonce>", "signedEvent": { /* kind 27235, content = nonce, signed by the npub */ } }
+
+// 201 Created (200 when the registrant adds a domain)
 { "ok": true, "event": "<nostr_event_id>", "published": 3, "total": 3 }
 
 // 403 — domain or signer origin missing from the Web3Auth allowlist
@@ -825,8 +835,9 @@ Claim a new clientId. First-come, first-served. The same npub can add more domai
 // 404 — no Web3Auth Sapphire Mainnet project with this clientId
 { "error": "Web3Auth has no Sapphire Mainnet project with this clientId. ..." }
 
-// 409 Conflict — already claimed by different npub
-{ "error": "clientId is already claimed by a different npub" }
+// 403 — signed by another key; or the project owner named other registrants
+// 409 Conflict — already claimed by another npub (the error explains the registrant marker)
+// 503 — Web3Auth's settings can't be read right now
 ```
 
 ### `POST /update` (two-phase)
