@@ -2,7 +2,7 @@ import type { Web3Auth } from '@web3auth/modal';
 import { useEffect, useRef, useState } from 'react';
 import { timed, withTimeout } from '../lib/backgroundWrites';
 import type { BackupMethod } from '../lib/backup';
-import type { GlobalAccount, } from '../lib/globalAccount';
+import type { GlobalAccount } from '../lib/globalAccount';
 import { type GlobalOptions, serveGlobalPopup } from '../lib/globalPopup';
 import { format } from '../lib/i18n';
 import { fromHanded } from '../lib/inlineSignIn';
@@ -346,7 +346,7 @@ export function GlobalSignInPopupView() {
             onChooseOwn={() => next(s.site, (d) => openOwn(s.first, s.site, d, 'existing'))}
             onChooseLinked={() =>
               s.kind === 'both' &&
-              next(s.site, (d) => openLinked(s.first, s.root, s.primary, s.site, d))
+              next(s.site, (d) => openLinked(s.first, s.root, s.primary, s.site, d, s.version))
             }
           />
         )}

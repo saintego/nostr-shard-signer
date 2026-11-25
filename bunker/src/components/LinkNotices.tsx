@@ -22,8 +22,17 @@ export function LinkNotices({
   const recent = account.links.filter(
     (l) => !l.unlinkedAt && Date.now() - Date.parse(l.linkedAt) < RECENT_MS
   );
+  const relisted = account.relistedLink;
   return (
     <>
+      {relisted && (
+        <p className="np-message np-info">
+          {format(m.relisted, {
+            provider: providerName(relisted.provider, m),
+            masked: relisted.masked,
+          })}
+        </p>
+      )}
       {createdWith && (
         <p className="np-message np-info">
           {format(m.createdWith, {

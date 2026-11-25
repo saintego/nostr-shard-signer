@@ -70,7 +70,15 @@ export function world() {
     },
     now: () => 1_700_000_000,
   };
-  return { deps, relay, offline: () => (answered = false) };
+  return {
+    deps,
+    relay,
+    offline: () => (answered = false),
+    /** Every list forgets its link records (a lost or half-written list, #142). */
+    dropLinks: () => {
+      for (const st of lists.values()) st.links = [];
+    },
+  };
 }
 
 export const login = (provider: string, masked: string): PopupLogin => ({

@@ -124,14 +124,25 @@ export type Resolution =
   /** The login's own account (it's a primary). */
   | { readonly kind: 'own' }
   /** An envelope opens another account's root. */
-  | { readonly kind: 'linked'; readonly root: Uint8Array; readonly primary: Primary }
+  | {
+      readonly kind: 'linked';
+      readonly root: Uint8Array;
+      readonly primary: Primary;
+      /** The envelope's version: a record rebuilt from it must not be older (#142). */
+      readonly version: number;
+    }
   /** A restricted link: only its identities. */
   | {
       readonly kind: 'restricted';
       readonly envelope: Extract<EnvelopeBody, { scope: 'restricted' }>;
     }
   /** Both: ask which (scenario 61). */
-  | { readonly kind: 'both'; readonly root: Uint8Array; readonly primary: Primary }
+  | {
+      readonly kind: 'both';
+      readonly root: Uint8Array;
+      readonly primary: Primary;
+      readonly version: number;
+    }
   /** Nothing anywhere, every place answered: "No account uses this sign-in yet" (item 1). */
   | { readonly kind: 'none'; readonly wasUnlinked: boolean }
   /** Something didn't answer: "Couldn't check right now. Try again", no create button (item 5). */
@@ -144,9 +155,8 @@ export function resolve(found: Pick<Found, 'envelope' | 'own' | 'answered'>): Re
     return found.own ? { kind: 'own' } : { kind: 'restricted', envelope: live };
   if (live && live.scope === 'full') {
     const root = fromHex(live.root);
-    return found.own
-      ? { kind: 'both', root, primary: live.primary }
-      : { kind: 'linked', root, primary: live.primary };
+    const link = { root, primary: live.primary, version: live.version };
+    return found.own ? { kind: 'both', ...link } : { kind: 'linked', ...link };
   }
   // A login whose own account is found signs in without waiting for the pointer lookup (item 5).
   if (found.own) return { kind: 'own' };
@@ -266,6 +276,40 @@ export async function unlinkRecord(link: LinkRecord, deps: LinkingDeps): Promise
     pointerEvent: JSON.stringify(event),
     unlinkedAt: new Date(now * 1000).toISOString(),
   };
+}
+
+/**
+ * The record of a full link the global list lost or never got (#142), rebuilt
+ * from the login: its pointer key, address and envelope owner all derive from
+ * the login key. `version` is the envelope's, so unlinking writes a newer one.
+ * Nothing is published; the pointer event isn't known here (re-sent from the
+ * next version on).
+ */
+export async function rebuiltLinkRecord(
+  login: Login,
+  version: number,
+  now = nowS()
+): Promise<LinkRecord> {
+  const pointerKey = await derivePointerKey(login.key);
+  const owner = await deriveEnvelopeOwner(login.key);
+  try {
+    return {
+      provider: login.provider,
+      masked: login.masked,
+      scope: 'full',
+      pointerPubkey: getPublicKey(pointerKey),
+      pointerKey: toHex(pointerKey),
+      pointerD: await derivePointerD(login.key),
+      envelopeOwner: toHex(owner),
+      version,
+      pointerEvent: '',
+      linkedAt: new Date(now * 1000).toISOString(),
+      unlinkedAt: null,
+    };
+  } finally {
+    pointerKey.fill(0);
+    owner.fill(0);
+  }
 }
 
 /** The stored pointer events, re-sent at each global sign-in (review 8, item 9). */

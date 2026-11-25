@@ -86,10 +86,11 @@ async function fromAccount(
     return { kind: 'signed-in', answer: await answerFor(account, identity0.pubkey, deps.defer) };
   }
   const pairedHere = account.paired[0];
-  if (pairedHere)
+  // A link listed again (#142): the window says so.
+  if (pairedHere && !account.relistedLink)
     return { kind: 'signed-in', answer: await answerFor(account, pairedHere.pubkey, deps.defer) };
   // The list is gone but the account only ever had identity 0: use it, no question (#136).
-  if (account.onlyIdentity0 && identity0) {
+  if (account.onlyIdentity0 && identity0 && !account.relistedLink) {
     await account.pair(identity0.pubkey);
     return { kind: 'signed-in', answer: await answerFor(account, identity0.pubkey, deps.defer) };
   }

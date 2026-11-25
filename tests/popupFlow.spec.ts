@@ -93,3 +93,30 @@ test('scenario 59: offline means "couldn\'t check", not a new account', async ()
     kind: 'unknown',
   });
 });
+
+test('#142: a linked sign-in missing from the synced list is listed again, and can be unlinked', async () => {
+  const w = world();
+  const google = login('google', 'a…@gmail.com');
+  const own = await openOwn(google, SITE, w.deps);
+  if (own.step !== 'account') throw new Error(own.step);
+  await own.account.pair(own.account.list[0]?.pubkey ?? '');
+  const apple = login('apple', 'a…@icloud.com');
+  await own.account.link(apple.login, 'full');
+  w.dropLinks();
+
+  const viaApple = await afterLogin(apple, SITE, w.deps);
+  if (viaApple.step !== 'account') throw new Error(viaApple.step);
+  expect(viaApple.account.relistedLink).toEqual({ provider: 'apple', masked: 'a…@icloud.com' });
+  const listed = viaApple.account.links;
+  expect(listed.map((l) => [l.provider, l.version])).toEqual([['apple', 1]]);
+  // Unlinking it works: Apple then finds the link was removed.
+  await viaApple.account.unlink(listed[0]?.pointerPubkey ?? '');
+  expect(await afterLogin(apple, SITE, w.deps)).toMatchObject({
+    step: 'question',
+    wasUnlinked: true,
+  });
+  // Listed once: signing in with Google shows it, without a second copy.
+  const viaGoogle = await afterLogin(google, SITE, w.deps);
+  if (viaGoogle.step !== 'account') throw new Error(viaGoogle.step);
+  expect(viaGoogle.account.relistedLink).toBeNull();
+});

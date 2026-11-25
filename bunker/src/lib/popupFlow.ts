@@ -45,6 +45,7 @@ export type Step =
       readonly first: PopupLogin;
       readonly root: Uint8Array;
       readonly primary: Primary;
+      readonly version: number;
     };
 
 const primaryOf = (p: PopupLogin): Primary => ({
@@ -73,19 +74,21 @@ export async function openOwn(
   return { step: 'account', account, profile: first.profile, createdWith: null };
 }
 
-/** Another account, through this login's envelope. */
+/** Another account, through this login's envelope (`version`: the envelope's, #142). */
 export async function openLinked(
   first: PopupLogin,
   root: Uint8Array,
   primary: Primary,
   site: string,
-  deps: FlowDeps
+  deps: FlowDeps,
+  version?: number
 ): Promise<Step> {
   const { pubkey } = await pointerAddress(first.login.key);
   const account = await openGlobalAccountFromRoot(root, site, {
     ...deps,
     primary,
     viaPointer: pubkey,
+    ...(version === undefined ? {} : { viaLogin: { login: first.login, version } }),
   });
   if (account.unlinkedVia) {
     const date = account.unlinkedVia;
@@ -110,10 +113,17 @@ export async function afterLogin(first: PopupLogin, site: string, deps: FlowDeps
     return { step: 'account', account, profile: first.profile, createdWith: null };
   }
   await found.ownList.close(0).catch(() => {}); // only read here
-  if (r.kind === 'linked') return openLinked(first, r.root, r.primary, site, deps);
+  if (r.kind === 'linked') return openLinked(first, r.root, r.primary, site, deps, r.version);
   if (r.kind === 'restricted') return { step: 'restricted', envelope: r.envelope, first };
   if (r.kind === 'both')
-    return { step: 'question', kind: 'both', first, root: r.root, primary: r.primary };
+    return {
+      step: 'question',
+      kind: 'both',
+      first,
+      root: r.root,
+      primary: r.primary,
+      version: r.version,
+    };
   if (r.kind === 'none')
     return { step: 'question', kind: 'none', wasUnlinked: r.wasUnlinked, first };
   return { step: 'question', kind: 'unknown', first };
@@ -129,7 +139,7 @@ export type AccountNext =
   | { readonly kind: 'show' };
 
 export function accountNext(
-  account: Pick<GlobalAccount, 'isNew' | 'list' | 'paired' | 'onlyIdentity0'>,
+  account: Pick<GlobalAccount, 'isNew' | 'list' | 'paired' | 'onlyIdentity0' | 'relistedLink'>,
   options: Pick<GlobalOptions, 'intent' | 'siteKey' | 'active'>
 ): AccountNext {
   const { intent, siteKey } = options;
@@ -141,7 +151,9 @@ export function accountNext(
   // Signing in again where identities are already in use: no Welcome back, no
   // extra click (#109). "Add or manage identities" (it sends `active`) and
   // backup still show it.
-  const asked = intent === 'backup' || intent === 'manage' || !!options.active;
+  // A link listed again (#142) is shown in Welcome back, once.
+  const asked =
+    intent === 'backup' || intent === 'manage' || !!options.active || !!account.relistedLink;
   const pairedHere = account.paired[0];
   if (pairedHere && !asked) return { kind: 'finish', pubkey: pairedHere.pubkey };
   // The list is gone but the account only ever had identity 0: nothing to choose (#136).

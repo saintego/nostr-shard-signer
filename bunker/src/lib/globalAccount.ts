@@ -22,6 +22,7 @@ import {
   type LinkingDeps,
   type LinkScope,
   type Login,
+  rebuiltLinkRecord,
   sealLink,
   storedPointers,
   unlinkRecord,
@@ -48,6 +49,8 @@ export interface AccountDeps {
   readonly primary?: Primary;
   /** Signed in through an envelope: that login's pointer pubkey. */
   readonly viaPointer?: string;
+  /** That login and its envelope's version: to list the link again if the list lost it (#142). */
+  readonly viaLogin?: { readonly login: Login; readonly version: number };
   /** Background work to wait for later (LinkingDeps.defer, #110). */
   readonly defer?: (work: Promise<unknown>) => void;
   /** The lookup already found this account (lookUp's `own`): never new (#136). */
@@ -127,6 +130,8 @@ export interface GlobalAccount {
   readonly links: readonly LinkRecord[];
   /** Signed in through a sign-in this account unlinked: when (ISO), else null (review 8, item 3). */
   readonly unlinkedVia: string | null;
+  /** This sign-in opened the account but wasn't listed; it is now (#142). */
+  readonly relistedLink: { readonly provider: string; readonly masked: string } | null;
   /**
    * Links another sign-in (proven in this popup session) to this account:
    * 'full', or a restricted link to these identities (pubkeys, #98).
@@ -229,7 +234,19 @@ export async function openGlobalAccountFromRoot(
   };
   // Re-send the stored pointers, linked and unlinked (review 8, item 9).
   if (links.length) void deps.publish(storedPointers(links)).catch(() => {});
-  const via = deps.viaPointer ? links.find((l) => l.pointerPubkey === deps.viaPointer) : undefined;
+  let via = deps.viaPointer ? links.find((l) => l.pointerPubkey === deps.viaPointer) : undefined;
+  // A full link that opened the account isn't in the synced list (a link left
+  // half-done, or a lost list): list it again, so it can be seen and unlinked
+  // (#142). Not from an unsynced list, which would add duplicates.
+  let relistedLink: GlobalAccount['relistedLink'] = null;
+  const listSynced = list.synced === 'Synced' || list.synced === 'NoRelays';
+  if (!via && deps.viaLogin && listSynced) {
+    const record = await rebuiltLinkRecord(deps.viaLogin.login, deps.viaLogin.version, now());
+    await list.saveLink(record);
+    links = await list.links();
+    via = links.find((l) => l.pointerPubkey === record.pointerPubkey);
+    relistedLink = { provider: record.provider, masked: record.masked };
+  }
   const relayCounter = counterEvents ? await readCounter(counterEvents, root) : null;
 
   const pubkeyOf = async (index: number) => {
@@ -427,6 +444,7 @@ export async function openGlobalAccountFromRoot(
       return links;
     },
     unlinkedVia: via?.unlinkedAt ?? null,
+    relistedLink,
     isRoot: (rootHex) =>
       rootHex === Array.from(root, (x) => x.toString(16).padStart(2, '0')).join(''),
     link: async (login, scope, after = 0) => {

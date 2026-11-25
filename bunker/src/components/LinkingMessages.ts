@@ -48,6 +48,8 @@ export const linkingMessages = defineMessages('linking', {
     'Your account was created with {provider}. If you lose that account, your other sign-ins keep working only while their links can be found online. Keep your backup.',
   linkRecord:
     'This link is listed in your account’s list, on a sync service that may be reset. If that happens, {provider} still signs in, but the link no longer shows here: to see or remove it again, sign in once with {provider}.',
+  relisted:
+    'This sign-in ({provider}, {masked}) wasn’t listed in your account. It is now: you can unlink it in Manage.',
   scopeAll: 'All identities',
   scopeSome: 'Only these identities',
   link: 'Link',
