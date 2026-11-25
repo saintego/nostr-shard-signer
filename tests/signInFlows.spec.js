@@ -241,3 +241,22 @@ test('the canary (#91): a site added to the shared project pauses new sign-ins',
   await snap(page, 'canary paused');
   expect(await pubkey(page)).toBeNull();
 });
+
+test('#134: "Create a new account" and "Continue" ignore clicks until they are armed', async ({
+  page,
+  pages,
+}) => {
+  const signer = await openApp(page, pages);
+  await signer.getByRole('button', { name: 'Sign in' }).click();
+  await signer.getByRole('button', { name: 'Fake google' }).click();
+  const create = signer.getByRole('button', { name: 'Create a new account' });
+  await expect(create).toBeVisible();
+  // Right after the step appears: disabled, so a click the user didn't see does nothing.
+  await expect(create).toHaveAttribute('data-armed', 'false');
+  await expect(create).toHaveAttribute('data-armed', 'true');
+  await create.click();
+  const next = signer.getByRole('button', { name: 'Continue' });
+  await expect(next).toBeVisible();
+  await expect(next).toHaveAttribute('data-armed', 'false');
+  await expect(next).toHaveAttribute('data-armed', 'true');
+});

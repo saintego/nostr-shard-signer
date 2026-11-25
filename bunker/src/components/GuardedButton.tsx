@@ -1,5 +1,6 @@
 import { useRef, type ButtonHTMLAttributes } from 'react';
 import { useClickGuard } from '../lib/clickGuard';
+import './GuardedButton.css';
 
 /** A button that ignores clicks the user may not have meant (src/lib/clickGuard.ts). */
 export function GuardedButton({ disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {

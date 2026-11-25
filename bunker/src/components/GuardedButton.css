@@ -1,0 +1,14 @@
+/* A guarded button waiting to arm (#62) stays fully opaque: Chromium's
+   visibility check (IntersectionObserver v2) treats any opacity below 1 as
+   hidden, so a dimmed button would never arm (#134). It's dimmed by colour. */
+.np-button[data-armed="false"]:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+.np-button.np-filled[data-armed="false"]:disabled {
+  background: color-mix(in srgb, var(--np-color-primary) 55%, var(--np-color-surface));
+  border-color: transparent;
+}
+.np-button:not(.np-filled)[data-armed="false"]:disabled {
+  color: var(--np-color-outline);
+}

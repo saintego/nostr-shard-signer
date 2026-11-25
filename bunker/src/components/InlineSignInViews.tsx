@@ -1,9 +1,11 @@
 // The widget's own global sign-in steps (#122): "no account uses this sign-in
 // yet", and the hand-over to the sign-in window. Rendered in the widget's sheet.
+
 import { createContext, type ReactNode, useContext, useEffect, useRef } from 'react';
 import { format } from '../lib/i18n';
 import { useMessages } from '../lib/useMessages';
 import { providerName } from './AccountQuestionView';
+import { GuardedButton } from './GuardedButton';
 import { inlineSignInMessages } from './InlineSignInMessages';
 import { linkingMessages } from './LinkingMessages';
 import './SharedSignInSheet.css';
@@ -61,9 +63,15 @@ export function InlineNoAccount({
     <Sheet>
       <h2 className="np-title">{format(lm.noneTitle, { provider: providerName(provider, lm) })}</h2>
       {wasUnlinked && <p className="np-message np-info">{lm.noneWasUnlinked}</p>}
-      <button type="button" className="np-button np-filled" disabled={busy} onClick={onCreate}>
+      {/* Guarded: the widget is on the site's page, which could cover it (#134). */}
+      <GuardedButton
+        type="button"
+        className="np-button np-filled"
+        disabled={busy}
+        onClick={onCreate}
+      >
         {lm.createAccount}
-      </button>
+      </GuardedButton>
       <p className="np-hint">{lm.createHint}</p>
       <button type="button" className="np-button np-outlined" disabled={busy} onClick={onOther}>
         {m.madeOther}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { NewProfile } from '../lib/globalAccount';
 import { useMessages } from '../lib/useMessages';
+import { GuardedButton } from './GuardedButton';
 import { newAccountMessages } from './NewAccountMessages';
 import './WelcomeBack.css';
 
@@ -37,14 +38,15 @@ export function NewAccountView({
       {profile.picture && useProfile && (
         <img className="new-account-picture" src={profile.picture} alt="" width={64} height={64} />
       )}
-      <button
+      {/* Guarded: it publishes the name and picture, and in the widget the page could cover it (#134). */}
+      <GuardedButton
         type="button"
         className="np-button np-filled"
         disabled={busy}
         onClick={() => onContinue(useProfile)}
       >
         {m.continue}
-      </button>
+      </GuardedButton>
     </section>
   );
 }
