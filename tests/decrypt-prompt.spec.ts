@@ -63,7 +63,11 @@ test.describe("the prompt", () => {
     const popup = await ask(page, [OWN, "ct"]);
     await expect(popup.getByRole("heading")).toHaveText("Let evil.example read data you encrypted to yourself?");
     await expect(popup.getByText("This can be the key to another app's private data")).toBeVisible();
-    await popup.getByRole("button", { name: "Reject" }).click();
+    // The popup closes itself on the answer, sometimes before the click call returns.
+    await Promise.all([
+      popup.waitForEvent("close"),
+      popup.getByRole("button", { name: "Reject" }).click().catch(() => {}),
+    ]);
     expect(await page.evaluate(() => window.answer)).toBe("reject");
   });
 
