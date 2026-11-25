@@ -355,3 +355,14 @@ test('#136: a missing counter is written from the synced list', async () => {
   const root = await deriveRoot(bytes(v.globalLoginKey));
   expect(await readCounter(published, root)).toBe(2);
 });
+
+test('#136: "Create a new account" after a full lookup is new, without checking again', async () => {
+  // Evolu slow and relays silent the second time: the lookup already proved it.
+  const { d, queries } = deps(fakeList([], [], 'Offline').list, null);
+  const a = await openGlobalAccount(bytes(v.globalLoginKey), SITE, { ...d, provenNew: true });
+  expect(a.isNew).toBe(true);
+  expect(a.listMissing).toBe(false);
+  const before = queries.length;
+  expect(await a.profileFree(id(0).pubkey)).toBe(true);
+  expect(queries.length).toBe(before); // no extra profile lookup
+});

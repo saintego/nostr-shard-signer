@@ -367,9 +367,13 @@ export function GlobalSignInPopupView() {
             busy={busy}
             onProvider={(p) => void linkFirstTo(s.site, s.first, p)}
             choices={choices}
-            onCreate={() => next(s.site, (d) => openOwn(s.first, s.site, d))}
+            onCreate={() =>
+              next(s.site, (d) =>
+                openOwn(s.first, s.site, d, s.kind === 'none' ? 'none' : undefined)
+              )
+            }
             onRetry={() => next(s.site, (d) => afterLogin(s.first, s.site, d))}
-            onChooseOwn={() => next(s.site, (d) => openOwn(s.first, s.site, d, true))}
+            onChooseOwn={() => next(s.site, (d) => openOwn(s.first, s.site, d, 'existing'))}
             onChooseLinked={() =>
               s.kind === 'both' &&
               next(s.site, (d) => openLinked(s.first, s.root, s.primary, s.site, d))

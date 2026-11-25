@@ -54,19 +54,21 @@ const primaryOf = (p: PopupLogin): Primary => ({
 
 /**
  * The login's own account (it's the primary): Welcome back, or a new account.
- * `existing`: the lookup already found it (#136).
+ * `known`: what the lookup proved (#136): it found the account, or it answered
+ * in full and found nothing ("Create a new account" after "none").
  */
 export async function openOwn(
   first: PopupLogin,
   site: string,
   deps: FlowDeps,
-  existing = false
+  known?: 'existing' | 'none'
 ): Promise<Step> {
   const root = await deriveRoot(first.login.key);
   const account = await openGlobalAccountFromRoot(root, site, {
     ...deps,
     primary: primaryOf(first),
-    knownExisting: existing,
+    knownExisting: known === 'existing',
+    provenNew: known === 'none',
   });
   return { step: 'account', account, profile: first.profile, createdWith: null };
 }

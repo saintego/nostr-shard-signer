@@ -50,6 +50,12 @@ export interface AccountDeps {
   readonly defer?: (work: Promise<unknown>) => void;
   /** The lookup already found this account (lookUp's `own`): never new (#136). */
   readonly knownExisting?: boolean;
+  /**
+   * The lookup answered in full and found nothing, not even an event by
+   * identity 0 (resolve's "none"): new without checking again, and identity 0
+   * has no profile.
+   */
+  readonly provenNew?: boolean;
 }
 
 export interface GlobalAccount {
@@ -272,10 +278,8 @@ export async function openGlobalAccountFromRoot(
   // didn't answer, or anything the lookup found, mean an existing account.
   const isNew =
     current.length === 0 &&
-    complete &&
-    counterEvents !== null &&
-    relayCounter === null &&
-    deps.knownExisting !== true;
+    deps.knownExisting !== true &&
+    (deps.provenNew === true || (complete && counterEvents !== null && relayCounter === null));
   const listMissing = current.length === 0 && !isNew;
   // A counter missing although the list knows identities (relays didn't
   // answer at creation, #136): write it now, from the synced list only.
@@ -284,7 +288,10 @@ export async function openGlobalAccountFromRoot(
     void buildCounter(root, Math.max(...listed) + 1, now())
       .then((e) => deps.publish([e]))
       .catch(() => {});
+  const pubkey0 = await pubkeyOf(0);
   const profileFree = async (pubkey: string) => {
+    // The lookup already saw no event at all by identity 0.
+    if (isNew && deps.provenNew === true && pubkey === pubkey0) return true;
     const found = await deps.query({ kinds: [0], authors: [pubkey], limit: 1 });
     return found !== null && found.length === 0;
   };

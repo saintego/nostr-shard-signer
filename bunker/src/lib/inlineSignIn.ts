@@ -115,7 +115,8 @@ export async function createInline(
   site: string,
   deps: InlineDeps
 ): Promise<InlineOutcome> {
-  const step = await openOwn(first, site, deps);
+  // Only after "none": the lookup answered in full and found nothing (#136).
+  const step = await openOwn(first, site, deps, 'none');
   if (step.step !== 'account') return { kind: 'window', login: handOver(first) };
   return fromAccount(step, first, deps);
 }
