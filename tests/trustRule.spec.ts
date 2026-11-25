@@ -111,3 +111,17 @@ test('Trusted (D13) skips the last-writer check, but not list removals or "used 
     reason: 'used-elsewhere',
   });
 });
+
+test('#143: a deletion by event id is refused when the target is a vault', () => {
+  const me = 'a'.repeat(64);
+  const vault = { kind: 30078, tags: [['d', 'evolustr:vault']] };
+  const note = { kind: 1, tags: [] };
+  const c = (deleteTargets: TrustContext['deleteTargets']) =>
+    ctx({ pubkey: me, isProtectedD: (d) => d.startsWith('evolustr:'), deleteTargets });
+  const del = evt(5, [['e', 'f'.repeat(64)]]);
+  expect(trustDecision(del, c([vault]))).toEqual({ action: 'refuse', reason: 'protected-delete' });
+  expect(trustDecision(del, c([note, vault]))).toEqual({ action: 'refuse', reason: 'protected-delete' });
+  // An ordinary note, or targets that couldn't be checked: it asks, as kind 5 always does.
+  expect(trustDecision(del, c([note])).action).toBe('ask');
+  expect(trustDecision(del, c(null)).action).toBe('ask');
+});

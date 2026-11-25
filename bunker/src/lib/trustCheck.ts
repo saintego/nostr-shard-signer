@@ -240,6 +240,22 @@ function recorder(
   };
 }
 
+/**
+ * A deletion's `e` targets, looked up by id on the user's relays (#143), so a
+ * vault deleted by its id is refused like one deleted by its address. Null
+ * when they couldn't be checked (the deletion still asks); undefined when the
+ * request deletes nothing by id.
+ */
+async function deletionTargets(evt: SignRequest, deps: DecideDeps) {
+  if (evt.kind !== 5) return undefined;
+  const ids = evt.tags
+    .filter((t) => t[0] === 'e' && /^[0-9a-f]{64}$/.test(t[1] ?? ''))
+    .map((t) => t[1] as string);
+  if (ids.length === 0) return undefined;
+  const found = await queryRelays({ ids: ids.slice(0, 50) }, deps.relays).catch(() => null);
+  return found === null ? null : found.map((e) => ({ kind: e.kind, tags: e.tags }));
+}
+
 /** Whether a request may run without asking, must ask, or is refused. */
 export async function decideRequest(
   method: string,
@@ -260,7 +276,9 @@ export async function decideRequest(
       ? await currentAt(evt, deps.pubkey, deps.relays)
       : null;
   const priv = privateChange(evt, current, deps);
+  const deleteTargets = await deletionTargets(evt, deps);
   const decision = trustDecision(evt, {
+    ...(deleteTargets === undefined ? {} : { deleteTargets }),
     pubkey: deps.pubkey,
     isProtectedD: (d) => isProtectedEvent({ kind: 30078, tags: [['d', d]] }),
     autoApproveKinds: deps.autoApproveKinds,

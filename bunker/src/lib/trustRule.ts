@@ -58,6 +58,11 @@ export interface TrustContext {
   readonly pubkey?: string;
   /** Whether a `30078` `d` tag is an Evolustr vault's (protected). */
   readonly isProtectedD?: (d: string) => boolean;
+  /**
+   * A deletion's `e` targets as found on the relays (#143); null when they
+   * couldn't be checked. Undefined for other requests.
+   */
+  readonly deleteTargets?: readonly { readonly kind: number; readonly tags: readonly string[][] }[] | null;
   /** Kinds the user lets this site sign without asking (Settings). */
   readonly autoApproveKinds: ReadonlySet<number>;
   /** Evolustr vault events and other protected events (always ask). */
@@ -134,15 +139,21 @@ function listDecision(evt: SignRequest, ctx: TrustContext): TrustDecision {
   return { action: 'sign' };
 }
 
-/** A kind-5 `a` target the signer never lets a site delete (D7, #82). */
+/** A kind-5 target the signer never lets a site delete (D7, #82), by address or by id (#143). */
 function deletesProtected(evt: SignRequest, ctx: TrustContext): boolean {
   if (evt.kind !== 5) return false;
-  return evt.tags.some((t) => {
+  const byAddress = evt.tags.some((t) => {
     if (t[0] !== 'a') return false;
     const [kind, pubkey, ...rest] = (t[1] ?? '').split(':');
     if (ctx.pubkey !== undefined && pubkey !== ctx.pubkey) return true;
     return kind === '30078' && (ctx.isProtectedD?.(rest.join(':')) ?? false);
   });
+  const byId = (ctx.deleteTargets ?? []).some(
+    (e) =>
+      e.kind === 30078 &&
+      (ctx.isProtectedD?.(e.tags.find((t) => t[0] === 'd')?.[1] ?? '') ?? false)
+  );
+  return byAddress || byId;
 }
 
 /** Requests that ask or are refused whatever the records say. */
