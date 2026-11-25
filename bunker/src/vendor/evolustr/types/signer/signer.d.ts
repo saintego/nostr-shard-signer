@@ -112,9 +112,10 @@ export interface SignerHost {
     readonly randomBytes?: (length: number) => Bytes;
     readonly timeoutMs?: number;
     /**
-     * Enough relays to trust a read, e.g. that no vault exists (#60): reads stop
+     * Enough relays to trust a vault an unlock found (#60): such reads stop
      * waiting once this many answered, so one slow relay doesn't hold them up.
-     * Default: every relay in `relayUrls`.
+     * "No vault" and reads before a write still wait for every relay (#62).
+     * Default: every relay.
      */
     readonly relayQuorum?: number;
 }

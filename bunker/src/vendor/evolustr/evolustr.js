@@ -1215,13 +1215,13 @@ var poolRelays = (pool = new SimplePool()) => ({
         return await new Promise((resolve) => {
           let settled = false;
           let timer;
-          const settle = (answered2) => {
+          const settle = (outcome) => {
             if (settled)
               return;
             settled = true;
             if (timer !== void 0)
               clearTimeout(timer);
-            resolve(answered2);
+            resolve(outcome);
           };
           const sub = relay.subscribe([toNtFilter(filter)], {
             onevent: (e) => {
@@ -1231,44 +1231,57 @@ var poolRelays = (pool = new SimplePool()) => ({
               }
             },
             oneose: () => {
-              settle(true);
+              settle("answered");
               sub.close();
             },
-            onclose: () => settle(false)
+            onclose: () => settle("hard")
           });
           timer = setTimeout(() => {
-            settle(false);
+            settle("timeout");
             sub.close();
           }, timeoutMs);
         });
-      } catch {
-        return false;
+      } catch (e) {
+        return e instanceof Error && /time(d)?\s?out/i.test(e.message) ? "timeout" : "hard";
       }
     };
     const quorum = Math.min(opts?.quorum ?? urls.length, urls.length);
     const answered = [];
-    await new Promise((resolve) => {
+    const hard = /* @__PURE__ */ new Set();
+    const snapshot = () => {
+      const done = new Set(answered);
+      const failed = urls.filter((u) => !done.has(u));
+      return {
+        // Events from a relay still waiting are kept: the newest version wins either way.
+        events: [...events.values()],
+        answered: [...answered],
+        failed,
+        pending: failed.filter((u) => !hard.has(u)),
+        idsByRelay: new Map([...idsByRelay].filter(([u]) => done.has(u)))
+      };
+    };
+    let early;
+    const first = new Promise((resolve) => early = resolve);
+    const all = new Promise((resolve) => {
       let finished = 0;
       if (urls.length === 0)
-        return resolve();
+        return resolve(snapshot());
       for (const url of urls) {
-        void one(url).then((ok2) => {
+        void one(url).then((outcome) => {
           finished++;
-          if (ok2)
+          if (outcome === "answered")
             answered.push(url);
-          if (answered.length >= quorum || finished === urls.length)
-            resolve();
+          if (outcome === "hard")
+            hard.add(url);
+          if (finished === urls.length)
+            resolve(snapshot());
+          else if (answered.length >= quorum)
+            early?.(snapshot());
         });
       }
     });
-    const done = new Set(answered);
-    return {
-      // Events from a relay still waiting are kept: the newest version wins either way.
-      events: [...events.values()],
-      answered: [...answered],
-      failed: urls.filter((u) => !done.has(u)),
-      idsByRelay: new Map([...idsByRelay].filter(([u]) => done.has(u)))
-    };
+    const result = await Promise.race([first.then((r) => ({ ...r, rest: all })), all]);
+    return result;
   },
   publish: async (urls, event, timeoutMs) => {
     const results = await Promise.all(urls.map(async (url) => {
@@ -1292,14 +1305,17 @@ var poolRelays = (pool = new SimplePool()) => ({
 var matches = (e, a) => e.pubkey === a.author && e.kind === a.kind && e.tags.some((t) => t[0] === "d" && t[1] === a.d) && isValidEvent(e);
 var newest = (events) => [...events].sort((x, y) => y.created_at - x.created_at || (x.id < y.id ? -1 : 1))[0];
 var fetchReplaceable = async (relays, urls, address, timeoutMs = 5e3, quorum) => {
-  const result = await relays.query(urls, { kinds: [address.kind], authors: [address.author], "#d": [address.d] }, timeoutMs, quorum === void 0 ? void 0 : { quorum });
-  const event = newest(result.events.filter((e) => matches(e, address)));
-  const complete = result.failed.length === 0 || quorum !== void 0 && result.answered.length >= Math.min(quorum, urls.length);
+  const first = await relays.query(urls, { kinds: [address.kind], authors: [address.author], "#d": [address.d] }, timeoutMs, quorum === void 0 ? void 0 : { quorum });
+  const found = (r) => newest(r.events.filter((e) => matches(e, address)));
+  const result = found(first) === void 0 && first.rest !== void 0 ? await first.rest : first;
+  const event = found(result);
   if (event !== void 0) {
+    const complete = result.failed.length === 0 || quorum !== void 0 && result.answered.length >= Math.min(quorum, urls.length);
     const missingOn = result.idsByRelay === void 0 ? [] : result.answered.filter((u) => !result.idsByRelay.get(u)?.has(event.id));
     return { kind: "found", event, complete, missingOn };
   }
-  return complete ? { kind: "none" } : { kind: "incomplete" };
+  const pending = result.pending ?? result.failed;
+  return pending.length === 0 && result.answered.length > 0 ? { kind: "none" } : { kind: "incomplete" };
 };
 var publishReplaceable = async (relays, urls, signer, event, timeoutMs = 5e3) => {
   const signed = await signer.signEvent(event);
@@ -1528,14 +1544,15 @@ var createEvolustrSigner = (host) => {
   let m = null;
   let vault = null;
   let vaultLoaded = false;
+  let vaultFull = false;
   let needsHeal = false;
   let lastEventAt = 0;
   let candidate = null;
   let previousM = null;
   let earlierMs = null;
   const appIdFor = (caller) => appIdForCaller(caller, host.knownNsiteGateways);
-  const fetchVault = async (pubkey) => {
-    const f = await fetchReplaceable(host.relays, host.relayUrls, { author: pubkey, kind: VAULT_KIND, d: signerVaultDTag(pubkey, host.signerKey) }, timeoutMs, host.relayQuorum);
+  const fetchVault = async (pubkey, full) => {
+    const f = await fetchReplaceable(host.relays, host.relayUrls, { author: pubkey, kind: VAULT_KIND, d: signerVaultDTag(pubkey, host.signerKey) }, timeoutMs, full ? void 0 : host.relayQuorum);
     if (f.kind === "none")
       return ok(null);
     if (f.kind === "incomplete")
@@ -1543,10 +1560,11 @@ var createEvolustrSigner = (host) => {
     lastEventAt = Math.max(lastEventAt, f.event.created_at);
     return parseSignerVault(f.event.content);
   };
-  const loadVault = async (pubkey) => {
-    if (vaultLoaded)
+  const loadVault = async (pubkey, forWrite = false) => {
+    if (vaultLoaded && (vaultFull || !forWrite))
       return ok(vault);
-    const fetched = await fetchVault(pubkey);
+    const full = forWrite || host.relayQuorum === void 0;
+    const fetched = await fetchVault(pubkey, full);
     if (!fetched.ok && fetched.error.type !== "invalidSignerVault")
       return fetched;
     const copyText = await host.cache?.getVault?.(pubkey) ?? null;
@@ -1570,11 +1588,20 @@ var createEvolustrSigner = (host) => {
       needsHeal = vault.wraps.some((w) => !onRelays.has(JSON.stringify(w)));
     }
     vaultLoaded = true;
+    vaultFull = full;
     return ok(vault);
   };
   const publish = async (pubkey, next) => {
     if (!vaultLoaded)
       return error("signerVaultUnknown", "Load the signer vault before changing it");
+    if (!vaultFull) {
+      const before = JSON.stringify(vault);
+      const reread = await loadVault(pubkey, true);
+      if (!reread.ok)
+        return reread;
+      if (JSON.stringify(vault) !== before)
+        return error("signerVaultChanged", "The signer vault changed on another device; try again");
+    }
     const at = Math.max(now(), lastEventAt + 1);
     const signer = {
       getPublicKey: host.getPublicKey,
@@ -1795,7 +1822,7 @@ var createEvolustrSigner = (host) => {
     if (passkeys === void 0)
       return error("noPasskeys", "This signer has no passkey support");
     const pubkey = await host.getPublicKey();
-    const loaded = await loadVault(pubkey);
+    const loaded = await loadVault(pubkey, true);
     if (!loaded.ok)
       return loaded;
     const quiet = await unlockQuiet(pubkey, false);
@@ -1892,7 +1919,7 @@ var createEvolustrSigner = (host) => {
     if (allowSk())
       return error("nsecAllowed", "Turn off the nsec protection (allowSkWrap) before replacing the key");
     const pubkey = await host.getPublicKey();
-    const loaded = await loadVault(pubkey);
+    const loaded = await loadVault(pubkey, true);
     if (!loaded.ok)
       return loaded;
     if (vault === null)

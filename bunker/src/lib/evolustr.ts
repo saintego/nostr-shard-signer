@@ -229,8 +229,9 @@ export const createHostSigner = (o: HostOptions): EvolustrSigner =>
     createEvolustrSigner({
         relays: poolRelays(),
         relayUrls: o.relays,
-        // Enough relays to trust a read: one slow or dead relay mustn't block
-        // unlocking or "Add a passkey" (evolustr #60, #111).
+        // Enough relays to trust a vault an unlock found, so one slow relay
+        // doesn't hold up unlocking (evolustr #60, #111). "No vault" and every
+        // write still wait for every relay (evolustr #62, #135).
         relayQuorum: Math.min(3, o.relays.length),
         // The origin of this signer, the same on every site that embeds it.
         signerKey: location.origin,
