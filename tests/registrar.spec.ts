@@ -187,3 +187,29 @@ test('/update still needs the registrant’s signature', async () => {
   });
   expect(good.status).toBe(200);
 });
+
+test('#145: a stranger asking for a challenge doesn’t replace the registrant’s pending one', async () => {
+  const e = env();
+  const a = user();
+  const first = await post(e, '/register', { clientId: CLIENT, npub: a.npub, domain: SITE });
+  // Someone else asks for the same pair (phase 1 needs no proof).
+  await post(e, '/register', { clientId: CLIENT, npub: a.npub, domain: SITE });
+  const nonce = first.body.nonce as string;
+  const done = await post(e, '/register', {
+    clientId: CLIENT,
+    npub: a.npub,
+    domain: SITE,
+    nonce,
+    signedEvent: proof(a.sk, nonce),
+  });
+  expect(done.status).toBe(201);
+  // Each nonce is used once.
+  const again = await post(e, '/register', {
+    clientId: CLIENT,
+    npub: a.npub,
+    domain: SITE,
+    nonce,
+    signedEvent: proof(a.sk, nonce),
+  });
+  expect(again.status).toBe(400);
+});

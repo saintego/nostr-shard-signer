@@ -62,10 +62,26 @@ const want = new Set(expected.urls.map(norm));
 const have = new Set(urls.map(norm));
 const added = [...have].filter((u) => !want.has(u));
 const removed = [...want].filter((u) => !have.has(u));
+// The sign-in connections (#145): with Web3Auth's panel (#113) every enabled
+// one is offered, and a changed one gives users other keys. Frozen once the
+// expected file lists them; until then printed, to copy there.
+const connectionsNow = (Array.isArray(config.embeddedWalletAuth) ? config.embeddedWalletAuth : [])
+  .map((c) => `${c.authConnection}:${c.groupedAuthConnectionId ?? c.authConnectionId}:${c.clientId}`)
+  .sort();
+const connectionProblems = [];
+if (Array.isArray(expected.connections)) {
+  const want = new Set(expected.connections);
+  const have = new Set(connectionsNow);
+  for (const c of have) if (!want.has(c)) connectionProblems.push(`connection added or changed: ${c}`);
+  for (const c of want) if (!have.has(c)) connectionProblems.push(`connection removed or changed: ${c}`);
+} else {
+  console.log(`No "connections" in the expected list for "${which}"; to freeze them, add:\n${JSON.stringify(connectionsNow, null, 2)}`);
+}
 const problems = [
   ...added.map((u) => `added to the allowlist (it could obtain users' keys): ${u}`),
   ...removed.map((u) => `missing from the allowlist (sign-in fails there): ${u}`),
   ...(config.enableKeyExport ? [] : ["key export is off (the signer can't get keys)"]),
+  ...connectionProblems,
 ];
 if (problems.length) {
   console.error(`The ${which} shared project changed:\n- ${problems.join("\n- ")}`);

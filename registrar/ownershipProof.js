@@ -4,12 +4,16 @@
 
 import { verifyEvent } from 'nostr-tools';
 
-const KV_PREFIX_NONCE = 'nonce:'; // nonce:{clientId}:{registrantHex} → JSON (CHALLENGES_KV, TTL-bound)
+// nonce:{clientId}:{registrantHex}:{nonce} → JSON (CHALLENGES_KV, TTL-bound). One key
+// per nonce (#145): phase 1 needs no proof, so a stranger asking for a
+// challenge for the same pair mustn't replace the registrant's pending one.
+const KV_PREFIX_NONCE = 'nonce:';
 export const NONCE_TTL_SEC = 300; // 5 minutes
 const PROOF_KIND = 27235;
 
 // clientIds never contain colons (the worker refuses them), so the key is unambiguous.
-const nonceKey = (clientId, registrantHex) => `${KV_PREFIX_NONCE + clientId}:${registrantHex}`;
+const nonceKey = (clientId, registrantHex, nonce) =>
+  `${KV_PREFIX_NONCE + clientId}:${registrantHex}:${nonce}`;
 
 /** Issues and stores a fresh nonce for (clientId, registrant). */
 export async function issueChallenge(env, clientId, registrantHex) {
@@ -17,7 +21,7 @@ export async function issueChallenge(env, clientId, registrantHex) {
   crypto.getRandomValues(bytes);
   const nonce = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   await env.CHALLENGES_KV.put(
-    nonceKey(clientId, registrantHex),
+    nonceKey(clientId, registrantHex, nonce),
     JSON.stringify({ nonce, registrantHex, expiresAt: Date.now() + NONCE_TTL_SEC * 1000 }),
     { expirationTtl: NONCE_TTL_SEC }
   );
@@ -30,7 +34,9 @@ export async function issueChallenge(env, clientId, registrantHex) {
  */
 export async function verifyOwnershipProof(env, clientId, registrantHex, nonce, signedEvent) {
   const fail = (error, status = 400) => ({ error, status });
-  const key = nonceKey(clientId, registrantHex);
+  if (typeof nonce !== 'string' || !/^[0-9a-f]{64}$/.test(nonce))
+    return fail('nonce does not match the issued challenge');
+  const key = nonceKey(clientId, registrantHex, nonce);
   let record = null;
   try {
     record = JSON.parse((await env.CHALLENGES_KV.get(key)) ?? 'null');

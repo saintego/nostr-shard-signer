@@ -12,16 +12,22 @@ const env = ((import.meta as { env?: Record<string, string | undefined> }).env ?
 >;
 const enforce = env.VITE_CANARY === 'enforce' || !PREVIEW;
 
-let verdict: Promise<CanaryVerdict> | null = null;
+/** How long a reading stays fresh: a widget open for hours sees a change (#145). */
+const VERDICT_MAX_AGE_MS = 5 * 60 * 1000;
+let verdict: { readonly at: number; readonly reading: Promise<CanaryVerdict> } | null = null;
 
 /** Whether a new global sign-in may start; the reason when it may not. */
 export async function sharedSignInAllowed(): Promise<CanaryVerdict> {
-  verdict ??= checkCanary(
-    SHARED_SIGN_IN_CLIENT_ID,
-    SHARED_SIGN_IN_NETWORK,
-    expectedSites(location.href, env.VITE_SHARED_EXPECTED_ORIGINS ?? '')
-  );
-  const v = await verdict;
+  if (!verdict || Date.now() - verdict.at > VERDICT_MAX_AGE_MS)
+    verdict = {
+      at: Date.now(),
+      reading: checkCanary(
+        SHARED_SIGN_IN_CLIENT_ID,
+        SHARED_SIGN_IN_NETWORK,
+        expectedSites(location.href, env.VITE_SHARED_EXPECTED_ORIGINS ?? '')
+      ),
+    };
+  const v = await verdict.reading;
   if (v.kind === 'unreadable') console.warn('[canary] the shared project could not be read: on');
   if (v.kind === 'unknown-site' || v.kind === 'key-export-off') {
     console.error('[canary] the shared project changed:', v);

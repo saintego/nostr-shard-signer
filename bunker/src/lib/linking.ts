@@ -261,7 +261,10 @@ export async function sealLink(
  */
 export async function unlinkRecord(link: LinkRecord, deps: LinkingDeps): Promise<LinkRecord> {
   const now = (deps.now ?? nowS)();
-  const version = link.version + 1;
+  // The list's record may be behind the live envelope (a half-done relink,
+  // #112): the "unlinked" version must still be newer. Link versions count up
+  // from 1; the time in seconds is always above them (#145).
+  const version = Math.max(link.version + 1, now);
   const content = unlinkedContent(version);
   const pointerKey = fromHex(link.pointerKey);
   const event = buildPointer(pointerKey, link.pointerD, content, now);

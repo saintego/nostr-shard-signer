@@ -184,12 +184,21 @@ test("scenarios 54 and 58: unlinking from the stored keys, without Apple's login
   const root = await w.ownAccount(google.key);
   const record = await sealLink(root, apple, { kind: 'full' }, primary, 1, w.deps);
   const unlinked = await unlinkRecord(record, w.deps);
-  expect(unlinked.version).toBe(2);
+  // Above any live version, even when the list's record is behind (#145).
+  expect(unlinked.version).toBeGreaterThan(record.version);
+  expect(unlinked.version).toBeGreaterThanOrEqual(1_700_000_000);
   expect(unlinked.unlinkedAt).not.toBeNull();
   expect(resolve(await lookUp(apple.key, w.deps))).toEqual({ kind: 'none', wasUnlinked: true });
-  // Relinking: a newer version wins again.
-  const relinked = await sealLink(root, apple, { kind: 'full' }, primary, 3, w.deps);
-  expect(relinked.version).toBe(3);
+  // Relinking: a newer version wins again (the window takes the record's version + 1).
+  const relinked = await sealLink(
+    root,
+    apple,
+    { kind: 'full' },
+    primary,
+    unlinked.version + 1,
+    w.deps
+  );
+  expect(relinked.version).toBe(unlinked.version + 1);
   expect(resolve(await lookUp(apple.key, w.deps)).kind).toBe('linked');
 });
 
@@ -275,4 +284,16 @@ test('the global list keeps the newest record per pointer; "unlinked" wins a tie
   expect(newestLinks([linkFromRow(row(3, null)), unlinked])[0]?.version).toBe(3);
   expect(linkFromRow({ ...row(1, null), pointerPubkey: null })).toBeNull();
   expect(linkFromRow({ ...row(1, null), scope: '["a","b"]' })?.scope).toEqual(['a', 'b']);
+});
+
+test('#145: an unlink from a record that is behind still beats the live envelope', async () => {
+  const w = world();
+  const google = login('google', 'a…@gmail.com');
+  const apple = login('apple', 'a…@icloud.com');
+  const root = await w.ownAccount(google.key);
+  const stale = await sealLink(root, apple, { kind: 'full' }, primary, 1, w.deps);
+  // A relink reached the relays (version 5), but the list kept version 1.
+  await sealLink(root, apple, { kind: 'full' }, primary, 5, w.deps);
+  await unlinkRecord(stale, w.deps);
+  expect(resolve(await lookUp(apple.key, w.deps))).toEqual({ kind: 'none', wasUnlinked: true });
 });

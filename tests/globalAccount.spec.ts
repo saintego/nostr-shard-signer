@@ -415,3 +415,27 @@ test('#140: the counter never goes down: read from every relay before writing, t
     silent.published.filter((e) => e.tags.some((t) => t[1] === 'nostr-shard-signer/counter'))
   ).toEqual([]);
 });
+
+test('#145: a site with more than 20 paired identities gets 20, the active one among them', async () => {
+  const many = Array.from({ length: 25 }, (_, i) => i);
+  const root = await deriveRoot(bytes(v.globalLoginKey));
+  const { deriveIdentity } = await import('../bunker/src/lib/derive.ts');
+  const pubkeys = await Promise.all(
+    many.map(async (i) => getPublicKey(await deriveIdentity(root, i)))
+  );
+  const rows: IdentityRow[] = pubkeys.map((pubkey, i) => ({
+    pubkey,
+    derivationIndex: i,
+    label: null,
+    createdOn: SITE,
+    usedElsewhere: null,
+  }));
+  const pairs = pubkeys.map((pubkey) => ({ origin: SITE, identityPubkey: pubkey }));
+  const { d } = deps(fakeList(rows, pairs).list);
+  const account = await openGlobalAccount(bytes(v.globalLoginKey), SITE, d);
+  const last = pubkeys[24] ?? '';
+  const grant = await account.grant(last);
+  expect(grant.identities).toHaveLength(20);
+  expect(grant.identities.some((i) => i.pubkey === last)).toBe(true);
+  expect(parseSiteGrant(JSON.parse(JSON.stringify(grant)))).not.toBeNull();
+});

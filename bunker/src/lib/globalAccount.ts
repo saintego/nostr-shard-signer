@@ -29,7 +29,7 @@ import {
 } from './linking';
 import { buildMarker, type MarkerReading, markerFilter, readMarker } from './marker';
 import { exportMasterKey } from './masterKey';
-import type { SiteGrant } from './siteGrant';
+import { MAX_SITE_IDENTITIES, type SiteGrant } from './siteGrant';
 
 export interface AccountDeps {
   /** Opens the global list for the root (Evolu in memory, globalList.ts). */
@@ -419,11 +419,17 @@ export async function openGlobalAccountFromRoot(
     },
     create,
     grant: async (activePubkey) => {
-      const chosen = pairedWith(current, origin).filter(
+      const paired = pairedWith(current, origin).filter(
         (i) => i.index !== null || i.storedKey !== null
       );
-      if (!chosen.some((i) => i.pubkey === activePubkey))
-        throw new Error('That identity is not paired with this site');
+      const active = paired.find((i) => i.pubkey === activePubkey);
+      if (!active) throw new Error('That identity is not paired with this site');
+      // The widget takes at most MAX_SITE_IDENTITIES: the active one and the
+      // first others, instead of an answer it would refuse (#145).
+      const kept = new Set(
+        [active, ...paired.filter((i) => i !== active)].slice(0, MAX_SITE_IDENTITIES)
+      );
+      const chosen = paired.filter((i) => kept.has(i)); // in the list's order
       return grantFromRoot(
         root,
         origin,

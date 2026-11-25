@@ -1,6 +1,7 @@
 // The /restore page (#73 D10, #87): its own entry, with no Web3Auth and no
-// widget code. Opened by the user only (RestoreView refuses frames and
-// windows opened by another page).
+// widget code. Opened by the user only: RestoreView refuses frames, and
+// windows opened by another page where the browser shows the opener (not for
+// links opened with noopener, the default for target="_blank", #145).
 import '../lib/bufferBase64url'; // before anything that loads Evolu
 import React from 'react';
 import ReactDOM from 'react-dom/client';
