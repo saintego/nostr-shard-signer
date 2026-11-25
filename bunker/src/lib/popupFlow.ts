@@ -124,10 +124,12 @@ export type AccountNext =
   | { readonly kind: 'bring-over'; readonly siteKey: string }
   | { readonly kind: 'new'; readonly pubkey: string }
   | { readonly kind: 'finish'; readonly pubkey: string }
+  /** Pair it first, then finish: identity 0 of an account that never had another (#136). */
+  | { readonly kind: 'pair'; readonly pubkey: string }
   | { readonly kind: 'show' };
 
 export function accountNext(
-  account: Pick<GlobalAccount, 'isNew' | 'list' | 'paired'>,
+  account: Pick<GlobalAccount, 'isNew' | 'list' | 'paired' | 'onlyIdentity0'>,
   options: Pick<GlobalOptions, 'intent' | 'siteKey' | 'active'>
 ): AccountNext {
   const { intent, siteKey } = options;
@@ -139,8 +141,10 @@ export function accountNext(
   // Signing in again where identities are already in use: no Welcome back, no
   // extra click (#109). "Add or manage identities" (it sends `active`) and
   // backup still show it.
+  const asked = intent === 'backup' || intent === 'manage' || !!options.active;
   const pairedHere = account.paired[0];
-  if (pairedHere && intent !== 'backup' && intent !== 'manage' && !options.active)
-    return { kind: 'finish', pubkey: pairedHere.pubkey };
+  if (pairedHere && !asked) return { kind: 'finish', pubkey: pairedHere.pubkey };
+  // The list is gone but the account only ever had identity 0: nothing to choose (#136).
+  if (account.onlyIdentity0 && first && !asked) return { kind: 'pair', pubkey: first.pubkey };
   return { kind: 'show' };
 }

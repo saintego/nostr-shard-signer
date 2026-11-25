@@ -72,6 +72,12 @@ export interface GlobalAccount {
   readonly isNew: boolean;
   /** Not new, yet the list is empty: Evolu's copy was lost or didn't sync (#136, #137). */
   readonly listMissing: boolean;
+  /**
+   * The list is missing, and the relays' counter says the account only ever
+   * had identity 0: it can be used again without asking (no other identity to
+   * keep apart from it, #136).
+   */
+  readonly onlyIdentity0: boolean;
   /** The identity has no profile (kind 0) on relays that answered: one may be offered (#136). */
   readonly profileFree: (pubkey: string) => Promise<boolean>;
   readonly pair: (pubkey: string) => Promise<void>;
@@ -281,6 +287,7 @@ export async function openGlobalAccountFromRoot(
     deps.knownExisting !== true &&
     (deps.provenNew === true || (complete && counterEvents !== null && relayCounter === null));
   const listMissing = current.length === 0 && !isNew;
+  const onlyIdentity0 = listMissing && relayCounter === 1;
   // A counter missing although the list knows identities (relays didn't
   // answer at creation, #136): write it now, from the synced list only.
   const listed = current.map((i) => i.index ?? 0);
@@ -323,6 +330,7 @@ export async function openGlobalAccountFromRoot(
     complete,
     isNew,
     listMissing,
+    onlyIdentity0,
     profileFree,
     pair: async (pubkey) => {
       const i = find(pubkey);

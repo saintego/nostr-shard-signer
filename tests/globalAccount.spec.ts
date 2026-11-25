@@ -16,6 +16,7 @@ import {
   type PairingRow,
   pairedWith,
 } from '../bunker/src/lib/globalListModel.ts';
+import { accountNext } from '../bunker/src/lib/popupFlow.ts';
 import { parseSiteGrant, withActive } from '../bunker/src/lib/siteGrant.ts';
 
 const vectors = JSON.parse(
@@ -365,4 +366,23 @@ test('#136: "Create a new account" after a full lookup is new, without checking 
   const before = queries.length;
   expect(await a.profileFree(id(0).pubkey)).toBe(true);
   expect(queries.length).toBe(before); // no extra profile lookup
+});
+
+test('#136: a missing list of an account that only had identity 0 needs no question', async () => {
+  const root = await deriveRoot(bytes(v.globalLoginKey));
+  const open = async (counterNext: number | null, relaysAnswer = true) => {
+    const events =
+      counterNext === null ? [] : [await buildCounter(root, counterNext, 1_699_999_000)];
+    const { d } = deps(fakeList([], [], 'Synced').list, relaysAnswer ? events : null);
+    return openGlobalAccount(bytes(v.globalLoginKey), SITE, { ...d, knownExisting: true });
+  };
+  const only0 = await open(1);
+  expect(only0.onlyIdentity0).toBe(true);
+  expect(accountNext(only0, {})).toEqual({ kind: 'pair', pubkey: id(0).pubkey });
+  // Asked for on purpose: still shown.
+  expect(accountNext(only0, { intent: 'manage' })).toEqual({ kind: 'show' });
+  // Several identities, or relays that can't say: the user picks.
+  expect((await open(3)).onlyIdentity0).toBe(false);
+  expect(accountNext(await open(3), {})).toEqual({ kind: 'show' });
+  expect((await open(null, false)).onlyIdentity0).toBe(false);
 });

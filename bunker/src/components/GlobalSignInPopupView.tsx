@@ -228,7 +228,8 @@ export function GlobalSignInPopupView() {
       return setState({ ...step, step: 'stored-backup', site });
     }
     if (next.kind === 'new') return newAccount(site, step, next.pubkey);
-    if (next.kind === 'finish') return finish(site, next.pubkey);
+    if (next.kind === 'pair') await step.account.pair(next.pubkey);
+    if (next.kind === 'finish' || next.kind === 'pair') return finish(site, next.pubkey);
     setState({ site, ...step });
   };
 

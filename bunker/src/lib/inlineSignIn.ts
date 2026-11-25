@@ -88,6 +88,11 @@ async function fromAccount(
   const pairedHere = account.paired[0];
   if (pairedHere)
     return { kind: 'signed-in', answer: await answerFor(account, pairedHere.pubkey, deps.defer) };
+  // The list is gone but the account only ever had identity 0: use it, no question (#136).
+  if (account.onlyIdentity0 && identity0) {
+    await account.pair(identity0.pubkey);
+    return { kind: 'signed-in', answer: await answerFor(account, identity0.pubkey, deps.defer) };
+  }
   // Welcome back: every identity and site of the account, in the window (D22).
   deps.defer(account.close());
   return { kind: 'window', login: handOver(first) };
