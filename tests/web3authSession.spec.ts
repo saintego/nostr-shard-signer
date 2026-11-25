@@ -6,15 +6,19 @@ import {
   findSession,
   GLOBAL_SESSION,
   REFRESH_COOKIE,
-  SITE_SESSION,
   type SessionEnv,
+  SITE_SESSION,
   sweepGlobalSession,
   TOKEN_KEYS,
   WEB3AUTH_STATE_KEY,
 } from '../bunker/src/lib/web3authSession.ts';
-import { BUNKER, blankPage, test as pageTest } from './fixtures.js';
+import { APP, BUNKER, blankPage, bridgePage, test as pageTest } from './fixtures.js';
 
-const fakeEnv = (local: Record<string, string>, session: Record<string, string>, cookies: string[]) => {
+const fakeEnv = (
+  local: Record<string, string>,
+  session: Record<string, string>,
+  cookies: string[]
+) => {
   const store = (o: Record<string, string>) => ({
     getItem: (k: string) => o[k] ?? null,
     removeItem: (k: string) => {
@@ -51,7 +55,10 @@ test('a global session is found and deleted without touching the site session', 
   // The site's session is untouched.
   expect(local).toEqual({ 'auth_store:session_id': 'site', 'Web3Auth-state': 'site-state' });
   expect(cookies).toEqual(['auth_store:refresh_token']);
-  expect(findSession(SITE_SESSION, env)).toEqual(['auth_store:session_id', 'cookie auth_store:refresh_token']);
+  expect(findSession(SITE_SESSION, env)).toEqual([
+    'auth_store:session_id',
+    'cookie auth_store:refresh_token',
+  ]);
 });
 
 test('the sweep ends a leftover global session even when logout fails (code 5113)', async () => {
@@ -66,17 +73,21 @@ test('the sweep ends a leftover global session even when logout fails (code 5113
 
 test("nothing to sweep: Web3Auth isn't asked at all", async () => {
   let called = false;
-  const found = await sweepGlobalSession(async () => {
-    called = true;
-  }, fakeEnv({}, {}, []));
+  const found = await sweepGlobalSession(
+    async () => {
+      called = true;
+    },
+    fakeEnv({}, {}, [])
+  );
   expect(found).toEqual([]);
   expect(called).toBe(false);
 });
 
 // These names are Web3Auth internals: if an update renames them, the signer
 // would stop finding leftover sessions. This test reads the installed SDK.
-test("Web3Auth still uses the storage names the signer relies on", () => {
-  const read = (p: string) => readFileSync(new URL(`../node_modules/${p}`, import.meta.url), 'utf8');
+test('Web3Auth still uses the storage names the signer relies on', () => {
+  const read = (p: string) =>
+    readFileSync(new URL(`../node_modules/${p}`, import.meta.url), 'utf8');
   const auth = read('@web3auth/auth/dist/lib.esm/core/auth.js');
   expect(auth).toContain('"_storageBaseKey", "auth_store"');
   expect(auth).toContain('this.options.sessionKey ||');
@@ -90,18 +101,51 @@ test("Web3Auth still uses the storage names the signer relies on", () => {
   expect(constants).toContain(`WEB3AUTH_STATE_STORAGE_KEY = "${WEB3AUTH_STATE_KEY}"`);
 });
 
-pageTest('a signer popup sweeps a leftover global session from the signer origin', async ({ page, pages }) => {
-  pages.set('signer:/blank', blankPage);
-  await page.goto(`${BUNKER}/blank`);
-  await page.evaluate(() => {
-    localStorage.setItem('auth_store_global:session_id', 'left over');
-    localStorage.setItem('auth_store_global:access_token', 'left over');
-    localStorage.setItem('auth_store:session_id', 'the site session');
-  });
-  await page.goto(`${BUNKER}/signer.html?evolustr-passkey=1`);
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('auth_store_global:session_id')))
-    .toBeNull();
-  expect(await page.evaluate(() => localStorage.getItem('auth_store_global:access_token'))).toBeNull();
-  expect(await page.evaluate(() => localStorage.getItem('auth_store:session_id'))).toBe('the site session');
-});
+pageTest(
+  'a signer popup sweeps a leftover global session from the signer origin',
+  async ({ page, pages }) => {
+    pages.set('signer:/blank', blankPage);
+    await page.goto(`${BUNKER}/blank`);
+    await page.evaluate(() => {
+      localStorage.setItem('auth_store_global:session_id', 'left over');
+      localStorage.setItem('auth_store_global:access_token', 'left over');
+      localStorage.setItem('auth_store:session_id', 'the site session');
+    });
+    await page.goto(`${BUNKER}/signer.html?evolustr-passkey=1`);
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('auth_store_global:session_id')))
+      .toBeNull();
+    expect(
+      await page.evaluate(() => localStorage.getItem('auth_store_global:access_token'))
+    ).toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem('auth_store:session_id'))).toBe(
+      'the site session'
+    );
+  }
+);
+
+pageTest(
+  '#138: the widget sweeps a global session a sign-in left in the site’s storage',
+  async ({ page, pages }) => {
+    pages.set('/', bridgePage);
+    await page.goto(`${APP}/`);
+    // What a sign-in in the widget leaves when the tab closes before it ends:
+    // put in the widget's own storage, then the widget is loaded again.
+    await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin }), BUNKER);
+    const frame = () => page.frames().find((f) => f.url().includes('signer.html'));
+    await expect.poll(() => !!frame()).toBe(true);
+    await frame()?.evaluate(() => {
+      localStorage.setItem('auth_store_global:session_id', 'left over');
+      localStorage.setItem('auth_store:session_id', 'the site session');
+    });
+    await page.reload();
+    await page.evaluate((bunkerOrigin) => NostrBridge.init({ bunkerOrigin }), BUNKER);
+    await expect.poll(() => !!frame()).toBe(true);
+    await expect
+      .poll(() => frame()?.evaluate(() => localStorage.getItem('auth_store_global:session_id')))
+      .toBeNull();
+    expect(await frame()?.evaluate(() => localStorage.getItem('auth_store:session_id'))).toBe(
+      'the site session'
+    );
+  }
+);

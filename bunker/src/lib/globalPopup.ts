@@ -11,7 +11,11 @@
 //   popup → widget: the site's store key and the keys of the identities paired
 //                   with it, and the active one (siteGrant.ts); the widget
 //                   seals them with its device secret.
-// Never: the login key or the root; they stay in the popup's memory.
+// Never from the popup: the login key or the root; they stay in its memory.
+// The other way, the widget may hand over a login it already made (#122,
+// HandedLogin, its key included), so the user doesn't sign in twice. Since
+// #122 the sign-in itself can run in the widget, inside the site's page: the
+// root and the account are then briefly in the widget's memory (#138).
 
 import type { BackupMethod } from './backup';
 import { openerDocument, sameOpenerDocument } from './openerGuard';

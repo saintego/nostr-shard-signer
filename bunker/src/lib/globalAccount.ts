@@ -49,6 +49,13 @@ export interface AccountDeps {
   readonly primary?: Primary;
   /** Signed in through an envelope: that login's pointer pubkey. */
   readonly viaPointer?: string;
+  /**
+   * 'site': opened in the widget, inside the site's page (#122, #138): keep
+   * only what this site needs. Stored keys of identities not paired here are
+   * dropped, link records are dropped once the sign-in's own was checked, and
+   * pointers aren't re-sent. The window opens the whole account.
+   */
+  readonly scope?: 'site';
   /** That login and its envelope's version: to list the link again if the list lost it (#142). */
   readonly viaLogin?: { readonly login: Login; readonly version: number };
   /** Background work to wait for later (LinkingDeps.defer, #110). */
@@ -206,7 +213,12 @@ export async function openGlobalAccountFromRoot(
     marker = { status: state, event };
     return JSON.stringify(event);
   };
-  let current = rows;
+  /** In the site's frame, no keys of identities that aren't paired with it (#138). */
+  const forScope = (all: readonly ListedIdentity[]): ListedIdentity[] =>
+    deps.scope === 'site'
+      ? all.map((i) => (i.storedKey && !i.sites.includes(origin) ? { ...i, storedKey: null } : i))
+      : [...all];
+  let current = forScope(rows);
   let links = await list.links();
   const linkingDeps = (): LinkingDeps => {
     if (!deps.openCopies) throw new Error('Linking needs the envelope store');
@@ -233,7 +245,8 @@ export async function openGlobalAccountFromRoot(
     return { kind: 'restricted', identities };
   };
   // Re-send the stored pointers, linked and unlinked (review 8, item 9).
-  if (links.length) void deps.publish(storedPointers(links)).catch(() => {});
+  if (links.length && deps.scope !== 'site')
+    void deps.publish(storedPointers(links)).catch(() => {});
   let via = deps.viaPointer ? links.find((l) => l.pointerPubkey === deps.viaPointer) : undefined;
   // A full link that opened the account isn't in the synced list (a link left
   // half-done, or a lost list): list it again, so it can be seen and unlinked
@@ -247,6 +260,8 @@ export async function openGlobalAccountFromRoot(
     via = links.find((l) => l.pointerPubkey === record.pointerPubkey);
     relistedLink = { provider: record.provider, masked: record.masked };
   }
+  // The sign-in's own record was checked (unlinkedVia): the widget keeps no others (#138).
+  if (deps.scope === 'site') links = [];
   const relayCounter = counterEvents ? await readCounter(counterEvents, root) : null;
 
   const pubkeyOf = async (index: number) => {
@@ -260,7 +275,7 @@ export async function openGlobalAccountFromRoot(
   const usedOnRelays = async (index: number) =>
     ((await deps.query({ authors: [await pubkeyOf(index)], limit: 1 })) ?? []).length > 0;
   const reload = async () => {
-    current = await list.load();
+    current = forScope(await list.load());
   };
   const find = (pubkey: string) => current.find((i) => i.pubkey === pubkey);
 

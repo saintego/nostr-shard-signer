@@ -120,3 +120,22 @@ test('#142: a linked sign-in missing from the synced list is listed again, and c
   if (viaGoogle.step !== 'account') throw new Error(viaGoogle.step);
   expect(viaGoogle.account.relistedLink).toBeNull();
 });
+
+test('#138: in the site’s frame, the account keeps only what this site needs', async () => {
+  const w = world();
+  const google = login('google', 'a…@gmail.com');
+  const own = await openOwn(google, SITE, w.deps);
+  if (own.step !== 'account') throw new Error(own.step);
+  await own.account.pair(own.account.list[0]?.pubkey ?? '');
+  await own.account.link(login('apple', 'a…@icloud.com').login, 'full');
+  const before = w.relay.length;
+  const inWidget = await afterLogin(google, SITE, { ...w.deps, scope: 'site' });
+  if (inWidget.step !== 'account') throw new Error(inWidget.step);
+  expect(inWidget.account.links).toEqual([]); // no link records (pointer keys, owners)
+  expect(w.relay.length).toBe(before); // no pointers re-sent from the site's frame
+  expect(inWidget.account.paired).toHaveLength(1);
+  // The window still opens the whole account.
+  const inWindow = await afterLogin(google, SITE, w.deps);
+  if (inWindow.step !== 'account') throw new Error(inWindow.step);
+  expect(inWindow.account.links.map((l) => l.provider)).toEqual(['apple']);
+});

@@ -75,5 +75,8 @@ const render = (embedder: string) => ReactDOM.createRoot(document.getElementById
 // must confirm it embeds this frame before anything runs (#67). Bridges from
 // before the check don't answer, and the signer reports NOT_EMBEDDED.
 const isWidget = !isPasskeyPopup && !isConfirmPopup && !isGlobalPopup && !isSignerTab;
+// Global Web3Auth tokens a sign-in in the widget left in this site's storage
+// (a crash or a closed tab before it ended, #122, #138): gone on every load.
+if (isWidget) void sweepGlobalSession();
 if (isWidget && parentOrigin && parentFromReferrer()) void confirmParentOrigin(parentOrigin).then(ok => render(ok ? parentOrigin : ''));
 else render(parentOrigin);

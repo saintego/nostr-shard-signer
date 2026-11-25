@@ -30,7 +30,8 @@ import type { CacheSlot } from './lib/siteCache';
 /** Relay and Evolu writes of the widget's sign-ins: the iframe stays, so they just run. */
 const writes = backgroundWrites<Event>(publishToSignerRelays);
 /** Where the widget's sign-in reads and writes (the same as the window's). */
-const inlineDeps = () => ({ ...flowDeps(writes), defer: writes.track });
+// In the site's frame: only what this site needs of the account (#138).
+const inlineDeps = () => ({ ...flowDeps(writes), defer: writes.track, scope: 'site' as const });
 /** The most the lookup may take before the widget says so (#110). */
 const STEP_MAX_MS = 25000;
 
