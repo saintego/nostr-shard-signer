@@ -9,7 +9,7 @@
 import * as nip44 from 'nostr-tools/nip44';
 import { type Event, finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { deriveCounterKey } from './derive';
-import { newestFirst, signatureValid } from './marker';
+import { signatureValid } from './marker';
 
 export const COUNTER_KIND = 30078;
 /** Constant: the counter key is the user's own, so the address can't be confused. */
@@ -57,7 +57,11 @@ export async function buildCounter(root: Uint8Array, next: number, now: number):
   }
 }
 
-/** `next` from the counter key's newest readable event, or null if none. */
+/**
+ * The highest `next` among the counter key's readable events, or null if none.
+ * Not the newest: the counter only grows, so a newer, lower copy (published
+ * after a read that missed the latest) must not win (#140).
+ */
 export async function readCounter(
   events: readonly Event[],
   root: Uint8Array
@@ -71,20 +75,20 @@ export async function readCounter(
         e.kind === COUNTER_KIND &&
         e.tags.some((t) => t[0] === 'd' && t[1] === COUNTER_D)
     )
-    .filter(signatureValid)
-    .sort(newestFirst);
+    .filter(signatureValid);
+  let highest: number | null = null;
   for (const e of mine) {
     try {
       const body = JSON.parse(nip44.decrypt(e.content, conversation)) as {
         v?: unknown;
         next?: unknown;
       };
-      if (body.v === 1 && isIndex(body.next)) return body.next;
+      if (body.v === 1 && isIndex(body.next)) highest = Math.max(highest ?? 0, body.next);
     } catch {
-      // unreadable: try an older one (a relay may still hold it)
+      // unreadable: the others still count
     }
   }
-  return null;
+  return highest;
 }
 
 export interface CounterSources {

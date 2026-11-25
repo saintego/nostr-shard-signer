@@ -12,6 +12,7 @@ export const flowDeps = (writes: BackgroundWrites<Event>, markerAddress?: string
   openList: (root) => openGlobalList(root),
   openCopies: (owner) => openEnvelopeCopies(owner),
   query: (filter) => queryRelays(filter),
+  queryAll: (filter) => queryRelays(filter, undefined, { all: true }), // before counter writes (#140)
   publish: writes.publish,
   defer: writes.track,
   ...(markerAddress ? { markerAddress } : {}),

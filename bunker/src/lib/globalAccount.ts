@@ -33,8 +33,10 @@ import type { SiteGrant } from './siteGrant';
 export interface AccountDeps {
   /** Opens the global list for the root (Evolu in memory, globalList.ts). */
   readonly openList: (root: Uint8Array) => Promise<GlobalList>;
-  /** Events matching a filter on the signer's relays; null when none answered. */
+  /** Events matching a filter on the signer's relays; null when they can't say (#139). */
   readonly query: (filter: Filter) => Promise<Event[] | null>;
+  /** The same, waiting for every relay: before a write that builds on it (#140). Default: `query`. */
+  readonly queryAll?: (filter: Filter) => Promise<Event[] | null>;
   /** Publishes the signer's own events (relayPublish.ts). */
   readonly publish: (events: Event[]) => Promise<void>;
   readonly now?: () => number;
@@ -245,18 +247,40 @@ export async function openGlobalAccountFromRoot(
   };
   const find = (pubkey: string) => current.find((i) => i.pubkey === pubkey);
 
+  /**
+   * The counter from every relay (#140): what a counter write builds on.
+   * Undefined when the relays can't say; then no counter is written.
+   */
+  const fullCounter = async (): Promise<number | null | undefined> => {
+    const events = await (deps.queryAll ?? deps.query)(counterFilter(counterPub));
+    return events === null ? undefined : readCounter(events, root);
+  };
+  /** Publishes the counter: at least `next`, never below what any relay holds (D12, #140). */
+  const writeCounter = async (next: number, seen?: number | null) => {
+    const known = seen === undefined ? await fullCounter() : seen;
+    if (known === undefined) return; // can't read every relay: retried at a later sign-in
+    await deps.publish([await buildCounter(root, Math.max(next, known ?? 0), now())]);
+  };
+
   const create = async (label: string | null, profile?: NewProfile) => {
+    // A write follows: read the counter from every relay first (#140).
+    const relays = await fullCounter();
     // TODO(#87): the backup's counter joins these sources.
     const index = await nextIndex(
-      { relays: relayCounter, evolu: listNext(current), backup: null },
+      {
+        relays: relays === undefined ? relayCounter : relays,
+        evolu: listNext(current),
+        backup: null,
+      },
       usedOnRelays
     );
     const pubkey = await pubkeyOf(index);
     await list.addDerived(index, pubkey, origin, label);
     await list.pair(pubkey, origin);
     // Relays keep only the newest counter: never publish one without having
-    // read theirs, or a lower value could replace a higher one.
-    const events = counterEvents ? [await buildCounter(root, index + 1, now())] : [];
+    // read every relay's, or a lower value could replace a higher one (#140).
+    if (relays !== undefined) await writeCounter(index + 1, relays);
+    const events: Event[] = [];
     if (profile && (profile.name || profile.picture)) {
       const k = await deriveIdentity(root, index);
       events.push(
@@ -292,9 +316,7 @@ export async function openGlobalAccountFromRoot(
   // answer at creation, #136): write it now, from the synced list only.
   const listed = current.map((i) => i.index ?? 0);
   if (!isNew && complete && counterEvents !== null && relayCounter === null && listed.length > 0)
-    void buildCounter(root, Math.max(...listed) + 1, now())
-      .then((e) => deps.publish([e]))
-      .catch(() => {});
+    void writeCounter(Math.max(...listed) + 1).catch(() => {});
   const pubkey0 = await pubkeyOf(0);
   const profileFree = async (pubkey: string) => {
     // The lookup already saw no event at all by identity 0.
@@ -342,8 +364,7 @@ export async function openGlobalAccountFromRoot(
       await list.pair(pubkey, origin);
       // A new account gets its counter event at once: a witness on relays that
       // it exists (review 8, item 4); only after reading the relays' one.
-      if (isNew && counterEvents && relayCounter === null)
-        await deps.publish([await buildCounter(root, 1, now())]);
+      if (isNew && counterEvents && relayCounter === null) await writeCounter(1);
       await reload();
     },
     publishProfile: async (pubkey, profile) => {

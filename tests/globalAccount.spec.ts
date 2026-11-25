@@ -386,3 +386,32 @@ test('#136: a missing list of an account that only had identity 0 needs no quest
   expect(accountNext(await open(3), {})).toEqual({ kind: 'show' });
   expect((await open(null, false)).onlyIdentity0).toBe(false);
 });
+
+test('#140: the counter never goes down: read from every relay before writing, the highest wins', async () => {
+  const root = await deriveRoot(bytes(v.globalLoginKey));
+  const fast = await buildCounter(root, 3, 1_699_999_100); // newer, lower: published after a partial read
+  const slow = await buildCounter(root, 7, 1_699_999_000);
+  expect(await readCounter([fast, slow], root)).toBe(7);
+  const { list } = fakeList([row(0)], [{ origin: SITE, identityPubkey: id(0).pubkey }], 'Synced');
+  const { d, published } = deps(list, [fast]); // the quorum read sees only the fast relays
+  const account = await openGlobalAccount(bytes(v.globalLoginKey), SITE, {
+    ...d,
+    queryAll: async () => [fast, slow],
+  });
+  const created = await account.create(null);
+  expect(created.index).toBeGreaterThanOrEqual(7);
+  const counters = published.filter((e) =>
+    e.tags.some((t) => t[1] === 'nostr-shard-signer/counter')
+  );
+  expect(await readCounter(counters, root)).toBeGreaterThanOrEqual(8);
+  // Relays that can't say: no counter is written.
+  const silent = deps(fakeList([row(0)], [], 'Synced').list, [fast]);
+  const b = await openGlobalAccount(bytes(v.globalLoginKey), SITE, {
+    ...silent.d,
+    queryAll: async () => null,
+  });
+  await b.create(null);
+  expect(
+    silent.published.filter((e) => e.tags.some((t) => t[1] === 'nostr-shard-signer/counter'))
+  ).toEqual([]);
+});
