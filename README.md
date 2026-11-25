@@ -738,6 +738,7 @@ Separately, `NostrBridge.apiVersion` versions the page-facing API that `nostr-br
 
 | Message                                                        | When sent                              |
 | -------------------------------------------------------------- | -------------------------------------- |
+| `{ type: "SIGNER_PING", nonce: string }` | Firefox only, before anything else: the signer checks that this page embeds it. `nostr-bridge.js` answers `{ type: "SIGNER_PONG", nonce }`; a page that loads the signer some other way must too, within 2 s, or the signer reports `NOT_EMBEDDED` |
 | `{ type: "SIGNER_HELLO", protocol: number, oauth: "own"\|"shared"\|"none" }` | On load, once the protocol is accepted. `oauth`: the page's own `clientId`, [shared sign-in](#shared-sign-in-no-clientid), or no Google/Apple/X sign-in (signers from before shared sign-in don't send it) |
 | `{ type: "AUTH_STATE", loggedIn: bool, pubkey: string\|null }` | On iframe load (passive session check) |
 | `{ type: "AUTH_SUCCESS", pubkey: string }`                     | After user completes OAuth flow        |
