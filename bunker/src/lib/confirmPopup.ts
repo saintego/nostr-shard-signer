@@ -11,6 +11,7 @@
 
 import type { EvolustrAnswer, EvolustrPrompt } from '../types';
 import type { BackupMethod } from './backup';
+import { openerDocument, sameOpenerDocument } from './openerGuard';
 
 export const CONFIRM_PARAM = 'confirm';
 
@@ -123,6 +124,11 @@ export function serveConfirmPopup(onRequest: (r: ServedRequest | null) => void, 
         if (e.source !== opener || e.origin !== location.origin) return;
         const d = e.data as { type?: string; request?: ConfirmPopupRequest };
         if (d?.type !== 'CONFIRM_POPUP_REQUEST' || !d.request) return;
+        // Answers go only to the document that asked (#144).
+        const asked = openerDocument(opener);
+        const post = (msg: Record<string, unknown>) => {
+            if (sameOpenerDocument(opener, asked)) opener.postMessage(msg, location.origin);
+        };
         onRequest({
             request: d.request,
             answer: a => {

@@ -383,3 +383,39 @@ test('#137: bringing an account over waits for a backup or an explicit skip', as
     .poll(() => frame.evaluate(() => window.results.map((r) => r.error)))
     .toEqual(['BROUGHT_OVER']);
 });
+
+test("#144: the window sends nothing once the site navigated the widget's frame", async ({
+  page,
+  pages,
+}) => {
+  pages.set('signer:/elsewhere', '<!doctype html><title>Another page on the signer origin</title>');
+  const signer = await openApp(page, pages);
+  await signUp(page, signer);
+  const frame = page.frames().find((f) => f.url().includes('signer.html'));
+  const opened = page.waitForEvent('popup');
+  await frame.evaluate((site) => {
+    const key = 'ab'.repeat(32);
+    const w = window.open(`${location.pathname}?global-signin=1`, '_blank');
+    window.addEventListener('message', (e) => {
+      if (e.source === w && e.data?.type === 'NSS_GLOBAL_READY')
+        w.postMessage(
+          { type: 'NSS_GLOBAL_REQUEST', site, intent: 'bring-over', siteKey: key },
+          location.origin
+        );
+    });
+  }, SECURE_SIGNER_ORIGIN);
+  const popup = await opened;
+  await popup.getByRole('button', { name: 'Fake google' }).click();
+  await expect(popup.getByText('Back up the account you brought over')).toBeVisible({
+    timeout: 20000,
+  });
+  // The site puts another page of the signer's origin in the widget's frame.
+  await page.evaluate((url) => {
+    document.querySelector('#nostr-signer-iframe').src = url;
+  }, `${SECURE_SIGNER_ORIGIN}/elsewhere`);
+  await expect.poll(() => page.frames().some((f) => f.url().endsWith('/elsewhere'))).toBe(true);
+  await popup.getByRole('button', { name: 'Skip: I may lose this account' }).click();
+  await expect(
+    popup.getByText(/changed while you were signing in, so nothing was sent/)
+  ).toBeVisible();
+});

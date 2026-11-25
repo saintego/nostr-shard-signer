@@ -21,6 +21,8 @@ export const globalSignInMessages = defineMessages('globalSignIn', {
   close: 'Close',
   retry: 'Try again',
   back: 'Back',
+  openerChanged:
+    'The page that asked for this sign-in changed while you were signing in, so nothing was sent to it. Close this window and try again from the site.',
   paused:
     'The shared sign-in changed in a way this signer didn’t expect, so new sign-ins are paused to keep your keys safe. Sites you’re already signed in to keep working.',
   // What the window is doing (#110)

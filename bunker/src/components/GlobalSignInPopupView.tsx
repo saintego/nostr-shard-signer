@@ -2,8 +2,8 @@ import type { Web3Auth } from '@web3auth/modal';
 import { useEffect, useRef, useState } from 'react';
 import { timed, withTimeout } from '../lib/backgroundWrites';
 import type { BackupMethod } from '../lib/backup';
-import type { GlobalAccount, NewProfile } from '../lib/globalAccount';
-import { type GlobalOptions, type GlobalResult, serveGlobalPopup } from '../lib/globalPopup';
+import type { GlobalAccount, } from '../lib/globalAccount';
+import { type GlobalOptions, serveGlobalPopup } from '../lib/globalPopup';
 import { format } from '../lib/i18n';
 import { fromHanded } from '../lib/inlineSignIn';
 import { halfDoneLink, linkRefusal, lookUp, restrictedGrant } from '../lib/linking';
@@ -16,6 +16,14 @@ import { useMessages } from '../lib/useMessages';
 import { closeAfterWrites, depsFor, writes } from '../lib/windowWrites';
 import { AccountQuestionView } from './AccountQuestionView';
 import { globalSignInMessages } from './GlobalSignInMessages';
+import {
+  type AccountStep,
+  hostOf,
+  type Reply,
+  reasonOf,
+  STEP_MAX_MS,
+  type State,
+} from './globalSignInState';
 import { LinkConfirmView, refusalText } from './LinkConfirmView';
 import { linkingMessages } from './LinkingMessages';
 import { NewAccountView } from './NewAccountView';
@@ -25,49 +33,6 @@ import { StoredBackupView } from './StoredBackupView';
 import { TestVersionNotice } from './TestVersionNotice';
 import { WelcomeBackView } from './WelcomeBackView';
 import './GlobalSignInPopup.css';
-
-type Reply = (result: Omit<GlobalResult, 'type'>) => void;
-/** The most a step after the provider's login may take before the window says so (#110). */
-const STEP_MAX_MS = 25000;
-type AccountStep = Extract<Step, { step: 'account' }>;
-
-type State =
-  | { step: 'waiting' }
-  | { step: 'refused' }
-  | { step: 'ready'; site: string }
-  | { step: 'working'; site: string; phase: Phase }
-  /** A new account: its first identity, with the sign-in account's name and picture or not. */
-  | {
-      step: 'new-account';
-      site: string;
-      account: GlobalAccount;
-      profile: NewProfile;
-      pubkey: string;
-    }
-  | ({ site: string } & Step)
-  /** Before sealing a link: who is being linked (review 8, item 7), or why it can't be. */
-  | ({
-      step: 'link-confirm';
-      site: string;
-      candidate: PopupLogin;
-      refused: string | null;
-      /** The version of an envelope the candidate already has (a link left half-done). */
-      after?: number;
-    } & Omit<AccountStep, 'step'>)
-  | { step: 'failed'; site: string; reason: string }
-  | { step: 'done'; site: string; broughtOver?: boolean }
-  // After a bring-over: back up, or skip knowingly (#137).
-  | (Omit<AccountStep, 'step'> & { step: 'stored-backup'; site: string });
-
-const hostOf = (origin: string) => {
-  try {
-    return new URL(origin).host;
-  } catch {
-    return origin;
-  }
-};
-
-const reasonOf = (e: unknown) => (e as Error)?.message ?? String(e);
 
 /**
  * The signer's popup for the global sign-in (#80, #84, #98). Serves only the
@@ -166,6 +131,13 @@ export function GlobalSignInPopupView() {
     }
   };
 
+  /** Answers the widget; false, and says so, when its frame changed since it asked (#144). */
+  const send = (site: string, result: Parameters<Reply>[0]) => {
+    if (replyRef.current?.(result)) return true;
+    setState({ step: 'failed', site, reason: m.openerChanged });
+    return false;
+  };
+
   /** Hands the site its grant (or tells it no identity is left), then wipes the root. */
   const finish = async (site: string, pubkey: string | 'none') => {
     const account = accountRef.current;
@@ -175,16 +147,13 @@ export function GlobalSignInPopupView() {
       if (pubkey === 'none') {
         // Leaving the global account on this site: "unpaired" on own-clientId sites (D7).
         await account.leaveSite();
-        replyRef.current?.({ error: 'NO_IDENTITY' });
+        if (!send(site, { error: 'NO_IDENTITY' })) return;
       } else {
         const grant = await withTimeout(account.grant(pubkey), STEP_MAX_MS, phaseError('saving'));
         const backedUp = backedUpRef.current;
         const marker = await account.siteMarker();
-        replyRef.current?.({
-          grant,
-          ...(backedUp ? { backedUp } : {}),
-          ...(marker ? { marker } : {}),
-        });
+        const reply = { grant, ...(backedUp ? { backedUp } : {}), ...(marker ? { marker } : {}) };
+        if (!send(site, reply)) return;
       }
       setState({ step: 'done', site });
       closeAfterWrites(1200);
@@ -200,10 +169,10 @@ export function GlobalSignInPopupView() {
   /** The bring-over is done (backed up or skipped): tell the site, and close. */
   const broughtOver = (site: string, account: GlobalAccount) => {
     bringOverRef.current = false;
-    replyRef.current?.({ error: 'BROUGHT_OVER' });
-    setState({ step: 'done', site, broughtOver: true });
     accountRef.current = null;
     writes.track(account.close());
+    if (!send(site, { error: 'BROUGHT_OVER' })) return;
+    setState({ step: 'done', site, broughtOver: true });
     closeAfterWrites(2500);
   };
 
@@ -388,7 +357,8 @@ export function GlobalSignInPopupView() {
             busy={busy}
             onUse={(pubkey) =>
               void run(s.site, async () => {
-                replyRef.current?.({ grant: await restrictedGrant(s.envelope, s.site, pubkey) });
+                if (!send(s.site, { grant: await restrictedGrant(s.envelope, s.site, pubkey) }))
+                  return;
                 setState({ step: 'done', site: s.site });
                 closeAfterWrites(1200);
               })

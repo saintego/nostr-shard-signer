@@ -14,9 +14,16 @@ const A = getPublicKey(Buffer.from(keyA, 'hex'));
 const B = getPublicKey(Buffer.from(keyB, 'hex'));
 
 test("the widget switches between the site's identities; the page sees each switch", async ({
+  context,
   page,
   pages,
 }) => {
+  // The window's request, so the fake answer can carry its nonce (#144).
+  await context.addInitScript(() =>
+    window.addEventListener('message', (e) => {
+      if (e.data?.type === 'NSS_GLOBAL_REQUEST') window.lastRequest = e.data;
+    })
+  );
   pages.set('/', bridgePage);
   await page.goto(`${LOCAL_APP}/`);
   await page.evaluate((bunkerOrigin) => {
@@ -31,9 +38,14 @@ test("the widget switches between the site's identities; the page sees each swit
   await signer.getByRole('button', { name: /^Continue with Google/ }).click();
   const popup = await popupOpened;
   await expect(popup.getByText('For localhost:4173')).toBeVisible();
-  // What the popup hands over after Welcome back: two identities, A active.
+  // What the popup hands over after Welcome back: two identities, A active,
+  // with the request's nonce (#144), caught by the init script below.
   await popup.evaluate(
-    (grant) => window.opener.postMessage({ type: 'NSS_GLOBAL_RESULT', grant }, location.origin),
+    (grant) =>
+      window.opener.postMessage(
+        { type: 'NSS_GLOBAL_RESULT', grant, nonce: window.lastRequest?.nonce },
+        location.origin
+      ),
     {
       storeKey: 'ab'.repeat(32),
       identities: [
