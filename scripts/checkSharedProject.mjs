@@ -72,8 +72,17 @@ const connectionProblems = [];
 if (Array.isArray(expected.connections)) {
   const want = new Set(expected.connections);
   const have = new Set(connectionsNow);
-  for (const c of have) if (!want.has(c)) connectionProblems.push(`connection added or changed: ${c}`);
-  for (const c of want) if (!have.has(c)) connectionProblems.push(`connection removed or changed: ${c}`);
+  // A sign-in's key comes from its group: a connection added to a group already
+  // listed (or a listed one changed) could sign in as those users. A new
+  // connection in a group of its own only gives new accounts: reported, not failed.
+  const groupOf = (c) => c.split(':')[1];
+  const wantGroups = new Set([...want].map(groupOf));
+  for (const c of have) {
+    if (want.has(c)) continue;
+    if (wantGroups.has(groupOf(c))) connectionProblems.push(`connection joins or changes a listed group: ${c}`);
+    else console.log(`New sign-in method (new accounts only; add it to the expected list): ${c}`);
+  }
+  for (const c of want) if (!have.has(c)) connectionProblems.push(`connection removed or changed (its users would get other keys): ${c}`);
 } else {
   console.log(`No "connections" in the expected list for "${which}"; to freeze them, add:\n${JSON.stringify(connectionsNow, null, 2)}`);
 }
