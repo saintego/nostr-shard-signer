@@ -35,9 +35,10 @@ export async function sharedIdentity(login: KeyMaterial, index = 0): Promise<Key
 
 /** An identity to hand a site: derived (by index) and its label. */
 /** An identity to hand a site: derived (by index) or stored (D9: its key), and its label. */
-export type ChosenIdentity =
+export type ChosenIdentity = (
   | { readonly index: number; readonly label: string | null }
-  | { readonly storedKey: string; readonly label: string | null };
+  | { readonly storedKey: string; readonly label: string | null }
+) & { readonly usedElsewhere?: boolean };
 
 const hexToBytes = (h: string) =>
   Uint8Array.from(h.match(/../g) ?? [], (x) => Number.parseInt(x, 16));
@@ -48,6 +49,9 @@ const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2,
  * keys, `active` first unless named. The root is the caller's (the popup's),
  * not wiped here.
  */
+/** The grant's "used elsewhere" flag, only when set (D13). */
+const elsewhere = (c: ChosenIdentity) => (c.usedElsewhere ? { usedElsewhere: true as const } : {});
+
 export async function grantFromRoot(
   root: Uint8Array,
   site: string,
@@ -59,11 +63,21 @@ export async function grantFromRoot(
   for (const chosen of identities) {
     if ('storedKey' in chosen) {
       const pubkey = getPublicKey(hexToBytes(chosen.storedKey));
-      granted.push({ secretKey: chosen.storedKey, pubkey, label: chosen.label });
+      granted.push({
+        secretKey: chosen.storedKey,
+        pubkey,
+        label: chosen.label,
+        ...elsewhere(chosen),
+      });
       continue;
     }
     const key = await deriveIdentity(root, chosen.index);
-    granted.push({ secretKey: toHex(key), pubkey: getPublicKey(key), label: chosen.label });
+    granted.push({
+      secretKey: toHex(key),
+      pubkey: getPublicKey(key),
+      label: chosen.label,
+      ...elsewhere(chosen),
+    });
     key.fill(0);
   }
   const storeKey = await deriveStoreKey(root, site);

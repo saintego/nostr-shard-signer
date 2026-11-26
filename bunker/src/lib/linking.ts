@@ -352,7 +352,15 @@ export async function restrictedGrant(
   const storeKey = await deriveStoreKey(fromHex(envelope.storeSecret), site);
   const grant = {
     storeKey: toHex(storeKey),
-    identities: [{ secretKey: chosen.secretKey, pubkey: chosen.pubkey, label: chosen.label }],
+    // Opened by a restricted link: its key is with another sign-in too (D13).
+    identities: [
+      {
+        secretKey: chosen.secretKey,
+        pubkey: chosen.pubkey,
+        label: chosen.label,
+        usedElsewhere: true as const,
+      },
+    ],
     active: chosen.pubkey,
   };
   storeKey.fill(0);

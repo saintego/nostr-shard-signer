@@ -435,8 +435,8 @@ export async function openGlobalAccountFromRoot(
         origin,
         chosen.map((i) =>
           i.storedKey !== null
-            ? { storedKey: i.storedKey, label: i.label }
-            : { index: i.index as number, label: i.label }
+            ? { storedKey: i.storedKey, label: i.label, usedElsewhere: i.usedElsewhere }
+            : { index: i.index as number, label: i.label, usedElsewhere: i.usedElsewhere }
         ),
         activePubkey
       );
@@ -481,6 +481,15 @@ export async function openGlobalAccountFromRoot(
         linkingDeps()
       );
       await list.saveLink(record);
+      // A restricted link hands these keys to another sign-in: rewrites of
+      // their data ask from now on (D13, decided for #145).
+      if (scope !== 'full')
+        for (const pubkey of scope)
+          await list.markUsedElsewhere(
+            pubkey,
+            current.find((i) => i.pubkey === pubkey)?.index ?? null
+          );
+      current = forScope(await list.load());
       links = await list.links();
     },
     unlink: async (pointerPubkey) => {

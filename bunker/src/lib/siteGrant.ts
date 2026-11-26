@@ -11,6 +11,12 @@ export interface GrantedIdentity {
   readonly secretKey: string;
   readonly pubkey: string;
   readonly label: string | null;
+  /**
+   * Its key also exists outside this site's sign-in: exported, brought over,
+   * imported, or opened by a restricted link (D9, D13). Rewrites of its
+   * replaceable data and lists then ask.
+   */
+  readonly usedElsewhere?: true;
 }
 
 export interface SiteGrant {
@@ -27,7 +33,12 @@ function parseIdentity(value: unknown): GrantedIdentity | null {
   const v = value as Partial<GrantedIdentity> | null;
   if (!v || !isHex64(v.secretKey) || !isHex64(v.pubkey)) return null;
   const label = typeof v.label === 'string' ? v.label.slice(0, MAX_LABEL) : null;
-  return { secretKey: v.secretKey, pubkey: v.pubkey, label };
+  return {
+    secretKey: v.secretKey,
+    pubkey: v.pubkey,
+    label,
+    ...(v.usedElsewhere === true ? { usedElsewhere: true as const } : {}),
+  };
 }
 
 /** A grant checked field by field (from the popup, or read back from the cache). */

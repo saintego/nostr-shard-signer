@@ -124,6 +124,8 @@ export async function keepAnswer(
           ...(checked ? { marker: checked } : {}),
         };
   await saveSiteCache(cache, slot);
+  // Keys that also exist elsewhere: this site's rewrites of their data ask (D13).
+  for (const i of grant.identities) if (i.usedElsewhere) markUsedElsewhere(i.pubkey);
   if (slot.kind === 'site') {
     setLastLogin(slot.loginHash);
     resendMarker(cache);

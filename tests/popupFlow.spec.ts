@@ -139,3 +139,22 @@ test('#138: in the site’s frame, the account keeps only what this site needs',
   if (inWindow.step !== 'account') throw new Error(inWindow.step);
   expect(inWindow.account.links.map((l) => l.provider)).toEqual(['apple']);
 });
+
+test('#145: identities opened by a restricted link count as used elsewhere; the grant says so', async () => {
+  const { parseSiteGrant } = await import('../bunker/src/lib/siteGrant.ts');
+  const w = world();
+  const google = login('google', 'a…@gmail.com');
+  const own = await openOwn(google, SITE, w.deps);
+  if (own.step !== 'account') throw new Error(own.step);
+  const id0 = own.account.list[0]?.pubkey ?? '';
+  await own.account.pair(id0);
+  expect((await own.account.grant(id0)).identities[0]?.usedElsewhere).toBeUndefined();
+  await own.account.link(login('apple', 'a…@icloud.com').login, [id0]);
+  expect(own.account.list[0]?.usedElsewhere).toBe(true);
+  const grant = await own.account.grant(id0);
+  expect(grant.identities[0]?.usedElsewhere).toBe(true);
+  // The widget reads it back from the answer (and its cache) unchanged.
+  expect(parseSiteGrant(JSON.parse(JSON.stringify(grant)))?.identities[0]?.usedElsewhere).toBe(
+    true
+  );
+});

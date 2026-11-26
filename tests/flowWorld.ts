@@ -64,7 +64,9 @@ export function world() {
         saveLink: async (l) => {
           st.links.push(l);
         },
-        markUsedElsewhere: async () => {},
+        markUsedElsewhere: async (pubkey) => {
+          st.rows = st.rows.map((r) => (r.pubkey === pubkey ? { ...r, usedElsewhere: 'x' } : r));
+        },
         close: async () => 'Synced',
       };
     },
