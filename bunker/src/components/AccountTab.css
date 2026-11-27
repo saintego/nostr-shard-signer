@@ -11,3 +11,15 @@
 .account-tab > .np-hint {
   margin: 0 0 var(--np-space-2);
 }
+/* Safari's one-time notice (#75 day 8): text and "Got it" on one line, so
+   Log out stays in view (#132). */
+.account-tab > .safari-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--np-space-2);
+  padding: var(--np-space-2) var(--np-space-3);
+  margin: 0;
+}
+.account-tab > .safari-notice > .np-button {
+  flex: none;
+}

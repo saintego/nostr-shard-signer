@@ -226,6 +226,7 @@ export function ProfileModal({
                             onBackUp={onBackUp}
                             onLogout={onLogout}
                             extra={<OpenInTab onOpenTab={onOpenTab} />}
+                            keepsSignIn
                         />
                     )}
 

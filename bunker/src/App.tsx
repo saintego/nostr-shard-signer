@@ -13,6 +13,7 @@ import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
 import { sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
 import { isBlockedBySignedList, signOutOnThisSite } from './lib/sharedSignIn';
 import { acceptedWnjPubkey } from './lib/wnjSession';
+import { safariNoticeDue } from './lib/safariNotice';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
 import { useSharedSignIn } from './useSharedSignIn';
 import { useSyncedApps } from './useSyncedApps';
@@ -762,7 +763,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             // in 'loading' view until one of the events fires.
             const w3aEmitter = w3aAny;
 
-
             const cleanup = (safetyTimer: ReturnType<typeof setTimeout>) => {
                 clearTimeout(safetyTimer);
                 w3aEmitter.removeListener('connected', onConnected);
@@ -1147,5 +1147,5 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     // Default: avatar view
     const avatarUrl = userProfile.picture || DEFAULT_AVATAR;
-    return <AvatarView avatarUrl={avatarUrl} attention={backupAsk} onClick={() => setView('profile')} />;
+    return <AvatarView avatarUrl={avatarUrl} attention={backupAsk || (!wnjPubkey && safariNoticeDue())} onClick={() => setView('profile')} />;
 }

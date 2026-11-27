@@ -15,6 +15,7 @@ Shared sign-in, what to tell the developer:
 - It works on any site, with no Web3Auth account and no registration. A user gets the same npub on every site that uses it.
 - It is free while donations cover the shared project's Web3Auth bill, and may later be limited per site, become paid, or be turned off.
 - Moving a live app from shared sign-in to its own `clientId` (or back) gives its OAuth users new, empty npubs. If the app will need its own keys or predictable costs, start with its own `clientId`.
+- Safari and every iPhone/iPad browser delete a site's stored data after about a week unused, the widget's too: users sign in again and get the same identities.
 - Whoever runs the hosted signer can obtain shared-mode users' keys: everyone who can change the code served on the signer's origin (repository write access, CI and its secrets, the hosting provider, the build's dependencies). The shared project's Web3Auth allowlist lists only the signer's origin, so sites can't. If a site is added to it, the signer pauses new shared sign-ins ("Sign-in paused"; sites already signed in keep working).
 - The operator can block a single site from it (warning `SHARED_BLOCKED`); that site keeps extension and bunker sign-in.
 - Users back up the whole account (master key and backup file) in the sign-in window, and restore only at `<signer>/restore/`, a page they open themselves. Apps can't start either; don't build flows around them.

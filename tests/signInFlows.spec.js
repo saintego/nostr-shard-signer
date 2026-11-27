@@ -419,3 +419,31 @@ test("#144: the window sends nothing once the site navigated the widget's frame"
     popup.getByText(/changed while you were signing in, so nothing was sent/)
   ).toBeVisible();
 });
+
+test.describe('in Safari (#75 day 8)', () => {
+  test.use({
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 27_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Mobile/15E148 Safari/604.1',
+  });
+
+  test('the user is told once that Safari signs them out of unused sites', async ({
+    page,
+    pages,
+  }) => {
+    const signer = await openApp(page, pages);
+    await signUp(page, signer);
+    // The dot on the avatar, then the notice in the Account tab.
+    await expect(signer.getByRole('button', { name: /Open Nostr profile/ })).toBeVisible();
+    await signer.getByRole('button', { name: /Open Nostr profile/ }).click();
+    const notice = signer.getByText(/Safari signs you out of sites unused for a week/);
+    await expect(notice).toBeVisible();
+    await snap(page, 'safari notice');
+    await signer.getByRole('button', { name: 'Got it' }).click();
+    await expect(notice).toHaveCount(0);
+    // Once: not again on the next visit to the tab.
+    await signer.getByRole('button', { name: 'Close' }).first().click();
+    await signer.getByRole('button', { name: /Open Nostr profile/ }).click();
+    await expect(signer.getByRole('button', { name: 'Log out' }).first()).toBeVisible();
+    await expect(notice).toHaveCount(0);
+  });
+});
