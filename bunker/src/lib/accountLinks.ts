@@ -95,10 +95,7 @@ export async function openAccountLinks(
       // their data ask from now on (D13, decided for #145).
       if (scope !== 'full')
         for (const pk of scope)
-          await list.markUsedElsewhere(
-            pk,
-            listed().find((i) => i.pubkey === pk)?.index ?? null
-          );
+          await list.markUsedElsewhere(pk, listed().find((i) => i.pubkey === pk)?.index ?? null);
       links = await list.links();
     },
     unlink: async (pointerPubkey: string) => {
