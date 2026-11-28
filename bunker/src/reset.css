@@ -1,0 +1,7 @@
+/* The base reset, in a layer under @nostr-post/ui's (np.*): index.html
+   declares the order (`@layer reset, np;`) before any stylesheet loads.
+   Unlayered, it beat every primitive's padding and margins whatever their
+   specificity (#107). */
+@layer reset {
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+}

@@ -28,15 +28,21 @@
  *   <script src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"></script>
  *   <script>
  *     NostrBridge.init({
- *       // Everything is optional. Without clientId, users sign in with a NIP-07
- *       // extension or a NIP-46 bunker only.
- *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // adds Google/Apple/X sign-in; allowlist your origin in Web3Auth
+ *       // Everything is optional. Without clientId, Google/Apple/X sign-in goes
+ *       // through the hosted signer's shared project (free while donations cover
+ *       // it; may be limited or become paid), next to NIP-07 extensions and
+ *       // NIP-46 bunkers.
+ *       clientId:       "YOUR_WEB3AUTH_CLIENT_ID",    // your own Web3Auth project for Google/Apple/X; allowlist your origin in Web3Auth
+ *       nostrOnly:      false,                        // true: extension or bunker sign-in only, no Google/Apple/X
+ *       globalLogin:    "offer",                      // with clientId: "offer" | "off" | "require" the user's global account
  *       bunkerOrigin:   "https://yourdomain.com/path",// self-hosted signer; defaults to the hosted one
  *       forceIframe:    false,                        // skip native extensions if true
  *       layout:         "floating",                   // "floating" | "in-place"
  *       buttonSize:     "standard",                   // "standard" | "large_social_grid"
  *       mountSelector:  "#nostr-btn",                 // only used when layout === "in-place"
  *       poweredBy:      true,                         // false hides the library link on the sign-in sheet
+ *       locale:         "es",                         // the widget's language, if the signer has it
+ *       signInUi:       "panel",                      // shared sign-in: "panel" (Web3Auth's, in the widget) | "buttons" (the signer's own, in its window)
  *     });
  *   </script>
  *
@@ -46,10 +52,11 @@
  *                            in place of this script tag and NostrBridge.init(config).
  *
  * Or let the script tag carry the config (init() runs automatically when the
- * tag has any of the data-* options, e.g. data-layout alone for Nostr-only sign-in):
+ * tag has any of the data-* options, e.g. data-layout alone for the defaults):
  *
  *   <script src=".../nostr-bridge.js" data-client-id="YOUR_WEB3AUTH_CLIENT_ID"
  *           data-layout="floating"></script>
+ *   <script src=".../nostr-bridge.js" data-nostr-only="true"></script>
  *
  * init() is idempotent: later calls return the first call's promise.
  * NostrBridge.ready resolves once it has completed.
@@ -121,16 +128,29 @@
   const SIGNER_ERROR_HINTS = {
     CLIENT_ID_NOT_FOUND:
       "Copy the Client ID of your Sapphire Mainnet project from the Web3Auth dashboard, " +
-      "or leave clientId out for Nostr-only sign-in.",
+      "or leave clientId out to use the hosted signer's shared sign-in.",
     DOMAIN_NOT_REGISTERED:
       "Register this page's origin for your clientId in the portal (" + PORTAL_URL + "), using " +
       "the Update Domains tab if the clientId is already registered, or add it to " +
       WEB3AUTH_ALLOWLIST + ". Either one authorizes it. The registry lookup is cached per tab, " +
       "so reload in a new tab afterwards.",
+    KEY_EXPORT_OFF:
+      "Your Web3Auth project has key export turned off, so it can't give users Nostr keys. Turn " +
+      "it on in the project's settings in the Web3Auth dashboard, or leave " +
+      "clientId out to use the hosted signer's shared sign-in. Extensions and bunkers still work.",
+    SHARED_SIGN_IN_PAUSED:
+      "The hosted signer's shared Web3Auth project changed unexpectedly (a site was added to its " +
+      "allowlist, or key export was turned off), so the signer paused new shared sign-ins to keep " +
+      "users' keys safe. Users already signed in, extensions and bunkers keep working. Nothing to " +
+      "fix on this page; pass your own clientId to avoid depending on the shared project.",
+    NESTED_FRAME:
+      "The page using the signer must be the top-level window. Inside another site's frame it " +
+      "can't sign in, so that site can't hide or cover the signer's prompts. Open the app in its own tab.",
     NO_SIGN_IN_METHOD:
-      "Without a clientId, users sign in with a NIP-07 extension or a NIP-46 bunker through " +
-      "window.nostr.js, and neither is available (window.nostr.js failed to load). Pass a " +
-      "clientId to offer Google/Apple/X sign-in.",
+      "This signer offers no Google/Apple/X sign-in to this page (nostrOnly, or no shared " +
+      "sign-in on this signer), and no NIP-07 extension or NIP-46 bunker is available " +
+      "(window.nostr.js failed to load, or forceIframe skipped it). Pass a clientId to offer " +
+      "Google/Apple/X sign-in.",
     WEB3AUTH_INIT_FAILED:
       "Check that clientId is your Web3Auth client ID and that the signer origin (" +
       "https://saintego.github.io for the hosted signer) is in " + WEB3AUTH_ALLOWLIST + ".",
@@ -139,7 +159,8 @@
       "allowlist can authorize this origin. Omit bunkerOrigin to use the hosted signer, or rebuild " +
       "your self-hosted signer with its registrar's key.",
     NOT_EMBEDDED:
-      "signer.html only works inside the iframe that nostr-bridge.js creates; do not open or embed it directly.",
+      "signer.html only works inside the iframe that nostr-bridge.js creates; do not open or embed it directly. " +
+      "In Firefox, also update a copied or pinned nostr-bridge.js: the signer checks the page that embeds it.",
     PROTOCOL_UNSUPPORTED:
       "This nostr-bridge.js and the signer at bunkerOrigin are different versions. Load " +
       "nostr-bridge.js from the signer's own origin (<bunkerOrigin>/nostr-bridge.js), or use " +
@@ -153,6 +174,9 @@
     NOT_ALLOWLISTED:
       "Sign-in works because the origin is in the NIP-33 registry. Also add it to " +
       WEB3AUTH_ALLOWLIST + ".",
+    SHARED_BLOCKED:
+      "The hosted signer's operator turned shared sign-in off for this site. Extension and " +
+      "bunker sign-in still work. For Google/Apple/X, pass your own Web3Auth clientId.",
   };
 
   // ── State ────────────────────────────────────────────────────────────────────
@@ -184,6 +208,12 @@
   let resolveIframeLoaded; // resolves once the signer iframe fires "load"
   const iframeLoaded = new Promise(function (resolve) {
     resolveIframeLoaded = resolve;
+  });
+  // The iframe's app has reported its own state (AUTH_STATE / AUTH_SUCCESS): it
+  // is listening and done restoring. Before that a LOGOUT is lost (#121).
+  let resolveIframeAnswered;
+  const iframeAnswered = new Promise(function (resolve) {
+    resolveIframeAnswered = resolve;
   });
   let signerSession = null; // pubkey the signer iframe reports signed in (any mode)
   let signerSessionWaiters = []; // Evolustr calls waiting for signerSession
@@ -307,6 +337,15 @@
     url.searchParams.set("protocol", String(PROTOCOL_VERSION));
     // Only sent to turn the link off, so signers default to showing it.
     if (config.poweredBy === false) url.searchParams.set("poweredBy", "0");
+    if (config.nostrOnly) url.searchParams.set("nostrOnly", "1");
+    // Sites with their own clientId: whether users may use their global account.
+    if (config.globalLogin === "off" || config.globalLogin === "require")
+      url.searchParams.set("globalLogin", config.globalLogin);
+    // A language code only: the signer shows it if it has that language.
+    if (typeof config.locale === "string" && /^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$/.test(config.locale))
+      url.searchParams.set("locale", config.locale);
+    // The only choice a page has over the sign-in window: the signer's own buttons (#113).
+    if (config.signInUi === "buttons") url.searchParams.set("signInUi", "buttons");
     // Tells the signer to offer a Nostr signer in its sign-in chooser; picking
     // it posts OPEN_NOSTR_SIGNER back so we open window.nostr.js or ask the
     // extension. "extension" changes the option's label.
@@ -391,6 +430,18 @@
   // (origin === "", kept for existing consumers), a "nostr-bridge:auth"
   // CustomEvent, and NostrBridge.onAuthChange callbacks. The last two only fire
   // when the state actually changes.
+  // A saved Web3Auth session didn't come back (expired, or the signer has no
+  // Web3Auth for this page): show the page signed out.
+  function endSessionRestore() {
+    if (!sessionRestoreProtect) return; // already cleared by AUTH_SUCCESS
+    sessionRestoreProtect = false;
+    authState = "loggedOut";
+    currentPubkey = null;
+    clearSession();
+    applySize("button");
+    emitAuthState(false, null);
+  }
+
   function emitAuthState(loggedIn, pubkey) {
     loggedIn = !!loggedIn;
     pubkey = loggedIn ? pubkey || null : null;
@@ -470,8 +521,16 @@
     const data = event.data;
     if (!data || typeof data !== "object") return;
 
+    // The signer's check that this page embeds it, where the browser can't tell
+    // it (Firefox, #67): answer with its nonce, to its origin only.
+    if (data.type === "SIGNER_PING" && typeof data.nonce === "string") {
+      event.source.postMessage({ type: "SIGNER_PONG", nonce: data.nonce }, event.origin);
+      return;
+    }
+
     // ── UI/State messages (custom schema) ────────────────────────────────────
     if (data.type === "AUTH_STATE" || data.type === "AUTH_SUCCESS") {
+      resolveIframeAnswered();
       setSignerSession(
         data.type === "AUTH_SUCCESS" || data.loggedIn ? data.pubkey || null : null,
       );
@@ -581,7 +640,9 @@
         "nostr-bridge: signer error " + code + ": " + message +
           (hint ? "\n→ " + hint : "") + "\nDocs: " + DOCS_URL,
       );
-      if (code !== "LOGIN_FAILED") {
+      // A failed login (key export off, or shared sign-in paused) leaves extension and
+      // bunker sign-in working.
+      if (code !== "LOGIN_FAILED" && code !== "KEY_EXPORT_OFF" && code !== "SHARED_SIGN_IN_PAUSED") {
         signerError = "nostr-bridge: signer error " + code + ": " + message;
         // Setup failed before the iframe reported AUTH_STATE: fail queued calls
         // now with the real cause instead of after the AUTH_STATE timeout. Not
@@ -606,6 +667,28 @@
           "nostr-bridge: signer speaks protocol " + data.protocol + ", this script " +
             PROTOCOL_VERSION + ".\n→ " + SIGNER_ERROR_HINTS.PROTOCOL_UNSUPPORTED,
         );
+      // Which Google/Apple/X sign-in the page gets: "own" clientId, the
+      // signer's "shared" project, or "none". Signers older than shared mode
+      // don't say; for them it follows from the clientId.
+      const oauth = data.oauth || (config.clientId ? "own" : "none");
+      if (!config.clientId && !config.nostrOnly) {
+        if (oauth === "shared")
+          console.info(
+            "nostr-bridge: no clientId, so Google/Apple/X sign-in goes through the signer's " +
+              "shared project: every site using it gives a user the same npub. It is free while " +
+              "donations cover it and may be limited or become paid. Pass your own clientId " +
+              "for keys of your own, or nostrOnly: true to turn it off (pages without a clientId " +
+              "were Nostr-only before shared sign-in). Docs: " + DOCS_URL,
+          );
+        else
+          console.warn(
+            "nostr-bridge: no clientId, so Google/Apple/X sign-in is off; users sign in with a " +
+              "Nostr extension or bunker. To offer social login, pass your Web3Auth client ID. " +
+              "Docs: " + DOCS_URL,
+          );
+      }
+      // A saved Web3Auth session can't come back without Web3Auth.
+      if (oauth === "none" && activeMode === MODE_IFRAME) endSessionRestore();
       return;
     }
     if (data.type === "EVOLUSTR_SIGN") {
@@ -1116,16 +1199,17 @@
       );
       delete userConfig.registrarUrl;
     }
-    if (!userConfig.clientId) {
-      console.warn(
-        "nostr-bridge: no clientId, so Google/Apple/X sign-in is off; users sign in with a " +
-          "Nostr extension or bunker. To offer social login, pass your Web3Auth client ID. " +
-          "Docs: " + DOCS_URL,
-      );
+    // Without a clientId, the signer says in SIGNER_HELLO whether the page
+    // gets its shared sign-in; the "no clientId" notice is logged then.
+    if (userConfig.nostrOnly) {
+      if (userConfig.clientId) {
+        console.warn("nostr-bridge: nostrOnly turns Google/Apple/X sign-in off; ignoring clientId.");
+        delete userConfig.clientId;
+      }
       // forceIframe skips the extension and window.nostr.js, which are the
       // only sign-in left without Web3Auth.
       if (userConfig.forceIframe) {
-        console.warn("nostr-bridge: forceIframe needs a clientId; ignoring it.");
+        console.warn("nostr-bridge: forceIframe needs Google/Apple/X sign-in; ignoring it with nostrOnly.");
         userConfig.forceIframe = false;
       }
     }
@@ -1166,8 +1250,10 @@
     // sessionRestoreProtect immediately prevents the iframe's bootstrap false
     // from wiping the saved WNJ session before we can use it.
     let savedSession = loadSession();
-    // A Web3Auth session can't be restored without a clientId.
-    if (savedSession && savedSession.mode !== MODE_WNJ && !config.clientId) {
+    // A Web3Auth session can't be restored on a Nostr-only page. Without a
+    // clientId it may come back through the shared project; SIGNER_HELLO
+    // ends the wait if the signer has none.
+    if (savedSession && savedSession.mode !== MODE_WNJ && config.nostrOnly) {
       clearSession();
       savedSession = null;
     }
@@ -1453,15 +1539,7 @@
         // AUTH_STATE:false while Web3Auth restores its own session in the background.
         // Safety net: if AUTH_SUCCESS never arrives (session truly expired),
         // expire the protection and notify the portal as disconnected.
-        setTimeout(function () {
-          if (!sessionRestoreProtect) return; // already cleared by AUTH_SUCCESS
-          sessionRestoreProtect = false;
-          authState = "loggedOut";
-          currentPubkey = null;
-          clearSession();
-          applySize("button");
-          emitAuthState(false, null);
-        }, IFRAME_AUTH_STATE_TIMEOUT_MS);
+        setTimeout(endSessionRestore, IFRAME_AUTH_STATE_TIMEOUT_MS);
       }
 
       // Notify the portal so it shows the connected state on reload.
@@ -1512,6 +1590,15 @@
     // A pending session restore would swallow the iframe's AUTH_STATE:false.
     sessionRestoreProtect = false;
     await iframeLoaded;
+    // After a reload the bridge restores its saved session at once, before the
+    // iframe has restored its own: a LOGOUT sent then was lost, and the site
+    // stayed signed in (#121). Wait for the iframe's own state first.
+    await Promise.race([
+      iframeAnswered,
+      new Promise(function (resolve) {
+        setTimeout(resolve, IFRAME_AUTH_STATE_TIMEOUT_MS);
+      }),
+    ]);
     await new Promise(function (resolve) {
       var done = false;
       var unsubscribe = function () {};
@@ -1544,8 +1631,8 @@
   // option) initializes itself; an explicit init() afterwards gets the same promise.
   function autoInit() {
     var ds = currentScript && currentScript.dataset;
-    var keys = ["clientId", "bunkerOrigin", "layout", "buttonSize", "mountSelector"];
-    var flags = ["forceIframe", "poweredBy"];
+    var keys = ["clientId", "bunkerOrigin", "layout", "buttonSize", "mountSelector", "locale", "globalLogin", "signInUi"];
+    var flags = ["forceIframe", "poweredBy", "nostrOnly"];
     if (!ds || !keys.concat(flags).some(function (key) { return ds[key] !== undefined; }))
       return;
     var cfg = {};

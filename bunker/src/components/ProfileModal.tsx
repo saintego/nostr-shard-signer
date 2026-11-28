@@ -1,9 +1,14 @@
+import { useMessages } from '../lib/useMessages';
+import { profileModalMessages } from './ProfileModalMessages';
 import { useState, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { UserProfile, KeyInfo } from '../types';
 import { KIND_GROUPS } from '../lib/approval';
+import { SUPPORT_URL } from '../lib/shared';
+import { TrustSetting } from './TrustSetting';
+import { AccountTab } from './AccountTab';
 
-type TabId = 'profile' | 'keys' | 'settings';
+type TabId = 'account' | 'profile' | 'keys' | 'settings';
 
 interface Props {
     keyInfo: KeyInfo;
@@ -13,17 +18,27 @@ interface Props {
     /** The host page; auto-approve settings apply to it only. */
     origin: string;
     isWnjMode?: boolean;
+    /** Signed in through the shared project (src/lib/shared.ts), not the app's own. */
+    shared?: boolean;
+    /** The secret key is shown only in the signer's window (#62, #130), not here. */
+    keyInWindow?: boolean;
     /** The user hasn't backed up their key yet: show the backup banner. */
     backupAsk?: boolean;
     onBackupLater?: () => void;
     onSaveProfile: (profile: UserProfile) => Promise<void>;
     onExportKey: () => void;
+    /** Shared sign-in: "Back up now" backs up the whole account in the popup (#87). */
+    onBackUp?: () => void;
     onLogout: () => void;
     onRelaysChange: (relays: string[]) => void;
     onAutoApproveChange: (kinds: Set<number>) => void;
     onClose: () => void;
     /** App data keys (Evolustr), shown in the settings. */
     evolustrSection?: ReactNode;
+    /** Opens the signer in its own tab (#90); call from the click. */
+    onOpenTab?: () => void;
+    /** This site's identities and switching (#84), shared sign-in only. */
+    identitySection?: ReactNode;
 }
 
 export function ProfileModal({
@@ -33,17 +48,23 @@ export function ProfileModal({
     autoApproveKinds,
     origin,
     isWnjMode = false,
+    shared = false,
+    keyInWindow = false,
     backupAsk = false,
     onBackupLater,
     onSaveProfile,
     onExportKey,
+    onBackUp,
     onLogout,
+    onOpenTab,
     onRelaysChange,
     onAutoApproveChange,
     onClose,
     evolustrSection,
+    identitySection,
 }: Props) {
-    const [activeTab, setActiveTab] = useState<TabId>('profile');
+    const m = useMessages(profileModalMessages);
+    const [activeTab, setActiveTab] = useState<TabId>('account');
 
     // --- Profile tab state ---
     const [name, setName] = useState(profile.name ?? '');
@@ -125,7 +146,7 @@ export function ProfileModal({
                 <div className="backup-banner">
                     <p>Back up your Nostr key, so you never lose this account.</p>
                     <div className="backup-banner-actions">
-                        <button className="action-btn btn-primary" onClick={onExportKey}>
+                        <button className="action-btn btn-primary" onClick={onBackUp ?? onExportKey}>
                             Back up now
                         </button>
                         <button className="action-btn btn-secondary" onClick={onBackupLater}>
@@ -138,6 +159,7 @@ export function ProfileModal({
             {/* ── WNJ profile mode: read-only view, no signing capabilities ── */}
             {isWnjMode ? (
                 <div className="tab-content">
+                    <p className="np-hint wnj-via">{m.viaExtension}</p>
                     <div className="key-section">
                         <label>Public key (npub)</label>
                         <div className="key-row">
@@ -173,6 +195,7 @@ export function ProfileModal({
                         Signing is handled by your connected extension or bunker.
                     </p>
                     {evolustrSection}
+                    <OpenInTab onOpenTab={onOpenTab} />
                     <div className="modal-actions">
                         <button className="action-btn btn-danger" onClick={onLogout}>
                             Log out
@@ -181,17 +204,31 @@ export function ProfileModal({
                 </div>
             ) : (
                 <>
-                    <div className="tab-bar">
-                        {(['profile', 'keys', 'settings'] as TabId[]).map(tab => (
+                    <div className="tab-bar" role="tablist">
+                        {(['account', 'profile', 'keys', 'settings'] as TabId[]).map(tab => (
                             <button
                                 key={tab}
+                                type="button"
+                                role="tab"
+                                aria-selected={activeTab === tab}
                                 className={`tab-btn${activeTab === tab ? ' active' : ''}`}
                                 onClick={() => setActiveTab(tab)}
                             >
-                                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                {{ account: m.tabAccount, profile: m.tabProfile, keys: m.tabKeys, settings: m.tabSettings }[tab]}
                             </button>
                         ))}
                     </div>
+
+                    {/* ── Account tab (#132): switching, back up, log out ── */}
+                    {activeTab === 'account' && (
+                        <AccountTab
+                            identitySection={identitySection}
+                            onBackUp={onBackUp}
+                            onLogout={onLogout}
+                            extra={<OpenInTab onOpenTab={onOpenTab} />}
+                            keepsSignIn
+                        />
+                    )}
 
                     {/* ── Profile tab ── */}
                     {activeTab === 'profile' && (
@@ -245,9 +282,6 @@ export function ProfileModal({
                                 >
                                     {saving ? 'Saving…' : 'Save to relays'}
                                 </button>
-                                <button className="action-btn btn-danger" onClick={onLogout}>
-                                    Log out
-                                </button>
                             </div>
                         </div>
                     )}
@@ -257,8 +291,17 @@ export function ProfileModal({
                         <div className="tab-content">
                             <div className="export-warning">
                                 ⚠️&ensp;Your secret key grants <strong>full control</strong> of your Nostr identity.
-                                Copying it doesn't take it away from this app: whoever runs it can still obtain it.
+                                Copying it doesn't take it away from {shared ? 'the shared sign-in you used' : 'this app'}:
+                                whoever runs it can still obtain it.
                             </div>
+                            {shared && (
+                                <p className="settings-hint">
+                                    You signed in through the shared sign-in of Nostr Shard Signer, so this
+                                    key is the same on every site that uses it. It is free while donations
+                                    cover its costs and may be limited or turned off, so keep a backup.
+                                    {SUPPORT_URL && <> <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">Support it</a></>}
+                                </p>
+                            )}
                             <div className="key-section">
                                 <label>Public key (npub)</label>
                                 <div className="key-row">
@@ -273,6 +316,9 @@ export function ProfileModal({
                                 </div>
                             </div>
 
+                            {keyInWindow ? (
+                                <p className="settings-hint">{m.keyInWindow}</p>
+                            ) : (
                             <div className="key-section">
                                 <label>Secret key (nsec)</label>
                                 <div className="key-row">
@@ -297,6 +343,7 @@ export function ProfileModal({
                                     )}
                                 </div>
                             </div>
+                            )}
 
                             <div className="modal-actions">
                                 <button className="action-btn btn-secondary" onClick={onExportKey}>
@@ -328,6 +375,8 @@ export function ProfileModal({
                                     </label>
                                 ))}
                             </section>
+
+                            <TrustSetting key={keyInfo.publicKeyHex} pubkey={keyInfo.publicKeyHex} site={site} />
 
                             <section className="settings-section">
                                 <h4>Publish relays</h4>
@@ -364,5 +413,17 @@ export function ProfileModal({
                 </>
             )}
         </div>
+    );
+}
+
+/** "Open in a new tab" (#90, #73 D24): an opt-in tool for careful users. */
+function OpenInTab({ onOpenTab }: { onOpenTab?: () => void }) {
+    const m = useMessages(profileModalMessages);
+    if (!onOpenTab) return null;
+    return (
+        <p className="settings-hint">
+            {m.openInTabHint}{' '}
+            <button type="button" className="np-button np-text np-small" onClick={onOpenTab}>{m.openInTab}</button>
+        </p>
     );
 }

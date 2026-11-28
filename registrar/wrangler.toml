@@ -23,6 +23,9 @@ id      = "c18dbae47fb04780ae6848013e804979"
 # snort answers OK but never returns them (every sync "missing");
 # relay.nostr.net stopped answering.
 # Keep bunker/src/lib/nostr.ts DEFAULT_REGISTRY_RELAYS in step.
+# Emergency switch (#68): "true" accepts /register and /update without the
+# Web3Auth allowlist check while Web3Auth's settings can't be read. Off by default.
+# ALLOW_UNCHECKED = "true"
 RELAY_URLS = "wss://nos.lol,wss://nostr.mom,wss://relay.primal.net,wss://nostr.bitcoiner.social,wss://nostr.oxtr.dev,wss://offchain.pub"
 
 # Daily registry sync: re-sends registry events to relays that lost or missed

@@ -1,7 +1,14 @@
-import { Web3Auth, WEB3AUTH_NETWORK } from "@web3auth/modal";
-import { getPublicKey } from "nostr-tools";
-import { nsecEncode, npubEncode } from "nostr-tools/nip19";
-import { hexToBytes } from "./hex";
+import {
+  type AuthLoginParams,
+  authConnector,
+  WALLET_CONNECTORS,
+  WEB3AUTH_NETWORK,
+  Web3Auth,
+} from '@web3auth/modal';
+import { getPublicKey } from 'nostr-tools';
+import { npubEncode, nsecEncode } from 'nostr-tools/nip19';
+import { hexToBytes } from './hex';
+import { type SessionNames, SITE_SESSION } from './web3authSession';
 
 export interface KeyMaterial {
   privateKeyBytes: Uint8Array;
@@ -10,28 +17,96 @@ export interface KeyMaterial {
   npubStr: string;
 }
 
-export async function initWeb3Auth(clientId: string): Promise<Web3Auth> {
+/**
+ * Web3Auth's state storage under a prefix, in localStorage or sessionStorage.
+ * A class with plain fields (AGENTS.md exception): Web3Auth may copy its
+ * options between windows with postMessage, where closures can't go.
+ */
+class PrefixedStateStorage {
+  constructor(
+    readonly prefix: string,
+    readonly inSession: boolean
+  ) {}
+  private get store(): Storage {
+    return this.inSession ? sessionStorage : localStorage;
+  }
+  async get(key: string): Promise<string | null> {
+    return this.store.getItem(this.prefix + key);
+  }
+  async set(key: string, value: string): Promise<void> {
+    this.store.setItem(this.prefix + key, value);
+  }
+  async remove(key: string): Promise<void> {
+    this.store.removeItem(this.prefix + key);
+  }
+}
+
+/** Web3Auth options that give an instance its own names (#79, check C7). */
+function sessionOptions(names: SessionNames) {
+  if (names === SITE_SESSION) return {};
+  const state = new PrefixedStateStorage(names.statePrefix, names.stateIn === 'session');
+  return {
+    // Web3Auth's state (top-level `storage` covers only that).
+    storage: { sessionId: state, accessToken: state, refreshToken: state, idToken: state },
+    // The tokens: the auth connector's sessionKey renames them. Only plain
+    // values here: these settings are posted to Web3Auth's sign-in popup, and
+    // custom storage adapters there make Login hang (C16).
+    connectors: [authConnector({ connectorSettings: { sessionKey: names.sessionKey } })],
+  };
+}
+
+/** Languages Web3Auth's own sign-in panel has; others show it in English. */
+const PANEL_LANGUAGES = ['en', 'ja', 'ko', 'de', 'zh', 'es', 'fr', 'pt', 'nl', 'tr'] as const;
+type PanelLanguage = (typeof PANEL_LANGUAGES)[number];
+const panelLanguage = (locale: string): PanelLanguage => {
+  const base = locale.toLowerCase().split(/[-_]/)[0] ?? 'en';
+  return (PANEL_LANGUAGES as readonly string[]).includes(base) ? (base as PanelLanguage) : 'en';
+};
+
+/**
+ * Web3Auth's panel settings (#113). `modalConfig` replaces Web3Auth's default,
+ * so the auth connector (every social and email sign-in) must be listed too:
+ * without it the panel was empty (#120). Wallets can't give a Nostr key.
+ */
+export const panelConfig = () => ({
+  hideWalletDiscovery: true,
+  connectors: {
+    [WALLET_CONNECTORS.AUTH]: { label: 'Auth', showOnModal: true },
+    [WALLET_CONNECTORS.METAMASK]: { label: 'MetaMask', showOnModal: false },
+    [WALLET_CONNECTORS.WALLET_CONNECT_V2]: { label: 'WalletConnect', showOnModal: false },
+    [WALLET_CONNECTORS.COINBASE]: { label: 'Coinbase', showOnModal: false },
+  },
+});
+
+export async function initWeb3Auth(
+  clientId: string,
+  names: SessionNames = SITE_SESSION,
+  network: 'sapphire_mainnet' | 'sapphire_devnet' = 'sapphire_mainnet',
+  /** The signer's language, for Web3Auth's own panel (#113). */
+  locale = 'en'
+): Promise<Web3Auth> {
   const instance = new Web3Auth({
     clientId,
-    web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
-    uiConfig: {
-      // loginMethodsOrder: ["google", "apple", "twitter", "email_passwordless"],
-    },
+    web3AuthNetwork:
+      network === 'sapphire_devnet'
+        ? WEB3AUTH_NETWORK.SAPPHIRE_DEVNET
+        : WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
+    uiConfig: { defaultLanguage: panelLanguage(locale) },
+    modalConfig: panelConfig(),
+    ...sessionOptions(names),
   });
   await instance.init();
   return instance;
 }
 
 /** Login with a specific social provider, bypassing the Web3Auth modal popup. */
-export async function loginWith(
-  web3auth: Web3Auth,
-  provider: string,
-): Promise<void> {
+export async function loginWith(web3auth: Web3Auth, provider: string): Promise<void> {
   // In Web3Auth v10 the adapter name is 'auth' and the parameter is 'authConnection'
   // (not 'loginProvider' as in v9). The string values match AUTH_CONNECTION enum
   // ("google", "twitter", "apple", "email_passwordless", etc.).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await web3auth.connectTo("auth", { authConnection: provider } as any);
+  // Typed as Web3Auth's login params; its own type for "auth" is a union.
+  const params: Partial<AuthLoginParams> = { authConnection: provider };
+  await web3auth.connectTo('auth', params);
 }
 
 /**
@@ -43,20 +118,37 @@ export function getProvider(web3auth: Web3Auth) {
 }
 
 /** Extract and validate the raw secp256k1 private key from the Web3Auth session. */
+/**
+ * Web3Auth's "Key export is not enabled" (C17, #91): the project's owner turned
+ * key export off, so no Nostr key can come from it. A clear message instead.
+ */
+export function keyExportError(e: unknown): Error {
+  const message = (e as Error)?.message ?? String(e);
+  if (!/key export is not enabled/i.test(message))
+    return e instanceof Error ? e : new Error(message);
+  const err = new Error(
+    "This site's sign-in setup doesn't allow Nostr keys (key export is off in its Web3Auth project)"
+  );
+  err.name = 'KEY_EXPORT_OFF';
+  return err;
+}
+
 export async function extractKey(web3auth: Web3Auth): Promise<KeyMaterial> {
   const provider = getProvider(web3auth);
-  if (!provider) throw new Error("No provider after login");
+  if (!provider) throw new Error('No provider after login');
 
-  // provider.request is typed generically; cast to avoid verbose overloading
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawKey = (await (provider as any).request({
-    method: "private_key",
-  })) as string;
+  // provider.request is typed for Ethereum methods; "private_key" is Web3Auth's own.
+  // Bound: Web3Auth's request reads `this.provider`, so a detached call fails
+  // with "Cannot read properties of undefined (reading 'provider')".
+  const request = (provider.request as (args: { method: string }) => Promise<unknown>).bind(
+    provider
+  );
+  const rawKey = await request({ method: 'private_key' }).catch((e: unknown) => {
+    throw keyExportError(e);
+  });
 
-  if (!rawKey || typeof rawKey !== "string")
-    throw new Error("Empty private key");
-  if (!/^[0-9a-f]{64}$/i.test(rawKey))
-    throw new Error("Invalid private key format");
+  if (!rawKey || typeof rawKey !== 'string') throw new Error('Empty private key');
+  if (!/^[0-9a-f]{64}$/i.test(rawKey)) throw new Error('Invalid private key format');
 
   const privateKeyBytes = hexToBytes(rawKey.toLowerCase());
   const publicKeyHex = getPublicKey(privateKeyBytes);

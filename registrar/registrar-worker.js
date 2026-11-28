@@ -31,27 +31,35 @@
  *   - /register and /update only accept domains that are, together with the
  *     signer origin, on the clientId's Web3Auth allowlist (which only the
  *     Web3Auth project owner can edit). If Web3Auth's config endpoint can't be
- *     reached, the request goes through without that check and says so in `note`.
- *   - /register is open: anyone can claim an unclaimed clientId.
- *     If a clientId is already claimed by a *different* pubkey, the request is rejected.
- *   - /update requires a cryptographic ownership proof (signed nonce, NIP-98 style).
+ *     read, they refuse with 503 (#68). Emergency switch: ALLOW_UNCHECKED="true"
+ *     accepts them without that check and says so in `note`.
+ *   - /register and /update both require proof of the npub's key: a signed
+ *     one-time nonce, NIP-98 style (ownershipProof.js, #68).
+ *   - The first signed claim of a clientId wins, unless the project owner names
+ *     registrants in its allowlist (https://<npub>.nostr-registrant.invalid):
+ *     then only those npubs may claim it, also over an existing claim.
  *   - Nonces are one-time-use and expire after 5 minutes.
  *   - All domain inputs are normalised to their HTTPS origin to prevent bypass via path tricks.
  */
 
 import { finalizeEvent, verifyEvent, nip19, getPublicKey } from "nostr-tools";
+import {
+  issueChallenge,
+  NONCE_TTL_SEC,
+  REGISTRANT_MARKER_SUFFIX,
+  registrantMarkers,
+  verifyOwnershipProof,
+} from "./ownershipProof.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const KV_PREFIX_CLAIM = "claim:"; // claim:{clientId}  → JSON  (in REGISTRY_KV)
-const KV_PREFIX_NONCE = "nonce:"; // nonce:{clientId}  → JSON  (in CHALLENGES_KV, TTL-bound)
 const KV_PREFIX_EVENT = "event:"; // event:{clientId}  → signed registry event (in REGISTRY_KV)
 const KV_HEALTH = "health:last"; // report of the last sync (in REGISTRY_KV)
 const SYNC_COOLDOWN_SEC = 300; // minimum gap between POST /sync runs
 // A registration on fewer relays than this (or on fewer than all of them, when
 // fewer relays are configured) makes /health report "degraded".
 const MIN_HEALTHY_COPIES = 3;
-const NONCE_TTL_SEC = 300; // 5 minutes
 const MAX_DOMAINS = 50; // per clientId
 const MAX_CLIENT_ID_LEN = 512;
 const DEFAULT_SIGNER_ORIGIN = "https://saintego.github.io";
@@ -166,16 +174,28 @@ async function fetchWeb3AuthAllowlist(clientId) {
 
 /**
  * Check that the signer origin and every domain are on the clientId's Web3Auth
- * allowlist. Returns { error: Response } on failure, { note } when the
- * allowlist could not be read, or {} when the check passed.
+ * allowlist. Returns { error: Response } on failure; { origins: null, note }
+ * when it could not be read and ALLOW_UNCHECKED is set; { origins } when the
+ * check passed (the allowlist, for registrant markers).
  */
 async function checkWeb3AuthAllowlist(env, clientId, domains) {
   const allowlist = await fetchWeb3AuthAllowlist(clientId);
   if (allowlist.status === "unavailable") {
+    // Fail closed (#68): without the allowlist, anyone could add any domain.
+    if (env.ALLOW_UNCHECKED !== "true") {
+      return {
+        error: jsonErr(
+          "Web3Auth's project settings can't be read right now (" + allowlist.reason +
+            "); try again later. Sites already registered keep working.",
+          503,
+        ),
+      };
+    }
     return {
+      origins: null,
       note:
         "The Web3Auth allowlist could not be checked (" + allowlist.reason +
-        "), so this was accepted without that check.",
+        "), so this was accepted without that check (ALLOW_UNCHECKED).",
     };
   }
   if (allowlist.status === "not_found") {
@@ -199,7 +219,7 @@ async function checkWeb3AuthAllowlist(env, clientId, domains) {
       ),
     };
   }
-  return {};
+  return { origins: allowlist.origins };
 }
 
 // ── Response helpers ──────────────────────────────────────────────────────────
@@ -589,39 +609,18 @@ async function loadStoredEvents(env) {
   return events;
 }
 
-async function saveChallenge(env, clientId, nonce, registrantHex) {
-  await env.CHALLENGES_KV.put(
-    KV_PREFIX_NONCE + clientId,
-    JSON.stringify({
-      nonce,
-      registrantHex,
-      expiresAt: Date.now() + NONCE_TTL_SEC * 1000,
-    }),
-    { expirationTtl: NONCE_TTL_SEC },
-  );
-}
-
-async function getChallenge(env, clientId) {
-  const raw = await env.CHALLENGES_KV.get(KV_PREFIX_NONCE + clientId);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-async function deleteChallenge(env, clientId) {
-  await env.CHALLENGES_KV.delete(KV_PREFIX_NONCE + clientId);
-}
-
-// ── Route: POST /register ─────────────────────────────────────────────────────
+// ── Route: POST /register (two-phase) ─────────────────────────────────────────
 /**
- * Claim a new clientId for a given npub + domain.
- * If the clientId is already claimed by the same npub, the domain is appended
- * (idempotent). If claimed by a *different* npub, the request is rejected with 409.
+ * Claim a clientId for an npub and a domain, with proof of the npub's key (#68).
  *
- * Body: { clientId: string, npub: string, domain: string }
+ * Phase 1: { clientId, npub, domain } → { ok, nonce, expiresIn, message }
+ * Phase 2: { clientId, npub, domain, nonce, signedEvent } → the registry event
+ *   (201 for a new claim, 200 when the registrant adds a domain).
+ *
+ * Who may claim: the current registrant (adds the domain); for an unclaimed
+ * clientId, the first signed claim, unless the project owner names registrants
+ * with allowlist markers (https://<npub>.nostr-registrant.invalid): then only
+ * those, also over another npub's claim.
  */
 async function handleRegister(request, env) {
   let body;
@@ -631,110 +630,84 @@ async function handleRegister(request, env) {
     return jsonErr("Request body must be valid JSON");
   }
 
-  const { clientId, npub, domain } = body;
+  const { clientId, npub, domain, nonce, signedEvent } = body;
 
   // ── Input validation ────────────────────────────────────────────────────────
-  if (
-    !clientId ||
-    typeof clientId !== "string" ||
-    clientId.length > MAX_CLIENT_ID_LEN
-  ) {
-    return jsonErr(
-      "clientId is required and must be a string ≤ " +
-        MAX_CLIENT_ID_LEN +
-        " chars",
-    );
+  if (!clientId || typeof clientId !== "string" || clientId.length > MAX_CLIENT_ID_LEN) {
+    return jsonErr("clientId is required and must be a string ≤ " + MAX_CLIENT_ID_LEN + " chars");
   }
   // Disallow characters that could cause KV key collisions
   if (/[:\s]/.test(clientId)) {
     return jsonErr("clientId must not contain colons or whitespace");
   }
-
   const normalizedDomain = normalizeDomain(domain);
   if (!normalizedDomain) {
+    return jsonErr("domain must be a valid HTTPS origin for a public FQDN (e.g. https://app.example.com)");
+  }
+  const registrantHex = npubToHex(npub);
+  if (!registrantHex) return jsonErr("npub is invalid");
+
+  const check = await checkWeb3AuthAllowlist(env, clientId, [normalizedDomain]);
+  if (check.error) return check.error;
+  const note = check.note;
+
+  // ── Who may claim ───────────────────────────────────────────────────────────
+  const markers = check.origins ? registrantMarkers(check.origins) : [];
+  const named = markers.includes(nip19.npubEncode(registrantHex));
+  const existing = await getClaim(env, clientId);
+  const sameOwner = existing?.registrantHex === registrantHex;
+  if (existing && !sameOwner && !named) {
     return jsonErr(
-      "domain must be a valid HTTPS origin for a public FQDN (e.g. https://app.example.com)",
+      "This clientId is already claimed by another npub. If it's your Web3Auth project, add https://<your npub>" +
+        REGISTRANT_MARKER_SUFFIX + " to its Allowlist URLs, then register again: that takes the claim over.",
+      409,
     );
   }
-
-  const registrantHex = npubToHex(npub);
-  if (!registrantHex) {
-    return jsonErr("npub is invalid");
+  if (!existing && markers.length && !named) {
+    return jsonErr("This clientId's project owner named other npubs as its registrants.", 403);
   }
 
-  const { error: allowlistError, note } = await checkWeb3AuthAllowlist(
-    env,
-    clientId,
-    [normalizedDomain],
-  );
-  if (allowlistError) return allowlistError;
+  // ── Phase 1: a challenge ────────────────────────────────────────────────────
+  if (!nonce && !signedEvent) {
+    const issued = await issueChallenge(env, clientId, registrantHex);
+    return jsonOk({
+      ok: true,
+      nonce: issued,
+      expiresIn: NONCE_TTL_SEC,
+      message: "Sign a Nostr event (kind 27235) whose content is this nonce, then POST it back to /register.",
+    });
+  }
 
-  // ── Claim check ─────────────────────────────────────────────────────────────
-  const existing = await getClaim(env, clientId);
+  // ── Phase 2: the proof, then the claim ──────────────────────────────────────
+  const proof = await verifyOwnershipProof(env, clientId, registrantHex, nonce, signedEvent);
+  if (proof.error) return jsonErr(proof.error, proof.status);
+  const withNote = (data) => (note ? { ...data, note } : data);
 
-  if (existing) {
-    if (existing.registrantHex !== registrantHex) {
-      return jsonErr("clientId is already claimed by a different npub", 409);
-    }
-    // Same owner — add domain if not already present
+  if (sameOwner) {
     if (existing.domains.includes(normalizedDomain)) {
-      return jsonOk({
-        ok: true,
-        message: "Domain already registered for this clientId",
-        ...(note ? { note } : {}),
-      });
+      return jsonOk(withNote({ ok: true, message: "Domain already registered for this clientId" }));
     }
     if (existing.domains.length >= MAX_DOMAINS) {
-      return jsonErr(
-        "Maximum number of domains (" +
-          MAX_DOMAINS +
-          ") reached for this clientId",
-      );
+      return jsonErr("Maximum number of domains (" + MAX_DOMAINS + ") reached for this clientId");
     }
-    existing.domains.push(normalizedDomain);
-    const rootPrivkey = getRootPrivkeyBytes(env);
-    const event = buildRegistryEvent(
-      rootPrivkey,
-      clientId,
-      registrantHex,
-      existing.domains,
-    );
-    await saveClaim(env, clientId, registrantHex, existing.domains);
-    try {
-      const broadcast = await broadcastEvent(env, event);
-      await saveEvent(env, clientId, event);
-      return jsonOk({ ok: true, event: event.id, ...broadcast, ...(note ? { note } : {}) });
-    } catch (err) {
-      // Roll back the domain addition on broadcast failure
-      existing.domains.pop();
-      await saveClaim(env, clientId, registrantHex, existing.domains);
-      return jsonErr(
-        "Failed to broadcast registry event. Please retry: " + err.message,
-        502,
-      );
-    }
+    return publishClaim(env, clientId, registrantHex, [...existing.domains, normalizedDomain], existing, 200, withNote);
   }
+  // A new claim, or the project owner's named registrant taking it over.
+  return publishClaim(env, clientId, registrantHex, [normalizedDomain], existing, 201, withNote);
+}
 
-  // ── New claim ───────────────────────────────────────────────────────────────
-  const rootPrivkey = getRootPrivkeyBytes(env);
-  const event = buildRegistryEvent(rootPrivkey, clientId, registrantHex, [
-    normalizedDomain,
-  ]);
-  // Persist first, then broadcast; roll back on failure
-  await saveClaim(env, clientId, registrantHex, [normalizedDomain]);
+/** Saves the claim and publishes its registry event; restores `previous` if no relay took it. */
+async function publishClaim(env, clientId, registrantHex, domains, previous, status, withNote) {
+  const event = buildRegistryEvent(getRootPrivkeyBytes(env), clientId, registrantHex, domains);
+  await saveClaim(env, clientId, registrantHex, domains);
   try {
     const broadcast = await broadcastEvent(env, event);
     await saveEvent(env, clientId, event);
-    return jsonOk(
-      { ok: true, event: event.id, ...broadcast, ...(note ? { note } : {}) },
-      201,
-    );
+    return jsonOk(withNote({ ok: true, event: event.id, domains, ...broadcast }), status);
   } catch (err) {
-    await env.REGISTRY_KV.delete(KV_PREFIX_CLAIM + clientId);
-    return jsonErr(
-      "Failed to broadcast registry event. Please retry: " + err.message,
-      502,
-    );
+    if (previous) await saveClaim(env, clientId, previous.registrantHex, previous.domains);
+    else await env.REGISTRY_KV.delete(KV_PREFIX_CLAIM + clientId);
+    return jsonErr("Failed to broadcast registry event. Please retry: " + err.message, 502);
   }
 }
 
@@ -781,13 +754,7 @@ async function handleUpdate(request, env) {
       return jsonErr("npub does not own this clientId", 403);
     }
 
-    const nonceBytes = new Uint8Array(32);
-    crypto.getRandomValues(nonceBytes);
-    const issuedNonce = Array.from(nonceBytes)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    await saveChallenge(env, clientId, issuedNonce, registrantHex);
+    const issuedNonce = await issueChallenge(env, clientId, registrantHex);
 
     return jsonOk({
       ok: true,
@@ -829,63 +796,8 @@ async function handleUpdate(request, env) {
   );
   if (allowlistError) return allowlistError;
 
-  // Fetch and validate challenge
-  const challengeRecord = await getChallenge(env, clientId);
-  if (!challengeRecord) {
-    return jsonErr(
-      "No active challenge for this clientId. POST without nonce/signedEvent to request one.",
-    );
-  }
-  if (Date.now() > challengeRecord.expiresAt) {
-    await deleteChallenge(env, clientId);
-    return jsonErr("Challenge has expired. Request a new one.", 410);
-  }
-  if (nonce !== challengeRecord.nonce) {
-    return jsonErr("nonce does not match the issued challenge");
-  }
-
-  // Validate proof event structure
-  const { id, pubkey, sig, kind, content, created_at } = signedEvent;
-  if (
-    !id ||
-    !pubkey ||
-    !sig ||
-    kind === undefined ||
-    content === undefined ||
-    !created_at
-  ) {
-    return jsonErr(
-      "signedEvent is missing required NIP-01 fields (id, pubkey, sig, kind, content, created_at)",
-    );
-  }
-  if (pubkey !== existing.registrantHex) {
-    return jsonErr("signedEvent pubkey does not match the registered npub");
-  }
-  if (kind !== 27235) {
-    return jsonErr("signedEvent must be kind 27235");
-  }
-  const ageSec = Math.floor(Date.now() / 1000) - created_at;
-  if (ageSec > NONCE_TTL_SEC || ageSec < -30) {
-    return jsonErr(
-      "signedEvent created_at is outside the acceptable time window (±5 min)",
-    );
-  }
-  if (content !== challengeRecord.nonce) {
-    return jsonErr("signedEvent content does not match the issued nonce");
-  }
-
-  let signatureValid = false;
-  try {
-    signatureValid = verifyEvent(signedEvent);
-  } catch (_) {
-    return jsonErr("signedEvent signature verification threw an error");
-  }
-  if (!signatureValid) {
-    return jsonErr("signedEvent Schnorr signature is invalid");
-  }
-
-  // Consume nonce (one-time use)
-  await deleteChallenge(env, clientId);
+  const proof = await verifyOwnershipProof(env, clientId, existing.registrantHex, nonce, signedEvent);
+  if (proof.error) return jsonErr(proof.error, proof.status);
 
   // Publish updated NIP-33 event
   const rootPrivkey = getRootPrivkeyBytes(env);

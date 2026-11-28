@@ -1,0 +1,32 @@
+{
+  "_comment": "What the shared Web3Auth projects' public configuration must say (#91, #145). scripts/checkSharedProject.mjs compares it every 6 hours; update it in the same PR as an intended change. connections: authConnection:group:clientId; a new one in a group already listed fails the check, a new one in its own group is only reported.",
+  "production": {
+    "network": "sapphire_mainnet",
+    "urls": []
+  },
+  "preview": {
+    "network": "sapphire_devnet",
+    "urls": [
+      "https://preview.nostr-shard-signer.pages.dev",
+      "https://saintego.github.io/nostr-shard-signer",
+      "https://nostr-shard-checks.pages.dev"
+    ],
+    "connections": [
+      "apple:web3auth-auth0-apple-sapphire-devnet:ADG0f0EZsBHvcbu2in7W938XngxJQJrJ",
+      "discord:web3auth-discord-sapphire-devnet:1126902533936394330",
+      "email_passwordless:web3auth-auth0-email-passwordless-sapphire-devnet:d84f6xvbdV75VTGmHiMWfZLeSPk8M07C",
+      "facebook:web3auth-facebook-sapphire-devnet:226597929760394",
+      "farcaster:web3auth-farcaster-sapphire-devnet:77c9e93ee43a5fb0",
+      "github:web3auth-auth0-github-sapphire-devnet:srB1w8yWLtvD8QFqp4FgzAPHkmJ6FU5M",
+      "google:web3auth-google-sapphire-devnet:221898609709-qnfklddleh1m1m7bq6g8d8dakffp0n86.apps.googleusercontent.com",
+      "kakao:web3auth-auth0-kakao-sapphire-devnet:HlQEmgP1izbU0vB3GVI5NZcUbwPXdmsR",
+      "line:web3auth-auth0-line-sapphire-devnet:AUDHMShLlzzS15cb9F8IjYQHBbfWO5iB",
+      "linkedin:web3auth-auth0-linkedin-sapphire-devnet:gCzESkrR2LZDQS1gZIARcRzWvayFUWjv",
+      "reddit:web3auth-auth0-reddit-sapphire-devnet:XfiFWQbsZ9t5WQ4TfzHWZOpEghkNskko",
+      "sms_passwordless:web3auth-auth0-sms-passwordless-sapphire-devnet:4jK24VpfepWRSe5EMdd2if0RBD55pAuA",
+      "twitch:web3auth-twitch-sapphire-devnet:94nxxpy7inarina6kc9hyg2ao3mja2",
+      "twitter:web3auth-auth0-twitter-sapphire-devnet:wz4w3pdutXsbmWltyUJjq1pyaoF0GBxW",
+      "wechat:web3auth-auth0-wechat-sapphire-devnet:NSYFTvylXVlX6a4txGQaQ9cE9oU15QGU"
+    ]
+  }
+}

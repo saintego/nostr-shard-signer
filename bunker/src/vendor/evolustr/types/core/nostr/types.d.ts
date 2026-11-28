@@ -31,10 +31,19 @@ export interface QueryResult {
     readonly events: ReadonlyArray<NostrEvent>;
     /** Relays that sent EOSE before the timeout. */
     readonly answered: ReadonlyArray<string>;
-    /** Relays that failed or timed out. */
+    /** Relays that failed or timed out, or weren't waited for. */
     readonly failed: ReadonlyArray<string>;
+    /**
+     * The relays in `failed` that may still hold an answer: they timed out, or a
+     * quorum read stopped waiting for them (#62). The others failed hard
+     * (refused the connection, closed the subscription). Without it, every
+     * failed relay counts as pending.
+     */
+    readonly pending?: ReadonlyArray<string>;
     /** Event ids each answering relay returned, to find relays that lack the newest version. */
     readonly idsByRelay?: ReadonlyMap<string, ReadonlySet<string>>;
+    /** A quorum read that stopped early: the result once every relay answered or the timeout passed. */
+    readonly rest?: Promise<QueryResult>;
 }
 export interface PublishResult {
     readonly accepted: ReadonlyArray<string>;
@@ -43,8 +52,16 @@ export interface PublishResult {
     readonly timedOut?: ReadonlyArray<string>;
 }
 /** Relay access behind an interface, so tests can use an in-memory fake. */
+export interface QueryOptions {
+    /**
+     * Stop waiting once this many relays have answered (#60): one slow relay
+     * mustn't hold up the read. Relays still waiting then count as failed and
+     * pending, and `rest` gives the full result. Default: every relay.
+     */
+    readonly quorum?: number;
+}
 export interface Relays {
-    readonly query: (urls: ReadonlyArray<string>, filter: Filter, timeoutMs: number) => Promise<QueryResult>;
+    readonly query: (urls: ReadonlyArray<string>, filter: Filter, timeoutMs: number, opts?: QueryOptions) => Promise<QueryResult>;
     readonly publish: (urls: ReadonlyArray<string>, event: NostrEvent, timeoutMs: number) => Promise<PublishResult>;
 }
 //# sourceMappingURL=types.d.ts.map

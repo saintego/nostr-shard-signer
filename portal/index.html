@@ -375,8 +375,9 @@
       <div id="tab-register" class="panel active">
         <div class="card">
           <h2>Register a new clientId</h2>
-          <p>Binds your Web3Auth <code>clientId</code> to an allowed domain. First-come first-served — the claim is published as a NIP-33 event signed by the registry root key.</p>
+          <p>Binds your Web3Auth <code>clientId</code> to an allowed domain. Your connected Nostr key signs once, to prove the npub is yours; the claim is published as a NIP-33 event signed by the registry root key.</p>
           <p>The domain and <code>https://saintego.github.io</code> must both be in the project's Allowlist URLs in the Web3Auth dashboard (Project Settings → Domains).</p>
+          <p><strong>Already claimed by someone else?</strong> If the Web3Auth project is yours, add <code>https://&lt;your npub&gt;.nostr-registrant.invalid</code> to its Allowlist URLs and register again: only the project owner can edit that list, so the claim moves to you. Once a project lists such entries, only those npubs can register it.</p>
 
           <label for="reg-client-id">Web3Auth Client ID</label>
           <input type="text" id="reg-client-id" placeholder="BHt7mDXi..." autocomplete="off" spellcheck="false" />
@@ -574,24 +575,20 @@
 
       btnRegister.disabled = true;
       btnRegister.textContent = "Registering…";
-      showResult(resultRegister, "info", "Publishing to Nostr relays…");
+      showResult(resultRegister, "info", "Asking the registrar for a challenge…");
 
       try {
-        const res = await fetch(`${REGISTRAR_URL}/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId, npub, domain }),
-        });
-        const data = await res.json();
-
-        if (!res.ok) {
+        // Two steps (#68): the registrar checks that you hold this npub's key.
+        const { ok, data } = await signedPost("/register", { clientId, npub, domain },
+          (step) => showResult(resultRegister, "info", step));
+        if (!ok) {
           showResult(resultRegister, "error", data.error || "Registration failed.");
         } else {
-          showResult(resultRegister, "success",
-            `✓ Registered! Event ID: <code>${data.event}</code><br>
-             Published to ${data.published}/${data.total} relays.` +
-            (data.note ? `<br>Note: ${escapeHtml(data.note)}` : "")
-          );
+          showResult(resultRegister, "success", [
+            `✓ Registered! Event ID: ${data.event}`,
+            `Published to ${data.published}/${data.total} relays.`,
+            ...(data.note ? [`Note: ${data.note}`] : []),
+          ]);
         }
       } catch (e) {
         showResult(resultRegister, "error", "Network error: " + e.message);
@@ -632,60 +629,19 @@
       }
 
       btnUpdate.disabled = true;
-      btnUpdate.textContent = "Fetching nonce…";
+      btnUpdate.textContent = "Signing…";
 
       try {
-        // Phase 1 — get nonce
-        const phase1 = await fetch(`${REGISTRAR_URL}/update`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId, npub }),
-        });
-        const { nonce, error: e1 } = await phase1.json();
-        if (!phase1.ok) {
-          showResult(resultUpdate, "error", e1 || "Failed to get challenge nonce.");
-          return;
-        }
-
-        showResult(resultUpdate, "info", "Nonce received. Waiting for Nostr signature…");
-        btnUpdate.textContent = "Signing…";
-
-        // Phase 2 — sign nonce with connected Nostr key (kind 27235)
-        const unsignedEvent = {
-          kind: 27235,
-          content: nonce,
-          tags: [],
-          created_at: Math.floor(Date.now() / 1000),
-          pubkey: _pubkey,
-        };
-
-        let signedEvent;
-        try {
-          signedEvent = await window.nostr.signEvent(unsignedEvent);
-        } catch (sigErr) {
-          showResult(resultUpdate, "error", "Signing rejected: " + sigErr.message);
-          return;
-        }
-
-        btnUpdate.textContent = "Submitting…";
-        showResult(resultUpdate, "info", "Submitting proof and updating domains…");
-
-        // Phase 2 submit
-        const phase2 = await fetch(`${REGISTRAR_URL}/update`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId, nonce, domains, signedEvent }),
-        });
-        const data2 = await phase2.json();
-
-        if (!phase2.ok) {
+        const { ok, data: data2 } = await signedPost("/update", { clientId, npub, domains },
+          (step) => showResult(resultUpdate, "info", step));
+        if (!ok) {
           showResult(resultUpdate, "error", data2.error || "Update failed.");
         } else {
-          showResult(resultUpdate, "success",
-            `✓ Domains updated! Event ID: <code>${data2.event}</code><br>
-             Domains: ${data2.domains.join(", ")}` +
-            (data2.note ? `<br>Note: ${escapeHtml(data2.note)}` : "")
-          );
+          showResult(resultUpdate, "success", [
+            `✓ Domains updated! Event ID: ${data2.event}`,
+            `Domains: ${data2.domains.join(", ")}`,
+            ...(data2.note ? [`Note: ${data2.note}`] : []),
+          ]);
         }
       } catch (e) {
         showResult(resultUpdate, "error", "Network error: " + e.message);
@@ -858,10 +814,46 @@
     loadRegistryStats().catch(() => {});
 
     // ── Helpers ───────────────────────────────────────────────────────────────────
-    function showResult(el, type, html) {
+    // A registrar request that needs proof of your key (#68): the first POST
+    // returns a nonce, the connected Nostr key signs it (kind 27235), and the
+    // same request goes again with the nonce and the signed event.
+    async function signedPost(path, body, onStep) {
+      const post = (payload) => fetch(`${REGISTRAR_URL}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const first = await post(body);
+      const challenge = await first.json();
+      if (!first.ok || !challenge.nonce) return { ok: false, data: challenge };
+      onStep("Waiting for your Nostr signature…");
+      let signedEvent;
+      try {
+        signedEvent = await window.nostr.signEvent({
+          kind: 27235,
+          content: challenge.nonce,
+          tags: [],
+          created_at: Math.floor(Date.now() / 1000),
+          pubkey: _pubkey,
+        });
+      } catch (e) {
+        return { ok: false, data: { error: "Signing rejected: " + (e?.message || e) } };
+      }
+      onStep("Submitting…");
+      const second = await post({ ...body, nonce: challenge.nonce, signedEvent });
+      return { ok: second.ok, data: await second.json() };
+    }
+
+    // Text only (#67): registrar answers and error messages never become markup.
+    // `text` is a string, or lines shown one under the other.
+    function showResult(el, type, text) {
       el.style.display = "block";
       el.className = "notice " + type;
-      el.innerHTML = html;
+      el.replaceChildren();
+      (Array.isArray(text) ? text : [text]).forEach((line, i) => {
+        if (i) el.appendChild(document.createElement("br"));
+        el.appendChild(document.createTextNode(String(line)));
+      });
     }
 
     function escapeHtml(str) {

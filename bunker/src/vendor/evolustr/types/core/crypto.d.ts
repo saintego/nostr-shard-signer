@@ -2,6 +2,8 @@ import { type Bytes } from "./bytes.ts";
 import { type EvolustrError, type Result } from "./result.ts";
 export declare const sha256: (data: Bytes) => Bytes;
 export declare const sha256Hex: (data: Bytes | string) => string;
+/** HMAC-SHA256. */
+export declare const hmacSha256: (key: Bytes, message: Bytes) => Bytes;
 /** HKDF-SHA256 with an empty salt unless one is given. */
 export declare const hkdf: (ikm: Bytes, info: string, length?: number, salt?: Bytes) => Bytes;
 /** AES-256-GCM ciphertext as stored in vault JSON. */

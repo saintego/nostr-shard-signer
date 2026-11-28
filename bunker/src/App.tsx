@@ -2,28 +2,43 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Web3Auth } from '@web3auth/modal';
 
 import type { ViewName, UserProfile, KeyInfo, PendingConfirmation, EvolustrPrompt, EvolustrAnswer } from './types';
-import { validateEmbedding, isLocalhostOrigin } from './lib/origin';
+import { validateEmbedding, isLocalhostOrigin, isNestedFrame } from './lib/origin';
+import { openConfirmPopup, askInPopup } from './lib/confirmPopup';
+import { needsTopLevelPrompt } from './lib/approval';
+import { bytesToHex } from './lib/hex';
+import { ReviewInPopupView } from './components/ReviewInPopupView';
 import { checkAuthorization } from './lib/registry';
 import type { Authorization } from './lib/registry';
 import { fetchAllowlist, isAllowlisted } from './lib/allowlist';
+import { sharedClientIdFor, wantsSharedSignIn } from './lib/shared';
+import { isBlockedBySignedList, signOutOnThisSite } from './lib/sharedSignIn';
+import { acceptedWnjPubkey } from './lib/wnjSession';
+import { safariNoticeDue } from './lib/safariNotice';
 import { initWeb3Auth, extractKey, getProvider } from './lib/web3auth';
+import { useSharedSignIn } from './useSharedSignIn';
+import { useSyncedApps } from './useSyncedApps';
+import { useSignerTab } from './useSignerTab';
+import type { GestureReason } from './lib/passkeyRules';
 import type { KeyMaterial } from './lib/web3auth';
 import { fetchProfile, publishProfile, DEFAULT_PUBLISH_RELAYS, DEFAULT_REGISTRY_RELAYS } from './lib/nostr';
 import { processRpc } from './lib/crypto';
-import { requiresConfirmation, loadAutoApproveKinds, saveAutoApproveKinds } from './lib/approval';
+import { decideRequest, refusalMessage } from './lib/trustCheck'; // the trust rule (#85)
+import { loadAutoApproveKinds, saveAutoApproveKinds } from './lib/approval';
 import { countSignedEvent, shouldAskForBackup, snoozeBackupPrompt, encryptKeyBackup, recordBackup, syncBackupMarker } from './lib/backup';
 import type { BackupMethod } from './lib/backup';
 import { npubEncode } from 'nostr-tools/nip19';
 import { finalizeEvent } from 'nostr-tools/pure';
 import {
-    createHostSigner, isEvolustrMethod, signerPasskeys, signThroughBridge,
-    loadCustody, saveCustody, loadAllowedApps, saveAllowedApps,
+    answerEvolustr, createHostSigner, isEvolustrMethod, signerPasskeys, signThroughBridge,
+    loadCustody, saveCustody, loadAllowedApps,
 } from './lib/evolustr';
 import type { Custody, EvolustrSigner, ConfirmRequest, SignerPasskeys } from './lib/evolustr';
 
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { ErrorBanner } from './components/ErrorBanner';
 import { LoginView } from './components/LoginView';
+import type { GlobalLogin, Intent } from './lib/siteAccount';
+import { useSiteAccount } from './useSiteAccount'; // own-clientId sites (#83)
 import { NostrSignerCard } from './components/NostrSignerCard';
 import { AvatarView } from './components/AvatarView';
 import { ConfirmView } from './components/ConfirmView';
@@ -60,11 +75,27 @@ interface AppProps {
         nostrSigner: 'bunker' | 'extension' | null;
         protocol: number;
         poweredBy: boolean;
+        nostrOnly: boolean;
+        globalLogin: GlobalLogin; signInUi?: 'buttons'; // own buttons, not Web3Auth's panel (#113)
     };
 }
 
+/** The signer itself, as the caller for status checks from the settings. */
+const selfCaller = { identity: 'verified' as const, origin: location.origin };
+
 export function App({ parentOrigin, urlParams }: AppProps) {
-    const { clientId, nostrSigner, protocol, poweredBy } = urlParams;
+    const { nostrSigner, protocol, poweredBy, nostrOnly } = urlParams;
+    // Shared mode: no clientId from the page, so the signer's own project is
+    // used (src/lib/shared.ts). Nostr-only pages get no Web3Auth at all.
+    const sharedClientId = sharedClientIdFor(urlParams.clientId, nostrOnly, parentOrigin);
+    // On the built-in block list: the page would get shared sign-in otherwise (#65).
+    const blockedBuiltIn = !sharedClientId && wantsSharedSignIn(urlParams.clientId, nostrOnly);
+    const shared = !!sharedClientId;
+    const clientId = shared ? sharedClientId : nostrOnly ? '' : urlParams.clientId;
+    // Sensitive prompts in a popup the page can't cover (#62): in shared mode any
+    // site may embed the signer; self-hosters can turn it on everywhere.
+    const popupPrompts = shared || import.meta.env.VITE_POPUP_CONFIRM === 'always';
+    const [popupError, setPopupError] = useState('');
 
     // ── View routing ──────────────────────────────────────────────────────────
     const [view, setView] = useState<ViewName>('loading');
@@ -109,6 +140,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     // Where to go back to once the queue is empty (the settings, when a passkey
     // step started there).
     const afterConfirmViewRef = useRef<ViewName>('avatar');
+    const promptSeqRef = useRef(0);
 
     // ── Evolustr Signer API (src/lib/evolustr.ts) ─────────────────────────────
     const evolustrRef = useRef<EvolustrSigner | null>(null);
@@ -118,12 +150,13 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     const custodyRef = useRef<Custody | null>(null);
     // Set by a step that already has the user's OK for a passkey enrollment.
     const enrollConsentRef = useRef(false);
-    const [evolustrApps, setEvolustrApps] = useState<string[]>([]);
     const [evolustrStatus, setEvolustrStatus] = useState<EvolustrStatus | null>(null);
     const [evolustrBusy, setEvolustrBusy] = useState(false);
     const [evolustrMsg, setEvolustrMsg] = useState('');
     // ── WNJ profile mode: set when bridge sends WNJ_SESSION ───────────────────────
     const [wnjPubkey, setWnjPubkey] = useState<string | null>(null);
+    const allowedApps = useSyncedApps({ pubkey: keyInfo?.publicKeyHex ?? null, synced: !!wnjPubkey, evolustr: () => evolustrRef.current }); // #88
+    const allowedAppsRef = useRef(allowedApps); allowedAppsRef.current = allowedApps; // for the effects below
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -162,7 +195,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setSetupError(message);
         postToParent({ type: 'SIGNER_ERROR', code, message });
         // A WNJ_SESSION may already have switched the view to the avatar.
-        setView(v => (v === 'loading' || v === 'connecting' ? 'login' : v));
+        setView(v => (v === 'loading' || v === 'connecting' || v === 'signing-in' ? 'login' : v));
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
     }, [nostrSigner, showError, postToParent]);
 
@@ -173,6 +206,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         privateKeyRef.current = km.privateKeyBytes;
         setKeyInfo({ publicKeyHex: km.publicKeyHex, nsecStr: km.nsecStr, npubStr: km.npubStr });
         postToParent({ type: 'AUTH_SUCCESS', pubkey: km.publicKeyHex });
+        setView('avatar'); // now, not after the profile: a late reset would close a panel the user opened
         setBackupAsk(shouldAskForBackup(km.publicKeyHex));
         // A backup made on another site or device counts here too.
         syncBackupMarker(km.privateKeyBytes, km.publicKeyHex, publishRelays)
@@ -183,10 +217,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         const mergedProfile = profile
             ? { ...profile, name: profile.name || w3aProfile?.name, picture: profile.picture || w3aProfile?.picture }
             : (w3aProfile?.name || w3aProfile?.picture ? w3aProfile : null);
-        if (mergedProfile) setUserProfile(mergedProfile);
-
-        setView('avatar');
+        setUserProfile(mergedProfile ?? {}); // another identity's profile must not stay (#84)
     }, [postToParent, publishRelays]);  // publish relays, not the registry relays
+    // Shared sign-in (#80): the widget's cache, or the global sign-in popup.
+    const signerTab = useSignerTab(parentOrigin); // the signer in its own tab (#90)
+    const sharedSignIn = useSharedSignIn({ parentOrigin, nostrSigner, poweredBy, onSignedIn: onLoginSuccess, setView, postToParent, onError: showError, onSignOut: () => bridgeActionsRef.current.logout(), publishRelays, onBackedUp: () => setBackupAsk(false), signInUi: urlParams.signInUi });
+    const siteAccount = useSiteAccount({ parentOrigin, globalLogin: urlParams.globalLogin, global: sharedSignIn, onSiteOnly: onLoginSuccess, onCancel: () => { setView('login'); postToParent({ type: 'RESIZE', state: 'button' }); }, postToParent });
 
     const showNextConfirmation = useCallback(() => {
         const queue = confQueueRef.current;
@@ -195,7 +231,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             setView(v => (v === 'confirm' ? afterConfirmViewRef.current : v));
             return;
         }
-        setPendingConf({ method: queue[0].method, params: queue[0].params, evolustr: queue[0].evolustr, waiting: queue.length - 1 });
+        promptSeqRef.current += 1;
+        setPopupError('');
+        setPendingConf({ method: queue[0].method, params: queue[0].params, evolustr: queue[0].evolustr, waiting: queue.length - 1, seq: promptSeqRef.current });
         setView('confirm');
     }, []);
 
@@ -206,10 +244,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         setPendingConf(null);
     }, []);
 
-    const noteSignedEvent = (pubkeyHex: string) => {
+    const noteSignedEvent = useCallback((pubkeyHex: string) => {
         countSignedEvent(pubkeyHex);
         setBackupAsk(shouldAskForBackup(pubkeyHex));
-    };
+    }, []);
 
     // ── Evolustr Signer API ───────────────────────────────────────────────────
 
@@ -228,26 +266,25 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     }, [showNextConfirmation]);
 
     // Forget the unlocked master key on this device (logout).
-    const lockEvolustr = () => {
+    const lockEvolustr = useCallback(() => {
         const evolustr = evolustrRef.current;
         evolustrRef.current = null;
         setEvolustrStatus(null);
         void evolustr?.lock();
-    };
+    }, []);
 
     // The bridge forwards Evolustr calls as soon as this iframe reports the
     // session, which can be before the effect below has created the signer.
-    const waitForEvolustr = () => new Promise<EvolustrSigner | null>(resolve => {
+    const waitForEvolustr = useCallback(() => new Promise<EvolustrSigner | null>(resolve => {
         const timer = setTimeout(() => {
             evolustrWaitersRef.current = evolustrWaitersRef.current.filter(w => w !== waiter);
             resolve(null);
         }, 3000);
         const waiter = (s: EvolustrSigner | null) => { clearTimeout(timer); resolve(s); };
         evolustrWaitersRef.current.push(waiter);
-    });
+    }), []);
 
-    // The signer itself, as the caller for status checks from the settings.
-    const selfCaller = { identity: 'verified' as const, origin: location.origin };
+    // (The signer's own caller for status checks: selfCaller, above the component.)
 
     // ── postMessage handler (use ref to always capture fresh state) ───────────
     const handleMessageRef = useRef<(event: MessageEvent) => void>(() => { });
@@ -270,8 +307,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (!event.data || typeof event.data !== 'object') return;
 
             // ── WNJ control messages (no id/method) ────────────────────────────────
-            if (event.data.type === 'WNJ_SESSION' && typeof event.data.pubkey === 'string') {
-                const pk = event.data.pubkey as string;
+            if (event.data.type === 'WNJ_SESSION') {
+                const pk = acceptedWnjPubkey(event.data, !!privateKeyRef.current); if (!pk) return; // #67
                 setWnjPubkey(pk);
                 setKeyInfo({ publicKeyHex: pk, nsecStr: '', npubStr: npubEncode(pk) });
                 postToParent({ type: 'AUTH_STATE', loggedIn: true, pubkey: pk });
@@ -297,10 +334,9 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             if (event.data.type === 'EVOLUSTR_SIGN_RESULT') return;
 
             if (event.data.type === 'WNJ_DISCONNECT') {
-                rejectAllConfirmations('Logged out');
-                lockEvolustr();
-                setWnjPubkey(null);
-                setBackupAsk(false);
+                if (privateKeyRef.current) return; // #67: the signer's own session isn't the page's to end
+                rejectAllConfirmations('Logged out'); lockEvolustr();
+                setWnjPubkey(null); setBackupAsk(false);
                 setKeyInfo(null);
                 setUserProfile({});
                 setView('login');
@@ -321,17 +357,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             // bunker. The caller is event.origin, never anything in params.
             if (isEvolustrMethod(method)) {
                 const evolustr = evolustrRef.current ?? await waitForEvolustr();
-                if (!evolustr) {
-                    postToParent({ id, error: 'Not authenticated', result: null });
-                    return;
-                }
-                try {
-                    const r = await evolustr.handle(method, Array.isArray(params) ? params : [], { identity: 'verified', origin: event.origin });
-                    postToParent(r.ok ? { id, result: r.value ?? null, error: null } : { id, result: null, error: r.error.message });
-                } catch (e) {
-                    postToParent({ id, result: null, error: (e as Error).message || 'Evolustr request failed' });
-                }
-                return;
+                return postToParent({ id, ...await answerEvolustr(evolustr, method, params, event.origin) });
             }
 
             if (!pk || !ki) {
@@ -339,11 +365,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
-            // methods that don't need confirmation
-            if (!requiresConfirmation(method, params, autoApproveKinds)) {
+            // The trust rule (#73 D13, #85): sign, ask, or refuse.
+            const { decision, record } = await decideRequest(method, params, { autoApproveKinds, pubkey: ki.publicKeyHex, secretKey: pk, relays: publishRelays });
+            if (decision.action === 'refuse') return postToParent({ id, result: null, error: refusalMessage(decision.reason) });
+            if (decision.action === 'sign') {
                 try {
                     const result = await processRpc(method, params, pk, ki.publicKeyHex);
                     postToParent({ id, result, error: null });
+                    record?.(result);
                     if (method === 'sign_event') noteSignedEvent(ki.publicKeyHex);
                 } catch (e) {
                     postToParent({ id, result: null, error: (e as Error).message });
@@ -368,13 +397,13 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 });
                 const rpcResult = await processRpc(method, params, pk, ki.publicKeyHex);
                 postToParent({ id, result: rpcResult, error: null });
+                record?.(rpcResult);
                 if (method === 'sign_event') noteSignedEvent(ki.publicKeyHex);
             } catch (e) {
                 postToParent({ id, result: null, error: (e as Error).message });
             }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays, view, showNextConfirmation, rejectAllConfirmations]);
+    }, [parentOrigin, keyInfo, autoApproveKinds, postToParent, publishRelays, view, showNextConfirmation, rejectAllConfirmations, noteSignedEvent, lockEvolustr, waitForEvolustr]);
 
     useEffect(() => {
         const listener = (event: MessageEvent) => handleMessageRef.current(event);
@@ -391,8 +420,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         const pubkey = evolustrPubkey;
         const oauth = holdsNsec;
         custodyRef.current = oauth ? loadCustody(pubkey) : 'passkey';
-        setEvolustrApps(loadAllowedApps(pubkey));
-        const passkeys = signerPasskeys('Nostr Shard Signer');
+        const askGesture = async (reason: GestureReason | 'unlock' | 'enrollPasskey') => { if ((await askEvolustr({ kind: 'gesture', reason })) === 'deny') throw new Error('Cancelled'); };
+        const passkeys = signerPasskeys('Nostr Shard Signer', askGesture);
         passkeysRef.current = passkeys;
 
         let evolustr: EvolustrSigner;
@@ -415,11 +444,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 if (enrollConsentRef.current) return true;
                 return (await askEvolustr({ kind: 'enrollPasskey' })) === 'allow';
             }
-            // What does allowing this app also need? Read the signer vault
-            // first (no prompt, nothing published).
+            if (req.kind === 'rotateMaster') return false; // "Replace my key" isn't offered here yet
+            // What does allowing this app also need? Read the signer vault first (no prompt, nothing published).
             const caps = await evolustr.capabilities(selfCaller);
-            if (caps.ok && oauth && custodyRef.current === null) {
-                // Chosen on another site or device: the vault on the relays says how.
+            if (caps.ok && oauth) {
+                // The vault on the relays says how, also over this site's memory (#66).
                 if (caps.value.nsecProtected) setCustody('sk');
                 else if (caps.value.signerPasskey) setCustody('passkey');
             }
@@ -429,7 +458,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const apps = loadAllowedApps(pubkey);
             if (setup === 'none' && apps.includes(req.appId)) return true;
 
-            const answer = await askEvolustr({ kind: 'appKey', appId: req.appId, setup });
+            const answer = await askEvolustr({ kind: 'appKey', appId: req.appId, setup, shared });
             if (answer === 'deny') return false;
             if (answer === 'allow-sk') setCustody('sk');
             if (answer === 'allow-passkey') {
@@ -445,12 +474,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                     throw e;
                 }
             }
-            const next = loadAllowedApps(pubkey);
-            if (!next.includes(req.appId)) {
-                next.push(req.appId);
-                saveAllowedApps(pubkey, next);
-                setEvolustrApps(next);
-            }
+            void allowedAppsRef.current.allow(req.appId); // and syncs, M being unlocked now (#88)
             return true;
         };
 
@@ -468,19 +492,17 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             custody: () => custodyRef.current,
             passkeys: passkeys.passkeys,
             confirm,
-            requestGesture: async reason => {
-                if ((await askEvolustr({ kind: 'gesture', reason })) === 'deny') throw new Error('Cancelled');
-            },
+            requestGesture: askGesture,
         });
-        evolustrRef.current = evolustr;
+        evolustrRef.current = evolustr; void allowedAppsRef.current.sync(); // M may be unlocked already (#88)
         for (const w of evolustrWaitersRef.current.splice(0)) w(evolustr);
         return () => {
             if (evolustrRef.current === evolustr) evolustrRef.current = null;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [evolustrPubkey, holdsNsec, publishRelaysKey, askEvolustr, postToParent]);
+    }, [evolustrPubkey, holdsNsec, publishRelaysKey, askEvolustr, postToParent, shared]);
 
     // Status for the settings: read when they open.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: re-read when the identity changes too (evolustrPubkey), selfCaller is constant
     useEffect(() => {
         if (view !== 'profile') return;
         const evolustr = evolustrRef.current;
@@ -489,13 +511,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         evolustr.capabilities(selfCaller).then(r => {
             if (stale || !r.ok) return;
             const c = r.value;
-            setEvolustrStatus({ setUp: c.ready || c.signerPasskey || c.nsecProtected, nsecProtected: c.nsecProtected, signerPasskey: c.signerPasskey });
+            setEvolustrStatus({ setUp: c.ready || c.signerPasskey || c.nsecProtected, nsecProtected: c.nsecProtected, signerPasskey: c.signerPasskey, nsecExposed: c.nsecExposed });
         });
         return () => { stale = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [view, evolustrPubkey]);
 
-    // ── Send RESIZE messages whenever the view changes ────────────────────────
+    const sheetShown = sharedSignIn.sheet !== null; // ── RESIZE on view changes; a sheet over 'login' stays modal-sized (#124)
     useEffect(() => {
         if (view === 'loading') return;
         if (view === 'error') {
@@ -505,13 +526,14 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             return;
         }
         const resizeState =
-            view === 'login' ? 'button' :
+            (view === 'login' && !sheetShown) || view === 'signing-in' ? 'button' :
                 view === 'avatar' ? 'avatar' :
                     'modal';
         postToParent({ type: 'RESIZE', state: resizeState });
-    }, [view, errorCollapsed, postToParent]);
+    }, [view, errorCollapsed, postToParent, sheetShown]);
 
     // ── Bootstrap: run once on mount ──────────────────────────────────────────
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the bootstrap runs once on mount; later prop changes don't restart it
     useEffect(() => {
         let cancelled = false;
 
@@ -521,6 +543,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Unauthorized context', 'This signer must be embedded in an authorized page.', 'NOT_EMBEDDED');
                 return;
             }
+            // Only the direct parent's origin is known: a third site framing it
+            // would control what the user sees around the signer (#62).
+            if (isNestedFrame()) {
+                showError('Unsupported embedding', 'The page using this signer must not be inside another frame.', 'NESTED_FRAME');
+                return;
+            }
 
             // 2. Protocol handshake: refuse a bridge this signer can't talk to
             // instead of misreading its messages.
@@ -528,10 +556,20 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 showError('Version mismatch', `nostr-bridge.js speaks protocol ${protocol}; this signer supports ${SUPPORTED_PROTOCOLS.join(', ')}.`, 'PROTOCOL_UNSUPPORTED');
                 return;
             }
-            postToParent({ type: 'SIGNER_HELLO', protocol });
+            // Shared mode: the operator's signed block list too (#65).
+            const blocked = blockedBuiltIn || (shared && ROOT_PUBKEY_VALID
+                && await isBlockedBySignedList(parentOrigin, ROOT_PUBKEY_HEX, REGISTRY_RELAYS));
+            if (cancelled) return;
+            // Blocked: no Google/Apple/X, also when the page passed the shared clientId itself.
+            const pageClientId = blocked ? '' : clientId;
+
+            // oauth tells the bridge which Google/Apple/X sign-in the page gets:
+            // its own clientId, the shared project, or none.
+            postToParent({ type: 'SIGNER_HELLO', protocol, oauth: !pageClientId ? 'none' : shared ? 'shared' : 'own' });
+            if (blocked) warnParent('SHARED_BLOCKED', "Shared sign-in isn't available for this site. Use your own clientId.");
 
             // 3. No clientId: no Web3Auth, the Sign in button opens the Nostr signer.
-            if (!clientId) {
+            if (!pageClientId) {
                 if (!nostrSigner) {
                     showError('No sign-in method', 'No clientId was given and no Nostr signer is available on the page.', 'NO_SIGN_IN_METHOD');
                     return;
@@ -541,62 +579,75 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 return;
             }
 
+            // Shared sign-in (#80): the widget never runs Web3Auth. The global
+            // sign-in runs in the signer's popup; here, this site's cache opens
+            // with the device secret, or the user signs in.
+            if (shared) return sharedSignIn.restore(() => cancelled);
+
             // Web3Auth init shows no UI and exposes nothing until a session is
-            // resolved below, so run it while the domain is being checked.
-            const w3aInit = initWeb3Auth(clientId).then(
-                w3a => ({ w3a, err: null }),
+            // resolved below, so it runs while the domain is being checked.
+            const w3aInit = initWeb3Auth(clientId, undefined, undefined, document.documentElement.lang).then(
+                w3a => ({ w3a, err: null as unknown }),
                 (err: unknown) => ({ w3a: null, err }),
             );
             console.log('[signer] initWeb3Auth: start');
 
-            // 4. The Web3Auth allowlist or the NIP-33 registry (under the root
-            // key built into this signer) must list the origin.
-            const allowlist = await fetchAllowlist(clientId);
-            if (cancelled) return;
-
-            const rootPubkeyMissing = !ROOT_PUBKEY_VALID;
-            const checkRegistry = () => checkAuthorization(clientId, parentOrigin, ROOT_PUBKEY_HEX, REGISTRY_RELAYS);
-
-            // Local testing only: the registrar refuses localhost domains, so a build
-            // made with VITE_LOCAL_TEST=true (scripts/local.sh) skips the domain
-            // checks for localhost parents. Normal builds never set the flag.
-            const localTestBypass = import.meta.env.VITE_LOCAL_TEST === 'true' && isLocalhostOrigin(parentOrigin);
-            if (localTestBypass) console.warn('[signer] VITE_LOCAL_TEST: skipping domain checks for', parentOrigin);
-
-            // 5. Domain authorization: the NIP-33 registry or the Web3Auth
-            // allowlist must list the origin; a warning names the one that doesn't.
-            if (allowlist.status === 'not_found') {
-                failSetup('Unknown clientId', 'Web3Auth has no project with this clientId.', 'CLIENT_ID_NOT_FOUND');
-                return;
-            }
-            const allowlisted = allowlist.status === 'ok' && isAllowlisted(allowlist.origins, parentOrigin);
-            if (allowlist.status === 'unavailable') {
-                console.warn('[signer] Web3Auth allowlist unavailable (%s); using the NIP-33 registry only', allowlist.reason);
-            }
-
+            // 4–5. Domain authorization. Shared mode is open to every site, so
+            // there is nothing to check: the shared project's allowlist lists
+            // only the signer's origin, and a registry entry for its clientId
+            // (if anyone claimed one) says nothing about who may use it.
             let auth: Authorization;
-            if (localTestBypass) {
+            if (shared) {
                 auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
-            } else if (allowlisted) {
-                auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
-                if (rootPubkeyMissing) {
-                    warnParent('NOT_IN_REGISTRY', 'The NIP-33 registry could not be checked: no root registry public key.');
-                } else {
-                    checkRegistry().final.then(ok => {
-                        if (!ok && !cancelled) warnParent('NOT_IN_REGISTRY', `"${parentOrigin}" is not registered for this clientId in the NIP-33 registry.`);
-                    });
-                }
             } else {
-                // Fail closed if the signer was built without a root pubkey.
-                if (rootPubkeyMissing) {
-                    showError('Signer misconfiguration', 'Missing root registry public key. Build the signer with VITE_ROOT_PUBKEY_HEX.', 'MISSING_ROOT_PUBKEY');
+                // The Web3Auth allowlist or the NIP-33 registry (under the root
+                // key built into this signer) must list the origin.
+                const allowlist = await fetchAllowlist(clientId);
+                if (cancelled) return;
+
+                const rootPubkeyMissing = !ROOT_PUBKEY_VALID;
+                const checkRegistry = () => checkAuthorization(clientId, parentOrigin, ROOT_PUBKEY_HEX, REGISTRY_RELAYS);
+
+                // Local testing only: the registrar refuses localhost domains, so a build
+                // made with VITE_LOCAL_TEST=true (scripts/local.sh) skips the domain
+                // checks for localhost parents. Normal builds never set the flag.
+                const localTestBypass = import.meta.env.VITE_LOCAL_TEST === 'true' && isLocalhostOrigin(parentOrigin);
+                if (localTestBypass) console.warn('[signer] VITE_LOCAL_TEST: skipping domain checks for', parentOrigin);
+
+                // The NIP-33 registry or the Web3Auth allowlist must list the
+                // origin; a warning names the one that doesn't.
+                if (allowlist.status === 'not_found') {
+                    failSetup('Unknown clientId', 'Web3Auth has no project with this clientId.', 'CLIENT_ID_NOT_FOUND');
                     return;
                 }
-                auth = checkRegistry();
-                if (allowlist.status === 'ok') {
-                    auth.final.then(ok => {
-                        if (ok && !cancelled) warnParent('NOT_ALLOWLISTED', `"${parentOrigin}" is not in this clientId's Web3Auth allowlist.`);
-                    });
+                const allowlisted = allowlist.status === 'ok' && isAllowlisted(allowlist.origins, parentOrigin);
+                if (allowlist.status === 'unavailable') {
+                    console.warn('[signer] Web3Auth allowlist unavailable (%s); using the NIP-33 registry only', allowlist.reason);
+                }
+
+                if (localTestBypass) {
+                    auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
+                } else if (allowlisted) {
+                    auth = { provisional: Promise.resolve(true), final: Promise.resolve(true) };
+                    if (rootPubkeyMissing) {
+                        warnParent('NOT_IN_REGISTRY', 'The NIP-33 registry could not be checked: no root registry public key.');
+                    } else {
+                        checkRegistry().final.then(ok => {
+                            if (!ok && !cancelled) warnParent('NOT_IN_REGISTRY', `"${parentOrigin}" is not registered for this clientId in the NIP-33 registry.`);
+                        });
+                    }
+                } else {
+                    // Fail closed if the signer was built without a root pubkey.
+                    if (rootPubkeyMissing) {
+                        showError('Signer misconfiguration', 'Missing root registry public key. Build the signer with VITE_ROOT_PUBKEY_HEX.', 'MISSING_ROOT_PUBKEY');
+                        return;
+                    }
+                    auth = checkRegistry();
+                    if (allowlist.status === 'ok') {
+                        auth.final.then(ok => {
+                            if (ok && !cancelled) warnParent('NOT_ALLOWLISTED', `"${parentOrigin}" is not in this clientId's Web3Auth allowlist.`);
+                        });
+                    }
                 }
             }
             authFinalRef.current = auth.final;
@@ -651,8 +702,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             //   "rehydration_error" — sessionId missing/expired → show login
             // A 30 s safety timeout covers the case where none of these fire.
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const w3aAny = w3a as any;
+            const w3aAny = w3a as any; // Web3Auth internals (cachedConnector, events)
             const hasProvider = !!getProvider(w3a);
 
             console.log('[signer] session check: connected=%s provider=%s cachedConnector=%s connectedConnectorName=%s status=%s',
@@ -676,10 +726,11 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                     } catch (e) {
                         console.warn('[signer] resolveSession: getUserInfo failed', e);
                     }
-                    if (!cancelled) await onLoginSuccess(km, w3aProfile);
+                    if (!cancelled) await siteAccount.afterSiteLogin(km, w3aProfile, 'sign-in');
                 } catch (e) {
+                    // A "restored" session whose key call fails expired (C16): rule (B), else Sign in again.
                     console.error('[signer] resolveSession: extractKey failed', e);
-                    if (!cancelled) {
+                    if (!cancelled && !(await siteAccount.restoreWithoutSiteLogin())) {
                         setView('login');
                         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
                     }
@@ -700,6 +751,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             const hasCachedSession = !!(w3aAny.cachedConnector || w3aAny.connectedConnectorName);
             if (!hasCachedSession) {
                 console.log('[signer] no cached session → show login');
+                if (await siteAccount.restoreWithoutSiteLogin()) return; // rule (B), #83
                 setView('login');
                 postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
                 return;
@@ -711,11 +763,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             // in 'loading' view until one of the events fires.
             const w3aEmitter = w3aAny;
 
-            console.log('[signer] cachedConnector=%s: waiting for auto-connect events',
-                (w3a as any).cachedConnector);
-            console.log('[signer] w3a event names currently registered:',
-                typeof w3aEmitter.eventNames === 'function' ? w3aEmitter.eventNames() : '(not an EventEmitter)');
-
             const cleanup = (safetyTimer: ReturnType<typeof setTimeout>) => {
                 clearTimeout(safetyTimer);
                 w3aEmitter.removeListener('connected', onConnected);
@@ -724,7 +771,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             };
 
             // Defined with `let` so they are in scope for cleanup (hoisted).
-            // eslint-disable-next-line prefer-const
             let safetyTimer: ReturnType<typeof setTimeout>;
 
             const onConnected = async () => {
@@ -738,8 +784,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 console.warn('[signer] event: %s fired', eventName, err ?? '');
                 cleanup(safetyTimer);
                 if (cancelled) return;
-                setView('login');
-                postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
+                void siteAccount.restoreWithoutSiteLogin().then(ok => { if (!ok && !cancelled) { setView('login'); postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null }); } });
             };
 
             safetyTimer = setTimeout(() => {
@@ -763,12 +808,12 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         });
 
         return () => { cancelled = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // run once on mount
 
     // ── Event handlers ────────────────────────────────────────────────────────
 
-    const handleConnect = useCallback(async () => {
+    const handleConnect = useCallback(async (intent: Intent = 'sign-in') => {
+        if (shared) return sharedSignIn.openSheet();
         const w3a = web3authRef.current;
         if (!w3a) {
             // Web3Auth setup failed: the Nostr signer is the only way in.
@@ -802,7 +847,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 const info = await w3a.getUserInfo();
                 w3aProfile = { name: info.name || undefined, picture: info.profileImage || undefined };
             } catch (_) { }
-            await onLoginSuccess(km, w3aProfile);
+            await siteAccount.afterSiteLogin(km, w3aProfile, intent);
         } catch (e) {
             // Revoked while the modal was open: the revocation already set the view.
             if (web3authRef.current !== w3a) return;
@@ -810,18 +855,18 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             setView('login');
             const msg = (e as Error).message ?? '';
             if (!/cancel|close|dismiss/i.test(msg)) {
-                showError('Login failed', msg, 'LOGIN_FAILED');
+                showError('Login failed', msg, (e as Error).name === 'KEY_EXPORT_OFF' ? 'KEY_EXPORT_OFF' : 'LOGIN_FAILED');
             }
         }
-    }, [postToParent, onLoginSuccess, showError, nostrSigner]);
+    }, [postToParent, showError, nostrSigner, shared, sharedSignIn, siteAccount]);
 
     // "Nostr signer or bunker" picked next to Web3Auth's sheet: the bridge opens
     // window.nostr.js on the parent page, and closing Web3Auth rejects connect(),
     // which returns this iframe to the button.
     const handleNostrSigner = useCallback(() => {
         postToParent({ type: 'OPEN_NOSTR_SIGNER' });
-        web3authRef.current?.loginModal?.closeModal();
-    }, [postToParent]);
+        web3authRef.current?.loginModal?.closeModal(); sharedSignIn.closePanel(); // the widget's own panel (#122)
+    }, [postToParent, sharedSignIn]);
 
     const handleSignerCardHeight = useCallback((height: number) => {
         postToParent({ type: 'RESIZE', state: 'modal', height });
@@ -845,14 +890,35 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         showNextConfirmation();
     }, [showNextConfirmation]);
 
-    const handleForgetApp = useCallback((appId: string) => {
-        if (!keyInfo) return;
-        const next = loadAllowedApps(keyInfo.publicKeyHex).filter(a => a !== appId);
-        saveAllowedApps(keyInfo.publicKeyHex, next);
-        setEvolustrApps(next);
-    }, [keyInfo]);
+    // Shared mode (#62): the prompt opens in a popup; its answer applies to the
+    // request it was opened for, even if the queue moved on meanwhile.
+    const handleReviewInPopup = useCallback(() => {
+        const head = confQueueRef.current[0];
+        if (!head) return;
+        openConfirmPopup(); // synchronously, in this click
+        setPopupError('');
+        const request = head.evolustr
+            ? { kind: 'evolustr' as const, origin: parentOrigin, prompt: head.evolustr }
+            : { kind: 'rpc' as const, origin: parentOrigin, method: head.method, params: head.params, ...(keyInfo ? { ownPubkey: keyInfo.publicKeyHex } : {}) };
+        askInPopup(request).then(answer => {
+            if (confQueueRef.current[0] !== head) return;
+            if (head.evolustr) handleEvolustrAnswer(answer === 'closed' || answer === 'approve' || answer === 'reject' || answer === 'done' ? 'deny' : answer);
+            else if (answer === 'approve') handleApprove();
+            else handleReject();
+        }, (e: Error) => setPopupError(e.message));
+    }, [parentOrigin, keyInfo, handleApprove, handleReject, handleEvolustrAnswer]);
 
-    // "Add a passkey" / "Use a passkey instead" in the settings.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: only when a new prompt arrives (its seq), not on every change to it
+    useEffect(() => { if (signerTab.connected && pendingConf) handleReviewInPopup(); }, [signerTab.connected, pendingConf?.seq]); // prompts to the tab (#90)
+
+    const handleRejectHead = useCallback(() => {
+        if (confQueueRef.current[0]?.evolustr) handleEvolustrAnswer('deny');
+        else handleReject();
+    }, [handleEvolustrAnswer, handleReject]);
+
+    const handleForgetApp = useCallback((appId: string) => void allowedApps.forget(appId), [allowedApps]);
+
+    // "Add a passkey" in the settings (#66: it doesn't take the login's access away).
     const handleEvolustrPasskey = useCallback(async () => {
         const evolustr = evolustrRef.current;
         if (!evolustr || !keyInfo) return;
@@ -873,7 +939,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             setEvolustrMsg('Passkey added ✓');
             const caps = await evolustr.capabilities(selfCaller);
             if (caps.ok) setEvolustrStatus({
-                setUp: true, nsecProtected: caps.value.nsecProtected, signerPasskey: caps.value.signerPasskey,
+                setUp: true, nsecProtected: caps.value.nsecProtected, signerPasskey: caps.value.signerPasskey, nsecExposed: caps.value.nsecExposed,
             });
         } catch (e) {
             custodyRef.current = before;
@@ -883,7 +949,6 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             afterConfirmViewRef.current = 'avatar';
             setEvolustrBusy(false);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [keyInfo, wnjPubkey]);
 
     const handleSaveProfile = useCallback(async (profile: UserProfile) => {
@@ -901,16 +966,16 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         }
         rejectAllConfirmations('Logged out');
         lockEvolustr();
-        try { await web3authRef.current?.logout(); } catch (_) { }
-        // Zero the key material before dropping the reference
-        privateKeyRef.current?.fill(0);
+        await signOutOnThisSite(web3authRef.current, sharedSignIn.currentSlot());
+        sharedSignIn.forget(); siteAccount.forget();
+        privateKeyRef.current?.fill(0); // zero the key material before dropping the reference
         privateKeyRef.current = null;
         setKeyInfo(null);
         setBackupAsk(false);
         setUserProfile({});
         setView('login');
         postToParent({ type: 'AUTH_STATE', loggedIn: false, pubkey: null });
-    }, [postToParent, wnjPubkey, rejectAllConfirmations]);
+    }, [postToParent, wnjPubkey, rejectAllConfirmations, sharedSignIn, siteAccount, lockEvolustr]); // sharedSignIn: its current slot (#117)
 
     bridgeActionsRef.current = { connect: handleConnect, logout: handleLogout };
 
@@ -943,14 +1008,28 @@ export function App({ parentOrigin, urlParams }: AppProps) {
         recordBackup(pk, keyInfo.publicKeyHex, method, publishRelays);
     }, [keyInfo, publishRelays]);
 
+    // Shared mode: the key is shown in the popup, not in the iframe (#62).
+    const handleExportKey = useCallback(() => {
+        const pk = privateKeyRef.current;
+        if (!popupPrompts || !pk || !keyInfo) {
+            setView('export');
+            return;
+        }
+        openConfirmPopup();
+        askInPopup(
+            { kind: 'export', nsecStr: keyInfo.nsecStr, npubStr: keyInfo.npubStr, privateKeyHex: bytesToHex(pk), shared },
+            e => handleBackedUp(e.backedUp),
+        ).catch(() => setView('export'));
+    }, [popupPrompts, keyInfo, shared, handleBackedUp]);
+
     const handleBackupLater = useCallback(() => {
         if (keyInfo) snoozeBackupPrompt(keyInfo.publicKeyHex);
         setBackupAsk(false);
     }, [keyInfo]);
-
     // ── Render ─────────────────────────────────────────────────────────────────
 
-    if (view === 'loading') return <LoadingOverlay />;
+    if (siteAccount.choice) return siteAccount.choice; // #83: asked while the view is still 'loading'
+    if (view === 'loading' || view === 'signing-in') return <LoadingOverlay />;
     if (view === 'error' && error) {
         return (
             <ErrorBanner
@@ -966,7 +1045,8 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             />
         );
     }
-    if (view === 'login') return <LoginView onConnect={handleConnect} notice={setupError} />;
+    if (sharedSignIn.sheet) return sharedSignIn.sheet;
+    if (view === 'login') return <LoginView onConnect={() => handleConnect('sign-in')} onSignUp={!shared && clientId ? () => handleConnect('sign-up') : undefined} notice={setupError} />;
     // Web3Auth's modal is open and draws its own UI over the iframe; under that
     // sheet, offer the parent page's Nostr signer (if any) and link the library
     // (unless the host page turned the link off).
@@ -976,9 +1056,24 @@ export function App({ parentOrigin, urlParams }: AppProps) {
             : null;
     }
 
+    if (view === 'confirm' && pendingConf && (popupPrompts || signerTab.connected) &&
+        (pendingConf.evolustr ? pendingConf.evolustr.kind === 'appKey' : needsTopLevelPrompt(pendingConf.method, pendingConf.params))) {
+        return (
+            <ReviewInPopupView
+                key={pendingConf.seq}
+                origin={parentOrigin}
+                waiting={pendingConf.waiting}
+                onReview={handleReviewInPopup}
+                onReject={handleRejectHead}
+                error={popupError}
+            />
+        );
+    }
+
     if (view === 'confirm' && pendingConf?.evolustr) {
         return (
             <EvolustrPromptView
+                key={pendingConf.seq}
                 prompt={pendingConf.evolustr}
                 origin={parentOrigin}
                 waiting={pendingConf.waiting}
@@ -990,8 +1085,10 @@ export function App({ parentOrigin, urlParams }: AppProps) {
     if (view === 'confirm' && pendingConf) {
         return (
             <ConfirmView
+                key={pendingConf.seq}
                 confirmation={pendingConf}
                 origin={parentOrigin}
+                {...(keyInfo ? { ownPubkey: keyInfo.publicKeyHex } : {})}
                 onApprove={handleApprove}
                 onReject={handleReject}
             />
@@ -1006,6 +1103,7 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 onEncrypt={handleEncryptBackup}
                 onBackedUp={handleBackedUp}
                 onBack={() => setView('profile')}
+                shared={shared}
             />
         );
     }
@@ -1019,20 +1117,24 @@ export function App({ parentOrigin, urlParams }: AppProps) {
                 autoApproveKinds={autoApproveKinds}
                 origin={parentOrigin}
                 isWnjMode={!!wnjPubkey}
+                shared={shared} keyInWindow={popupPrompts}
                 backupAsk={backupAsk}
                 onBackupLater={handleBackupLater}
                 onSaveProfile={handleSaveProfile}
-                onExportKey={() => setView('export')}
+                onExportKey={handleExportKey}
+                onBackUp={shared ? sharedSignIn.backUp : undefined}
                 onLogout={handleLogout}
                 onRelaysChange={handleRelaysChange}
                 onAutoApproveChange={handleAutoApproveChange}
                 onClose={() => setView('avatar')}
+                onOpenTab={signerTab.open}
+                identitySection={sharedSignIn.switcher ?? siteAccount.bringOver}
                 evolustrSection={
                     <EvolustrSettings
                         status={evolustrStatus}
-                        apps={evolustrApps}
+                        apps={allowedApps.apps}
                         holdsNsec={!wnjPubkey}
-                        custody={custodyRef.current}
+                        custody={custodyRef.current} shared={shared}
                         busy={evolustrBusy}
                         message={evolustrMsg}
                         onForgetApp={handleForgetApp}
@@ -1045,5 +1147,5 @@ export function App({ parentOrigin, urlParams }: AppProps) {
 
     // Default: avatar view
     const avatarUrl = userProfile.picture || DEFAULT_AVATAR;
-    return <AvatarView avatarUrl={avatarUrl} attention={backupAsk} onClick={() => setView('profile')} />;
+    return <AvatarView avatarUrl={avatarUrl} attention={backupAsk || (!wnjPubkey && safariNoticeDue())} onClick={() => setView('profile')} />;
 }

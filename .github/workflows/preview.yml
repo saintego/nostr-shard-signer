@@ -62,6 +62,13 @@ jobs:
         env:
           VITE_ROOT_PUBKEY_HEX: ${{ vars.ROOT_PUBKEY_HEX }}
           VITE_REGISTRY_RELAYS: ${{ vars.REGISTRY_RELAYS }}
+          VITE_POPUP_CONFIRM: ${{ vars.POPUP_CONFIRM }}
+          # Previews only (#96): a test Web3Auth project for shared sign-in, so the
+          # global flows can be tried before launch; the widget then says it's a
+          # test version. Never the real shared project here (lib/shared.ts).
+          VITE_PREVIEW: "1"
+          VITE_PREVIEW_SHARED_CLIENT_ID: ${{ vars.PREVIEW_SHARED_CLIENT_ID }}
+          VITE_PREVIEW_SHARED_NETWORK: ${{ vars.PREVIEW_SHARED_NETWORK }}
 
       # Nested under /nostr-shard-signer/ to match the GitHub Pages URL: the
       # portal loads /nostr-shard-signer/nostr-bridge.js and uses that path as
@@ -69,6 +76,12 @@ jobs:
       - name: Assemble site
         run: |
           scripts/assemble-site.sh _preview/nostr-shard-signer
+          # The minimal example loads the hosted bridge and signer; on a preview
+          # it should try this build instead (#96).
+          ex=_preview/nostr-shard-signer/examples/minimal.html
+          sed -i -e 's#src="https://saintego.github.io/nostr-shard-signer/nostr-bridge.js"#src="/nostr-shard-signer/nostr-bridge.js"#' \
+            -e 's#await NostrBridge.init()#await NostrBridge.init({ bunkerOrigin: location.origin + "/nostr-shard-signer" })#' "$ex"
+          grep -q 'src="/nostr-shard-signer/nostr-bridge.js"' "$ex" && grep -q 'bunkerOrigin: location.origin' "$ex"
           echo "/ /nostr-shard-signer/portal/ 302" > _preview/_redirects
 
       - name: Create Pages project if missing

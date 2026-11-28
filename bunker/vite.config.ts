@@ -60,6 +60,8 @@ export default defineConfig({
   // fails. Resolve the trailing-slash form to the same shim file first.
   // (Production builds go through Rollup and are unaffected.)
   optimizeDeps: {
+    // Evolu's SQLite: served as is, with its wasm file.
+    exclude: ["@evolu/sqlite-wasm"],
     esbuildOptions: {
       plugins: [
         {
@@ -73,8 +75,24 @@ export default defineConfig({
       ],
     },
   },
+  // The test build of the whole sign-in (#127): Web3Auth replaced by a fake
+  // that draws its panel as DOM and returns a fixed login. Never in a release.
+  ...(process.env.VITE_FAKE_W3A === "1"
+    ? {
+        resolve: {
+          alias: { "@web3auth/modal": new URL("./src/testing/fakeWeb3Auth.ts", import.meta.url).pathname },
+        },
+      }
+    : {}),
+  // Evolu's database runs in ES module workers.
+  worker: { format: "es" },
   build: {
     outDir: "dist",
     sourcemap: false,
+    rollupOptions: {
+      // The signer, the /restore page (#87), and a self-test page built with
+      // the same setup (#86).
+      input: { main: "index.html", restore: "restore.html", selftest: "selftest.html" },
+    },
   },
 });

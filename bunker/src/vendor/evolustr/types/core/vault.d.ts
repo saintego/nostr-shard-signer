@@ -45,6 +45,14 @@ export interface Vault {
     readonly history: ReadonlyArray<HistoryEntry>;
     readonly rootWraps: ReadonlyArray<RootWrap>;
     readonly dataWraps: ReadonlyArray<DataWrap>;
+    /**
+     * Set by {@link rotateRoot}: an HMAC by the previous root key over this
+     * vault's `sHash` and `created`. A device holding the old R sees a rotation
+     * it can check, instead of a vault R doesn't open (#52 phase C).
+     */
+    readonly rootRotation?: {
+        readonly proof: string;
+    };
 }
 /** Who and which app a vault belongs to; part of every AAD. */
 export interface VaultContext {
@@ -96,6 +104,11 @@ export declare const verifyRootWrap: (ctx: VaultContext, r: Bytes, wrap: RootWra
 export declare const openRootWrap: (ctx: VaultContext, wrap: RootWrap, key: Bytes) => Result<Bytes, EvolustrError>;
 /** Opens the `root` data wrap with R and checks the result against `sHash`. */
 export declare const openRootData: (ctx: VaultContext, vault: Vault, r: Bytes) => Result<Bytes, EvolustrError>;
+/**
+ * False when R is known, the vault has a root data wrap, and R doesn't open it:
+ * a vault this device must never publish or keep as its copy (#50).
+ */
+export declare const canOpenOwnVault: (ctx: VaultContext, vault: Vault, r: Bytes | undefined) => boolean;
 /** Same header and same data wraps (root: iv+ct, nip44: ct). Root wraps are not compared (#38). */
 export declare const sameVaultCore: (a: Vault, b: Vault) => boolean;
 /** Checks a decrypted nip44 payload against the vault's `sHash`. */
@@ -139,6 +152,40 @@ export interface MakeStrictInput {
  * Root wraps and R stay; the nip44 wrap is dropped; the old S goes into history.
  */
 export declare const makeStrict: (ctx: VaultContext, vault: Vault, input: MakeStrictInput) => Result<Vault, EvolustrError>;
+export interface MakeStrictNewRootInput {
+    readonly newR: Bytes;
+    readonly newS: Bytes;
+    readonly now: number;
+    /** At least one, each made with `newR`. */
+    readonly rootWraps: ReadonlyArray<RootWrap>;
+}
+/**
+ * Strict with a brand-new root key (#49), for a compatible vault whose root key
+ * this device can't open. Every old root wrap is dropped. Safe without the old
+ * R: the new S' is unrelated to the old S, so whoever knew S learns nothing.
+ * A strict vault's root can only be replaced by someone who has R.
+ */
+export declare const makeStrictWithNewRoot: (ctx: VaultContext, vault: Vault, input: MakeStrictNewRootInput) => Result<Vault, EvolustrError>;
+export interface RotateRootInput {
+    /** The current root key: it must open the vault, and it signs the rotation. */
+    readonly r: Bytes;
+    readonly newR: Bytes;
+    readonly newS: Bytes;
+    readonly now: number;
+    /** At least one, each made with `newR`. */
+    readonly rootWraps: ReadonlyArray<RootWrap>;
+    /** NIP-44 self-encryption of `newS`; required for a compatible vault. */
+    readonly nip44Ct?: string;
+}
+/**
+ * Replaces both R and S, keeping the mode (#52 phase C): for when R may be
+ * known to someone else (a signer key exposed through the nsec, or a recovery
+ * phrase that leaked). Every old root wrap is dropped, the old S goes into
+ * history, and the old R signs the result (`rootRotation`).
+ */
+export declare const rotateRoot: (ctx: VaultContext, vault: Vault, input: RotateRootInput) => Result<Vault, EvolustrError>;
+/** True when `r` (an earlier root key) signed this vault's rotation (#52 phase C). */
+export declare const verifyRootRotation: (ctx: VaultContext, vault: Vault, r: Bytes) => boolean;
 export interface DowngradeInput {
     readonly r: Bytes;
     readonly s: Bytes;

@@ -49,6 +49,7 @@ jobs:
         env:
           VITE_ROOT_PUBKEY_HEX: ${{ vars.ROOT_PUBKEY_HEX }}
           VITE_REGISTRY_RELAYS: ${{ vars.REGISTRY_RELAYS }}
+          VITE_POPUP_CONFIRM: ${{ vars.POPUP_CONFIRM }}
 
       - name: Assemble Pages artifact
         run: scripts/assemble-site.sh _site

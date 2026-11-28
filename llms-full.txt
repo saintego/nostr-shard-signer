@@ -1,6 +1,6 @@
 # nostr-shard-signer: full reference for coding agents
 
-> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr`. Users sign in with their own NIP-07 extension or NIP-46 bunker, and, when a Web3Auth `clientId` is given, with Google/Apple/X (the key exists only inside a cross-origin iframe). Alpha software with no security audit; not for high-value keys.
+> Drop-in NIP-07 signer for web apps. One `<script>` tag plus `NostrBridge.init()` gives the page a standard `window.nostr`. Users sign in with Google/Apple/X (the key exists only inside a cross-origin iframe), or with their own NIP-07 extension or NIP-46 bunker. Google/Apple/X needs no setup: without a `clientId`, it goes through the hosted signer's shared Web3Auth project. Alpha software with no security audit; not for high-value keys.
 
 Source: https://github.com/saintego/nostr-shard-signer
 npm: `nostr-shard-signer` (loader + types, see "In a framework" below)
@@ -8,9 +8,25 @@ Types without npm: https://raw.githubusercontent.com/saintego/nostr-shard-signer
 
 ## 1. Prerequisites (the developer does these once, by hand)
 
-Nostr-only sign-in (extension or NIP-46 bunker) needs nothing: call `NostrBridge.init()` without a `clientId`. The console then warns that Google/Apple/X sign-in is off.
+Nothing, by default: call `NostrBridge.init()` without a `clientId` and users sign in with Google/Apple/X through the hosted signer's **shared sign-in** (Web3Auth's panel in the widget, and a small window on the signer's origin for the account's own screens; `NostrBridge.login()` opens the sign-in sheet), or with an extension or NIP-46 bunker. The console notes (info) that the page uses shared sign-in.
 
-For Google/Apple/X sign-in:
+Shared sign-in, what to tell the developer:
+
+- It works on any site, with no Web3Auth account and no registration. A user gets the same npub on every site that uses it.
+- It is free while donations cover the shared project's Web3Auth bill, and may later be limited per site, become paid, or be turned off.
+- Moving a live app from shared sign-in to its own `clientId` (or back) gives its OAuth users new, empty npubs. If the app will need its own keys or predictable costs, start with its own `clientId`.
+- Safari and every iPhone/iPad browser delete a site's stored data after about a week unused, the widget's too: users sign in again and get the same identities.
+- Whoever runs the hosted signer can obtain shared-mode users' keys: everyone who can change the code served on the signer's origin (repository write access, CI and its secrets, the hosting provider, the build's dependencies). The shared project's Web3Auth allowlist lists only the signer's origin, so sites can't. If a site is added to it, the signer pauses new shared sign-ins ("Sign-in paused"; sites already signed in keep working).
+- The operator can block a single site from it (warning `SHARED_BLOCKED`); that site keeps extension and bunker sign-in.
+- Users back up the whole account (master key and backup file) in the sign-in window, and restore only at `<signer>/restore/`, a page they open themselves. Apps can't start either; don't build flows around them.
+- Decrypts, replacing the profile, follows or relays, deletions, Evolustr app keys and key export are confirmed in a popup on the signer's origin (the widget shows "Review this request" first), so no page can cover the prompt. Expect two clicks for those.
+- The page using the signer must be a top-level window: inside another site's frame the signer refuses with `NESTED_FRAME` (all modes).
+
+Nostr-only sign-in (extension or NIP-46 bunker, no Google/Apple/X): `NostrBridge.init({ nostrOnly: true })`.
+
+Behaviour change: before shared sign-in, `init()` without a `clientId` meant Nostr-only sign-in, and pages that load the hosted bridge get the new default by themselves. When editing an existing page that calls `init()` without a `clientId` and was meant for extension and bunker users only, add `nostrOnly: true`.
+
+For Google/Apple/X sign-in with keys of the app's own Web3Auth project:
 
 1. Create a Web3Auth project (Sapphire Mainnet) at https://web3auth.io and copy its client ID.
 2. In the Web3Auth dashboard, under Project Settings → Domains → Allowlist URLs, add `https://saintego.github.io` (the signer iframe runs there) and the app's exact origin (e.g. `https://myapp.com`).
@@ -34,7 +50,7 @@ The portal refuses localhost, IP addresses and http origins. For local testing, 
     <button id="logout" hidden>Sign out</button>
     <button id="publish" disabled>Publish note</button>
     <script type="module">
-      import { SimplePool } from "https://cdn.jsdelivr.net/npm/nostr-tools@2/lib/esm/index.js";
+      import { SimplePool } from "https://cdn.jsdelivr.net/npm/nostr-tools@2/+esm";
       const RELAYS = ["wss://relay.damus.io", "wss://nos.lol"];
       const statusEl = document.getElementById("status");
       const publishBtn = document.getElementById("publish");
@@ -116,7 +132,7 @@ The script tag can carry the config; the bridge then calls `init()` itself:
         data-client-id="YOUR_WEB3AUTH_CLIENT_ID" data-layout="floating"></script>
 ```
 
-Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, `data-registrar-url`, `data-layout`, `data-button-size`, `data-mount-selector`, `data-force-iframe` and `data-powered-by` (`"true"`/`"false"`). Any of them starts init, so `data-layout="floating"` alone gives Nostr-only sign-in. An explicit `init()` afterwards returns the same promise; `NostrBridge.ready` resolves when it is done.
+Attributes map to the `init()` options: `data-client-id`, `data-nostr-only`, `data-bunker-origin`, `data-layout`, `data-button-size`, `data-mount-selector`, `data-locale`, `data-sign-in-ui`, `data-force-iframe` and `data-powered-by` (`"true"`/`"false"`). Any of them starts init, so `data-layout="floating"` alone gives the defaults (shared sign-in), and `data-nostr-only="true"` alone gives Nostr-only sign-in. An explicit `init()` afterwards returns the same promise; `NostrBridge.ready` resolves when it is done.
 
 ## 3. API
 
@@ -124,13 +140,17 @@ Attributes map to the `init()` options: `data-client-id`, `data-bunker-origin`, 
 
 | Option          | Type                                | Default                                              | Notes |
 | --------------- | ----------------------------------- | ---------------------------------------------------- | ----- |
-| `clientId`      | string                              | none                                                 | Web3Auth client ID; adds Google/Apple/X sign-in. Without it, only extension / bunker sign-in |
+| `clientId`      | string                              | none                                                 | Your Web3Auth client ID: Google/Apple/X with your project's keys. Without it, Google/Apple/X goes through shared sign-in (see section 1) |
+| `nostrOnly`     | boolean                             | `false`                                              | `true`: no Google/Apple/X, only extension / bunker sign-in; `clientId` is ignored |
+| `globalLogin`   | `"offer"` \| `"off"` \| `"require"` | `"offer"`                                            | With your own `clientId`: whether users may use their global account (same identities on every site; the signer's operator can open it, you can't) next to an account only for your site. `"off"`: only-for-this-site accounts; `"require"`: the global account only |
 | `bunkerOrigin`  | string (absolute URL)               | `https://saintego.github.io/nostr-shard-signer`      | Only for a self-hosted signer |
-| `forceIframe`   | boolean                             | `false`                                              | `true`: ignore an installed extension and don't offer bunkers; always use Web3Auth. Ignored without `clientId` |
+| `forceIframe`   | boolean                             | `false`                                              | `true`: ignore an installed extension and don't offer bunkers; always use Web3Auth. Ignored with `nostrOnly` |
 | `layout`        | `"floating"` \| `"in-place"`        | `"floating"`                                         | Floating widget sits bottom-right |
 | `buttonSize`    | `"standard"` \| `"large_social_grid"` | `"standard"`                                       | |
 | `mountSelector` | string (CSS selector)               | none                                                 | Where the widget renders with `layout: "in-place"`; falls back to `<body>` |
 | `poweredBy`     | boolean                             | `true`                                               | `false`: hide the "Powered by nostr-shard-signer" link at the bottom of the sign-in sheet |
+| `locale`        | string                              | the browser's language                               | Language code for the widget (`"es"`, `"pt-BR"`). Used only if the signer has that language, else the browser's, else English. Pages can't supply or change the signer's text. |
+| `signInUi`      | `"panel"` \| `"buttons"`           | `"panel"`                                            | Shared sign-in: Web3Auth's own panel in the widget (every provider the project offers, wallets hidden, Web3Auth's languages) or the signer's own Google, Apple, Facebook and X buttons in the sign-in window (the signer's languages and design) |
 
 Rejects if `bunkerOrigin` is not a valid URL (a corrected call may then retry). Later calls return the first call's promise and ignore their config. On load it:
 1. Asks an installed NIP-07 extension for the pubkey (waits up to 5 s). If it answers, signing goes through it. If it doesn't (locked, or waiting for the user to approve), the sign-in chooser offers "Browser extension", and a late approval still signs the user in.
@@ -144,7 +164,7 @@ Resolves once `init()` has completed, whoever called it (e.g. the `data-client-i
 
 ### `NostrBridge.onAuthChange(callback): () => void`
 
-`callback({ loggedIn, pubkey })` runs on every sign-in / sign-out, only when the state changes. If the state is already known when you subscribe, it also runs right away, so a restored session is never missed. Returns an unsubscribe function. Can be called before `init()`.
+`callback({ loggedIn, pubkey })` runs on every sign-in / sign-out, and when the user switches to another identity on this site (shared sign-in: same `loggedIn`, new `pubkey`), only when the state changes. Re-read anything tied to the pubkey then. If the state is already known when you subscribe, it also runs right away, so a restored session is never missed. Returns an unsubscribe function. Can be called before `init()`.
 
 The same data is dispatched as a `CustomEvent` on window: `window.addEventListener("nostr-bridge:auth", (e) => e.detail /* { loggedIn, pubkey } */)`.
 
@@ -177,7 +197,7 @@ Session cached in localStorage from a previous visit. Works before `init()`, e.g
 Behaviour:
 - Calls made while the signer is still loading are queued. After that, calls made while logged out reject with "nostr-bridge: user is not logged in…".
 - Don't rely on `window.nostr` calls to open a login prompt. The user signs in through the widget, or your button calling `NostrBridge.login()`.
-- With Web3Auth login, ordinary public content is signed without asking by default: kinds 1, 7, 1111, 30818 (wiki), 10003/30003 (bookmarks), 31922/31923 (calendar), 30078 (app data, except Evolustr data keys), and 27235 (NIP-98) for nostr.build uploads. Users can turn these off per site. Kinds 0, 3, 10002 and 5, other kinds, `nip04.encrypt` and both decrypts show a confirmation in the widget. Extensions and bunkers apply their own rules.
+- With Web3Auth login, ordinary public content is signed without asking by default: kinds 1, 7, 1111, 30818 (wiki), 10003/30003 (bookmarks), 31922/31923 (calendar), 30078 (app data, except Evolustr data keys), and 27235 (NIP-98) for nostr.build uploads. Users can turn these off per site. Replaceable data (lists, bookmarks, app data) is replaced without asking only when this site signed what's on the relays, or the change only adds list entries or removes ones this site added; otherwise the user is asked. Events dated more than 5 minutes ahead are refused, and so are deletions (kind 5) aimed at the user's Evolustr vaults or at another key's address. Kinds 0, 3, 10002, 5, 22242, 24242 and 62, other kinds, `nip04.encrypt` and both decrypts show a confirmation in the widget. Extensions and bunkers apply their own rules.
 - Confirmations are queued, so parallel `signEvent` calls are fine; the user answers them one at a time. Still, sign the steps of one action in sequence if their order matters.
 - With Web3Auth login, calls reject after 30 s without an answer from the signer. A call waiting on a confirmation has no timeout: it settles when the user approves or rejects, or logs out.
 - `window.nostr.evolustr` works with Web3Auth and with an extension or bunker. `getWrapKey()` resolves to a 32-byte key (base64url) for the page's origin; the user approves the app in the widget, and may have to create or use a passkey there first. These calls have no timeout; don't add a short one. Only `https:` pages (and `http://localhost`) get a key. Use `@evolustr/client` rather than calling them directly.
@@ -202,21 +222,29 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 
 | Code / message | Cause | Fix |
 | -------------- | ----- | --- |
-| `CLIENT_ID_NOT_FOUND` | Web3Auth has no Sapphire Mainnet project with this clientId | Copy the right client ID, or leave `clientId` out for Nostr-only sign-in |
+| `CLIENT_ID_NOT_FOUND` | Web3Auth has no Sapphire Mainnet project with this clientId | Copy the right client ID, or leave `clientId` out for shared sign-in |
 | `DOMAIN_NOT_REGISTERED` | The origin is neither in the NIP-33 registry nor in the Web3Auth allowlist | Register the exact origin (scheme + host + port) in the portal, or add it to the Web3Auth Allowlist URLs. The registry lookup is cached per browser tab, so test in a new tab |
-| `NO_SIGN_IN_METHOD` | No `clientId`, and window.nostr.js failed to load | Check that cdn.jsdelivr.net is reachable, or pass a `clientId` |
+| `NESTED_FRAME` | The page using the signer is itself inside another site's frame; that site could hide or cover the signer's prompts | Open the app in its own tab (top-level window) |
+| `NO_SIGN_IN_METHOD` | No Google/Apple/X for the page (`nostrOnly`, or a signer without shared sign-in), and window.nostr.js failed to load or `forceIframe` skipped it | Check that cdn.jsdelivr.net is reachable, or pass a `clientId` |
 | `NOT_IN_REGISTRY` (warning) | The origin is allowlisted in Web3Auth but not registered in the portal | Register it in the portal so sign-in keeps working when the allowlist can't be read |
+| `SHARED_BLOCKED` (warning) | The hosted signer's operator blocked this site from shared sign-in; extension and bunker sign-in still work | Pass your own Web3Auth `clientId` for Google/Apple/X |
 | `NOT_ALLOWLISTED` (warning) | The origin is registered in the portal but not in the Web3Auth allowlist | Add it to the Web3Auth Allowlist URLs |
 | `WEB3AUTH_INIT_FAILED` | Wrong clientId, or the signer origin is not allowlisted | Check the clientId; add `https://saintego.github.io` to the Web3Auth Allowlist URLs |
 | `MISSING_ROOT_PUBKEY` | The signer was built without a registry root key, and the origin isn't in the Web3Auth allowlist | Omit `bunkerOrigin` to use the hosted signer; if self-hosting, build it with `VITE_ROOT_PUBKEY_HEX` |
-| `NOT_EMBEDDED` | `signer.html` was opened directly | Only load it through `nostr-bridge.js` |
+| `NOT_EMBEDDED` | `signer.html` was opened directly, or (Firefox) the page that embeds it didn't confirm it: a copied or pinned `nostr-bridge.js` from before that check | Only load it through `nostr-bridge.js`, from `<bunkerOrigin>/nostr-bridge.js` or the npm package's `loadNostrBridge()` |
 | `PROTOCOL_UNSUPPORTED` | `nostr-bridge.js` and the signer at `bunkerOrigin` are different versions (e.g. a copied or CDN-pinned bridge with a newer or self-hosted signer) | Load `nostr-bridge.js` from `<bunkerOrigin>/nostr-bridge.js`, or use the npm package's `loadNostrBridge()`, which does that |
 | `LOGIN_FAILED` | The OAuth login failed (not cancelled) | Usually transient; the user can retry |
-| "nostr-bridge: no clientId…" (warning) | `init()` without `clientId` | Expected for Nostr-only sign-in; pass a `clientId` to add Google/Apple/X |
+| `KEY_EXPORT_OFF` | The page's own Web3Auth project has key export turned off, so it can't give Nostr keys | Turn key export on in the Web3Auth dashboard, or leave `clientId` out for shared sign-in |
+| `SHARED_SIGN_IN_PAUSED` | Shared sign-in only: the hosted signer's shared Web3Auth project changed unexpectedly (a site added to its allowlist, or key export off), so the signer starts no new shared sign-in. Users already signed in keep working | Nothing to fix on the page; the operator is alerted. Pass your own `clientId` to avoid depending on the shared project |
+| "nostr-bridge: no clientId, so Google/Apple/X sign-in goes through the signer's shared project…" (info) | `init()` without `clientId` | Expected: shared sign-in. Pass a `clientId` for keys of your own project, or `nostrOnly: true` to turn it off |
+| "nostr-bridge: no clientId, so Google/Apple/X sign-in is off…" (warning) | `init()` without `clientId`, with a self-hosted signer that has no shared sign-in | Pass a `clientId` to add Google/Apple/X, or `nostrOnly: true` if that's intended |
 | "nostr-bridge: bunkerOrigin must be an absolute URL…" | Bad `bunkerOrigin` | Omit it, or pass a full https URL |
 | "nostr-bridge: user is not logged in…" | Call made before sign-in | Wait for `onAuthChange` with `loggedIn: true`, or call `NostrBridge.login()` from a button |
 | "nostr-bridge: RPC timeout…" | No answer from the signer within 30 s | The signer iframe is stuck or was removed; reload |
 | "User rejected" | The user clicked Reject on the confirmation | Don't retry automatically |
+| "Refused: the event is for another identity" | `signEvent` with a `pubkey` that isn't the active identity (the user switched identities on this site) | Leave `pubkey` empty, or use the one from `onAuthChange` |
+| "Refused: the event is dated in the future" | `created_at` more than 5 minutes ahead | Use the current time |
+| "Refused: the signer never deletes its own records or vaults for a site" | A kind-5 deletion aimed at an Evolustr vault or at another key's address | Don't delete those |
 | "nostr-bridge: already initialized …" (warning) | `init()` called again with a different clientId | The first config stays in effect; reload the page to switch |
 
 ## 6. Don'ts
@@ -231,15 +259,15 @@ In the errors below that turn off Google/Apple/X sign-in, an extension or bunker
 ## 7. Security model (short)
 
 - With Web3Auth login, the private key is reconstructed only inside the cross-origin signer iframe. Parent-page JS, including XSS, cannot read it.
-- The owner of the Web3Auth project (`clientId`) can obtain users' keys: they control which sites may use the project, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. Users trust the app owner with the identity they create in that app. Don't describe OAuth login as "the app owner can never get the key".
-- Each (clientId, origin) pair must be in the NIP-33 registry on Nostr relays or in the clientId's Web3Auth allowlist (which only the project owner can edit) before Web3Auth sign-in works on a page. The registrar only registers origins that are in that allowlist.
+- The owner of the Web3Auth project (`clientId`) can obtain users' keys: they control which sites may use the project, so they can run Web3Auth on a page of their own and get the key of any user who signs in there. Users trust the app owner with the identity they create in that app. With shared sign-in, that owner is whoever runs the hosted signer. Don't describe OAuth login as "the app owner can never get the key".
+- With an own `clientId`, each (clientId, origin) pair must be in the NIP-33 registry on Nostr relays or in the clientId's Web3Auth allowlist (which only the project owner can edit) before Web3Auth sign-in works on a page. The registrar only registers origins that are in that allowlist. Shared sign-in is open to every site; its project's allowlist lists only the signer's origin.
 - The signer is loaded from a CDN, so a compromise of the signer host could expose keys. Alpha, unaudited: not for high-value keys.
 
 ## 8. OAuth keys (Google/Apple/X)
 
 - Web3Auth's MPC network returns the user's secp256k1 key after the OAuth login; the signer iframe uses it as the Nostr keypair. The same account gets the same key on every sign-in. Nothing is stored on the app's server.
-- Keys are scoped to the Web3Auth project: the same Google account gets a different npub under another `clientId`. Never change the `clientId` of a live app; OAuth users would get new, empty identities.
-- Google, Apple and X are separate identities with separate keys.
+- Keys are scoped to the Web3Auth project: the same Google account gets a different npub under another `clientId`. Shared sign-in is one project, so a user has the same npub on every site that uses it. Never change the `clientId` of a live app, add one to a live app that used shared sign-in, or remove it; OAuth users would get new, empty identities.
+- With shared sign-in, one account can have several sign-ins (Google, Apple, Facebook, X): the user links them in the sign-in window, and each opens the same identities (or chosen ones). With your own `clientId`, Google, Apple and X give different keys.
 - The widget's profile menu has an "Export key" button that shows the nsec, so users can move to an extension or bunker and keep their identity.
 - Users who already have a Nostr key should sign in with their extension or bunker, offered in the same Sign in sheet, not with OAuth.
 

@@ -26,6 +26,7 @@ import {
     type UnsignedEvent,
 } from '../vendor/evolustr/evolustr.js';
 import { openPasskeyPopup, popupPasskeys } from './passkeyPopup';
+import { type GestureReason, passkeyRules } from './passkeyRules';
 
 export { isProtectedEvent } from '../vendor/evolustr/evolustr.js';
 export type { EvolustrSigner, ConfirmRequest };
@@ -36,6 +37,19 @@ export const KNOWN_NSITE_GATEWAYS = ['nsite.lol'];
 
 export const isEvolustrMethod = (method: unknown): method is string =>
     typeof method === 'string' && method.startsWith('evolustr_');
+
+/** The reply to an evolustr_* request, for the parent page. The caller is `origin`, never anything in params. */
+export async function answerEvolustr(
+    evolustr: EvolustrSigner | null, method: string, params: unknown, origin: string,
+): Promise<{ result: unknown; error: string | null }> {
+    if (!evolustr) return { result: null, error: 'Not authenticated' };
+    try {
+        const r = await evolustr.handle(method, Array.isArray(params) ? params : [], { identity: 'verified', origin });
+        return r.ok ? { result: r.value ?? null, error: null } : { result: null, error: r.error.message };
+    } catch (e) {
+        return { result: null, error: (e as Error).message || 'Evolustr request failed' };
+    }
+}
 
 // ── Device-local storage ──────────────────────────────────────────────────────
 // localStorage in this iframe is partitioned per host site in most browsers, so
@@ -74,31 +88,27 @@ export const loadAllowedApps = (pubkey: string): string[] => {
 export const saveAllowedApps = (pubkey: string, apps: string[]): void =>
     safeSet(localStorage, appsKey(pubkey), JSON.stringify(apps));
 
-// The unlocked M stays for this tab only (sessionStorage): leaving it in
-// localStorage would hand every app key to anyone with the device's storage.
-// The signer vault copy is public data and is kept (evolustr #41).
-const mKey = (pubkey: string) => `evolustr_m:${pubkey}`;
+// The unlocked M stays in this page's memory only (#67): in sessionStorage any
+// script on the signer's origin could read it, and in localStorage anyone with
+// the device's storage. After a reload a passkey unlocks it again; a login-
+// protected M unlocks without asking. The signer vault copy is public data and
+// is kept (evolustr #41).
+const unlocked = new Map<string, Bytes>();
 const vaultKey = (pubkey: string) => `evolustr_signer_vault:${pubkey}`;
 
-const toHex = (b: Bytes) => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
-const fromHex = (s: string): Bytes | null =>
-    /^[0-9a-f]{64}$/.test(s) ? new Uint8Array(s.match(/../g)!.map(h => parseInt(h, 16))) : null;
-
 const cache = {
-    get: async (pubkey: string) => {
-        const v = safeGet(sessionStorage, mKey(pubkey));
-        return v === null ? null : fromHex(v);
-    },
-    set: async (pubkey: string, m: Bytes) => safeSet(sessionStorage, mKey(pubkey), toHex(m)),
-    remove: async (pubkey: string) => safeSet(sessionStorage, mKey(pubkey), null),
+    get: async (pubkey: string) => unlocked.get(pubkey) ?? null,
+    set: async (pubkey: string, m: Bytes) => void unlocked.set(pubkey, m),
+    remove: async (pubkey: string) => void unlocked.delete(pubkey),
     getVault: async (pubkey: string) => safeGet(localStorage, vaultKey(pubkey)),
     setVault: async (pubkey: string, json: string) => safeSet(localStorage, vaultKey(pubkey), json),
 };
 
 // ── Passkeys ──────────────────────────────────────────────────────────────────
-// Inside the iframe when the embedding page grants it (Chromium tells us via the
-// permissions policy); otherwise in a popup on this signer's own origin, opened
-// from the user's click inside the iframe (SPEC §5.5 rule 5).
+// The rules from the checks (passkeyRules.ts, #89): unlock in the iframe;
+// create in the iframe where the browser allows it, else in a popup on this
+// signer's own origin opened from a click (Safari; SPEC §5.5 rule 5); one
+// WebAuthn call per click; "Try again" after a refusal.
 
 interface FeaturePolicy { allowsFeature(feature: string): boolean }
 
@@ -113,11 +123,23 @@ export interface SignerPasskeys {
     readonly onGesture: () => void;
 }
 
-export const signerPasskeys = (rpName: string): SignerPasskeys => {
+export const signerPasskeys = (rpName: string, askGesture: (reason: GestureReason) => Promise<void>): SignerPasskeys => {
     const frame = webauthnPasskeys({ rpName });
-    const inFrame = frameAllows('publickey-credentials-get') && frameAllows('publickey-credentials-create');
-    const passkeys = inFrame ? frame : popupPasskeys(frame.rpId);
-    return { passkeys: withClearErrors(passkeys), onGesture: inFrame ? () => { } : openPasskeyPopup };
+    // Chromium's permissions policy says when the bridge didn't grant passkeys
+    // (an old bridge): then even unlocking can't run here.
+    const fp = (document as unknown as { featurePolicy?: FeaturePolicy }).featurePolicy;
+    const known = fp !== undefined;
+    const frameMayGet = !known || frameAllows('publickey-credentials-get');
+    const popup = popupPasskeys(frame.rpId);
+    const rules = passkeyRules({
+        frame: frameMayGet ? frame : popup,
+        popup,
+        openPopup: openPasskeyPopup,
+        askGesture,
+        frameMayCreate: known ? frameAllows('publickey-credentials-create') : undefined,
+    });
+    const onGesture = frameMayGet ? rules.onGesture : () => { rules.onGesture(); openPasskeyPopup(); };
+    return { passkeys: withClearErrors(rules.passkeys), onGesture };
 };
 
 /**
@@ -207,6 +229,10 @@ export const createHostSigner = (o: HostOptions): EvolustrSigner =>
     createEvolustrSigner({
         relays: poolRelays(),
         relayUrls: o.relays,
+        // Enough relays to trust a vault an unlock found, so one slow relay
+        // doesn't hold up unlocking (evolustr #60, #111). "No vault" and every
+        // write still wait for every relay (evolustr #62, #135).
+        relayQuorum: Math.min(3, o.relays.length),
         // The origin of this signer, the same on every site that embeds it.
         signerKey: location.origin,
         getPublicKey: async () => o.pubkey,
@@ -216,6 +242,10 @@ export const createHostSigner = (o: HostOptions): EvolustrSigner =>
         allowSkWrap: () => o.getSecretKey !== null && o.custody() === 'sk',
         passkeys: o.passkeys,
         cache,
-        ui: { confirm: o.confirm, requestGesture: o.requestGesture },
+        // "rotateMaster" never comes: confirm refuses it (no "Replace my key" here yet).
+        ui: {
+            confirm: o.confirm,
+            requestGesture: (reason) => o.requestGesture(reason === 'rotateMaster' ? 'unlock' : reason),
+        },
         knownNsiteGateways: KNOWN_NSITE_GATEWAYS,
     });

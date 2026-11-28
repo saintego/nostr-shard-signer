@@ -1,25 +1,78 @@
 import { test as base, expect } from "@playwright/test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { matchFilter } from "nostr-tools";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const dist = path.join(root, "bunker/dist");
+const builds = {
+  dist: path.join(root, "bunker/dist"),
+  // The test build of the whole sign-in (#127): fake Web3Auth, Evolu on the device.
+  "dist-fake": path.join(root, "bunker/dist-fake"),
+};
+const dist = builds.dist;
+
+/**
+ * An in-memory Nostr relay for every relay URL (NIP-01: REQ, EVENT, CLOSE),
+ * one store per test (#127). Replaceable and addressable events keep only the
+ * newest version.
+ */
+function memoryRelay() {
+  const events = [];
+  const d = (e) => e.tags.find((t) => t[0] === "d")?.[1] ?? "";
+  const replaceable = (k) => k === 0 || k === 3 || (k >= 10000 && k < 20000);
+  const addressable = (k) => k >= 30000 && k < 40000;
+  const same = (a, b) =>
+    a.pubkey === b.pubkey &&
+    a.kind === b.kind &&
+    (replaceable(a.kind) || (addressable(a.kind) && d(a) === d(b)));
+  return (ws) =>
+    ws.onMessage((raw) => {
+      const msg = JSON.parse(String(raw));
+      if (msg[0] === "EVENT") {
+        const e = msg[1];
+        const i = events.findIndex((x) => same(x, e));
+        if (i === -1) events.push(e);
+        else if (events[i].created_at <= e.created_at) events[i] = e;
+        ws.send(JSON.stringify(["OK", e.id, true, ""]));
+      } else if (msg[0] === "REQ") {
+        const [, sub, ...filters] = msg;
+        for (const e of events)
+          if (filters.some((f) => matchFilter(f, e))) ws.send(JSON.stringify(["EVENT", sub, e]));
+        ws.send(JSON.stringify(["EOSE", sub]));
+      }
+    });
+}
 
 // Two origins served from the repo, laid out like the GitHub Pages site:
 // the signer (with nostr-bridge.js next to it) and the app embedding it.
 export const SIGNER_ORIGIN = "http://signer.test";
 export const BUNKER = SIGNER_ORIGIN + "/nostr-shard-signer";
+// The same signer over https: a secure context without browser flags, for
+// pages that need WebCrypto at top level (/restore). The headless shell CI
+// uses ignores --unsafely-treat-insecure-origin-as-secure.
+export const SECURE_SIGNER_ORIGIN = "https://signer.test";
+export const SECURE_BUNKER = SECURE_SIGNER_ORIGIN + "/nostr-shard-signer";
 export const APP = "http://app.test";
+// An app on localhost: the signer gives app keys (Evolustr) only to https: or
+// http://localhost pages, so prompts can be tested offline.
+export const LOCAL_APP = "http://localhost:4173";
+// A third site that frames the app (#62).
+export const FRAMER = "http://framer.test";
 export const PUBKEY = "a".repeat(64);
+
+// Whether the built signer offers shared sign-in (bunker/src/lib/shared.ts).
+const sharedTs = readFileSync(path.join(root, "bunker/src/lib/shared.ts"), "utf8");
+export const SHARED_SIGN_IN =
+  /SHARED_CLIENT_ID = '[^']+'/.test(sharedTs) && /SHARED_MODE_ON = true/.test(sharedTs);
 
 if (!existsSync(path.join(dist, "index.html")))
   throw new Error("bunker/dist is missing: run `npm run build` first (npm test does it)");
 
 // A NIP-07 extension, installed in the app page only (not the signer iframe).
 function fakeExtension(pubkey) {
-  if (location.origin !== "http://app.test") return;
+  if (location.origin !== "http://app.test" && location.origin !== "http://localhost:4173") return;
   window.extensionCalls = [];
   window.nostr = {
     async getPublicKey() {
@@ -39,13 +92,22 @@ export const test = base.extend({
   // Optional { from, to } text replacement in nostr-bridge.js, to simulate
   // another bridge version.
   bridgePatch: [null, { option: true }],
+  // Which signer build the signer's origin serves: "dist", or "dist-fake" (#127).
+  signerBuild: ["dist", { option: true }],
+  // Relays answer from memory instead of refusing connections (#127).
+  fakeRelays: [false, { option: true }],
 
-  context: async ({ context, pages, bridgePatch }, use) => {
+  context: async ({ context, pages, bridgePatch, signerBuild, fakeRelays }, use) => {
+    const dist = builds[signerBuild];
     await context.route("**/*", async (route) => {
       const url = new URL(route.request().url());
-      if (url.origin === SIGNER_ORIGIN) {
+      if (url.origin === SIGNER_ORIGIN || url.origin === SECURE_SIGNER_ORIGIN) {
         const p = url.pathname.replace(/^\/nostr-shard-signer/, "");
+        // Test pages on the signer's origin: pages.set("signer:/path", html).
+        if (pages.has("signer:" + p))
+          return route.fulfill({ contentType: "text/html", body: pages.get("signer:" + p) });
         if (p === "/signer.html") return route.fulfill({ path: path.join(dist, "index.html") });
+        if (p === "/restore/") return route.fulfill({ path: path.join(dist, "restore.html") });
         if (p.startsWith("/assets/")) return route.fulfill({ path: path.join(dist, p) });
         if (p.startsWith("/examples/") || p === "/site-config.js")
           return route.fulfill({ path: path.join(root, p) });
@@ -57,7 +119,9 @@ export const test = base.extend({
           });
         }
       }
-      if (url.origin === APP) {
+      if (url.origin === FRAMER && pages.has("framer:" + url.pathname))
+        return route.fulfill({ contentType: "text/html", body: pages.get("framer:" + url.pathname) });
+      if (url.origin === APP || url.origin === LOCAL_APP) {
         if (pages.has(url.pathname))
           return route.fulfill({ contentType: "text/html", body: pages.get(url.pathname) });
         if (url.pathname.startsWith("/npm/"))
@@ -66,8 +130,8 @@ export const test = base.extend({
       // Everything else (window.nostr.js CDN, avatars, …) is offline.
       return route.abort();
     });
-    // Relays: refuse connections.
-    await context.routeWebSocket(/.*/, (ws) => ws.close());
+    // Relays: refuse connections, or answer from memory.
+    await context.routeWebSocket(/.*/, fakeRelays ? memoryRelay() : (ws) => ws.close());
     await use(context);
   },
 });
@@ -97,6 +161,16 @@ export function waitForAuth(page, loggedIn) {
       }),
     loggedIn,
   );
+}
+
+// The signer's SIGNER_HELLO messages to the app page, in window.signerHellos.
+export function collectSignerHellos(page) {
+  return page.addInitScript((signerOrigin) => {
+    window.signerHellos = [];
+    window.addEventListener("message", (e) => {
+      if (e.origin === signerOrigin && e.data?.type === "SIGNER_HELLO") window.signerHellos.push(e.data);
+    });
+  }, SIGNER_ORIGIN);
 }
 
 // Collects the bridge's SIGNER_ERROR events (origin "") into window.signerErrors.

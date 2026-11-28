@@ -1,0 +1,53 @@
+/* WelcomeBackView: layout only; the look comes from the np-* primitives. */
+.welcome-back {
+  display: flex;
+  flex-direction: column;
+  gap: var(--np-space-3);
+}
+.welcome-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--np-space-2);
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.welcome-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--np-space-2);
+}
+.welcome-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.welcome-npub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.welcome-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--np-space-2);
+}
+.welcome-profile {
+  display: flex;
+  gap: var(--np-space-2);
+  align-items: flex-start;
+}
+.welcome-profile .np-hint {
+  display: block;
+}
+.backup-key {
+  display: block;
+  word-break: break-all;
+  padding: var(--np-space-2);
+  border-radius: var(--np-radius-sm);
+  background: var(--np-color-surface-container);
+  font-size: var(--np-text-sm);
+}

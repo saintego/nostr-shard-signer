@@ -1,0 +1,15 @@
+// Text of ProfileModal (English defaults, lib/i18n.ts). Older text still inline: #97.
+import { defineMessages } from '../lib/i18n';
+
+export const profileModalMessages = defineMessages('profileModal', {
+  openInTab: 'Open in a new tab',
+  tabAccount: 'Account',
+  tabProfile: 'Profile',
+  tabKeys: 'Keys',
+  tabSettings: 'Settings',
+  keyInWindow:
+    'To see or copy your secret key, use Export key: it opens in the signer’s own window, where this site can’t see or cover it.',
+  viaExtension:
+    'Signed in through your extension or bunker. It tells this signer which account you use; the signer never holds that key.',
+  openInTabHint: 'Want to see where your account lives? Open the signer in its own tab.',
+});

@@ -1,0 +1,43 @@
+/* GlobalSignInPopupView: layout only; the look comes from the np-* primitives
+   and --np-* tokens (AGENTS.md, Styling). */
+.global-popup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--np-space-4);
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: var(--np-space-6) var(--np-space-4);
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+.global-popup .np-button {
+  width: 100%;
+}
+.global-site {
+  align-self: flex-start;
+}
+.global-explain {
+  margin: 0;
+  color: var(--np-color-on-surface-variant);
+  font-size: var(--np-text-sm);
+}
+.global-close {
+  margin-top: auto;
+}
+
+/* NewAccountView: the sign-in account's picture, round. */
+.new-account-picture {
+  align-self: flex-start;
+  border-radius: var(--np-radius-full);
+}
+
+/* Web3Auth's panel (#113): its container comes with an inline
+   `position: relative` at the end of the body, so in this full-height window
+   it lay below the content, off-screen. Over the window instead, but only
+   while the panel is open (`w3a-open`): the container stays in the page after
+   it closes, and covering the window then swallowed every tap (#125). */
+body.popup-page.w3a-open #w3a-parent-container {
+  position: fixed !important;
+  inset: 0;
+  z-index: 10;
+}

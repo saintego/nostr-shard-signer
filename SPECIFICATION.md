@@ -147,8 +147,9 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 **Logic Flow:**
 
 1. **`POST /register`**
-   - Accepts `clientId`, `npub`, `domain`.
-   - Writes a short-lived mutex key in `REGISTRY_KV` (60s TTL). If the key already exists for a different npub, reject with 409.
+   - Two phases, like `/update` (#68): `clientId`, `npub`, `domain` return a nonce bound to (clientId, npub); the same request with `nonce` and `signedEvent` (kind 27235, content = nonce, signed by the npub) makes the claim.
+   - Checks the Web3Auth allowlist first and refuses with 503 when it can't be read (operator override: `ALLOW_UNCHECKED = "true"`).
+   - A clientId claimed by another npub is refused with 409, unless the allowlist names the caller with `https://<npub>.nostr-registrant.invalid` (only the project owner can add it): then the claim moves. When the allowlist names registrants, only they may claim.
    - Formats and publishes a NIP-33 event:
      ```json
      {
@@ -188,7 +189,7 @@ The goal is to provide a "Web2-style" social login (Google/Email) for a Nostr ap
 **Logic Flow:**
 
 1. Developer connects their Nostr key via any NIP-07 extension.
-2. **Register tab:** Fills in `clientId` + `domain` → `POST /register` with their npub derived from `window.nostr.getPublicKey()`.
+2. **Register tab:** Fills in `clientId` + `domain` → `POST /register` (Phase 1) with their npub derived from `window.nostr.getPublicKey()`, signs the nonce with `window.nostr.signEvent`, and sends Phase 2.
 3. **Update Domains tab:**
    - Portal calls `POST /update` (Phase 1) → receives nonce.
    - Calls `window.nostr.signEvent({ kind: 27235, content: nonce })` → signing happens entirely inside the user's signer (Alby / iframe bunker), never exposed to the portal page.

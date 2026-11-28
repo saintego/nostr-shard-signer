@@ -29,9 +29,19 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      # A hook that misses a dependency keeps stale values (the logout of #117):
+      # an error. Deliberate exceptions carry a biome-ignore with the reason.
+      - name: Lint React hook dependencies
+        run: npm run lint:hooks
+
       # Builds the signer, type-checks the npm package, runs Playwright.
       - name: Test
         run: npm test
+
+      # Prompts in a popup (shared sign-in, or VITE_POPUP_CONFIRM=always): a
+      # second build, with the clickjacking tests that need it (#62).
+      - name: Test prompts in a popup
+        run: VITE_POPUP_CONFIRM=always npm run build && VITE_POPUP_CONFIRM=always npx playwright test tests/clickjacking.spec.js
 
       - uses: actions/upload-artifact@v4
         if: failure()

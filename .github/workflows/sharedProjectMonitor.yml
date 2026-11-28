@@ -1,0 +1,29 @@
+name: Shared project monitor
+
+# The outside monitor for the shared Web3Auth projects (#91): every 6 hours, it checks
+# their public configuration against scripts/sharedProjectExpected.json. A
+# failed run (GitHub emails it) means the allowlist or key export changed.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Production project
+        run: node scripts/checkSharedProject.mjs production
+      - name: Preview test project
+        if: ${{ !cancelled() }}
+        env:
+          CLIENT_ID: ${{ vars.PREVIEW_SHARED_CLIENT_ID }}
+        run: node scripts/checkSharedProject.mjs preview

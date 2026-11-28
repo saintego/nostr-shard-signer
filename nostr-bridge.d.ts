@@ -118,13 +118,32 @@ declare global {
 
   interface NostrBridgeConfig {
     /**
-     * Your Web3Auth client ID. Optional: without it, users sign in only with a
-     * NIP-07 extension or a NIP-46 bunker. With it, Google/Apple/X sign-in works
+     * Your Web3Auth client ID. Optional. With it, Google/Apple/X sign-in works
      * on origins registered for it in the portal or listed in the project's
      * Allowlist URLs in the Web3Auth dashboard (which must also list
-     * https://saintego.github.io).
+     * https://saintego.github.io), and users get keys of your project.
+     *
+     * Without it, Google/Apple/X sign-in goes through the hosted signer's
+     * shared project: no setup, and a user gets the same npub on every site
+     * that uses it. Shared sign-in is free while donations cover it and may be
+     * limited or become paid; moving a live site to its own clientId later
+     * gives its users new npubs. Users can always also sign in with a NIP-07
+     * extension or a NIP-46 bunker.
      */
     clientId?: string;
+    /**
+     * Turn Google/Apple/X sign-in off: users sign in with a NIP-07 extension
+     * or a NIP-46 bunker only, and `clientId` is ignored. Default false.
+     */
+    nostrOnly?: boolean;
+    /**
+     * With your own `clientId`: whether users may use their global account
+     * (the same identities on every site; the signer's operator can open it,
+     * you can't) next to an account only for your site. "offer" (default):
+     * Sign up asks; "off": accounts only for your site; "require": the global
+     * account only.
+     */
+    globalLogin?: "offer" | "off" | "require";
     /**
      * Base URL where signer.html is hosted. Defaults to the hosted signer,
      * "https://saintego.github.io/nostr-shard-signer". Only set it when you
@@ -133,7 +152,7 @@ declare global {
     bunkerOrigin?: string;
     /**
      * Skip the installed NIP-07 extension (Alby, nos2x…) and window.nostr.js,
-     * and always use the Web3Auth iframe. Default false. Ignored without clientId.
+     * and always use the Web3Auth iframe. Default false. Ignored with `nostrOnly`.
      */
     forceIframe?: boolean;
     /**
@@ -147,6 +166,20 @@ declare global {
     mountSelector?: string;
     /** Show the "Powered by nostr-shard-signer" link on the sign-in sheet. Default true. */
     poweredBy?: boolean;
+    /**
+     * The widget's language as a language code ("es", "pt-BR"). Used only if the
+     * signer has text in that language; otherwise the browser's language, then
+     * English. Pages can't supply the signer's text.
+     */
+    locale?: string;
+    /**
+     * Shared sign-in: "panel" (default) shows Web3Auth's own panel in the
+     * widget, with every provider the project offers, in Web3Auth's languages;
+     * "buttons" signs in in the signer's window with its own Google, Apple,
+     * Facebook and X buttons, in the signer's languages. Pages can't supply
+     * the signer's text.
+     */
+    signInUi?: "panel" | "buttons";
   }
 
   interface NostrBridgeAuthState {
@@ -177,7 +210,8 @@ declare global {
     /** Resolves once init() has completed, however it was called. */
     readonly ready: Promise<void>;
     /**
-     * Calls `callback` on every login/logout. If the auth state is already known,
+     * Calls `callback` on every login/logout, and when the user switches to
+     * another identity on this site (same `loggedIn`, new `pubkey`). If the auth state is already known,
      * it is also called right away with the current state, so a session restored
      * before subscribing is not missed. Returns an unsubscribe function.
      * Same data as the "nostr-bridge:auth" window event.
@@ -216,8 +250,9 @@ declare global {
         type: "SIGNER_ERROR";
         /**
          * CLIENT_ID_NOT_FOUND | DOMAIN_NOT_REGISTERED |
-         * WEB3AUTH_INIT_FAILED | MISSING_ROOT_PUBKEY | NO_SIGN_IN_METHOD |
-         * NOT_EMBEDDED | PROTOCOL_UNSUPPORTED | INIT_ERROR | LOGIN_FAILED
+         * WEB3AUTH_INIT_FAILED | MISSING_ROOT_PUBKEY | NO_SIGN_IN_METHOD | NESTED_FRAME |
+         * NOT_EMBEDDED | PROTOCOL_UNSUPPORTED | INIT_ERROR | LOGIN_FAILED |
+         * KEY_EXPORT_OFF | SHARED_SIGN_IN_PAUSED
          */
         code: string;
         message: string;

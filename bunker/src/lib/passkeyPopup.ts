@@ -9,6 +9,7 @@
 // origin: otherwise any site could open it and read the passkey's PRF output.
 
 import { webauthnPasskeys, type Passkeys } from '../vendor/evolustr/evolustr.js';
+import { openerDocument, sameOpenerDocument } from './openerGuard';
 
 export const POPUP_PARAM = 'evolustr-passkey';
 
@@ -32,7 +33,9 @@ export function openPasskeyPopup(): void {
         return;
     }
     const url = new URL(location.href);
+    const locale = url.searchParams.get('locale');
     url.search = `?${POPUP_PARAM}=1`;
+    if (locale) url.searchParams.set('locale', locale); // the same language as the widget
     url.hash = '';
     // Unnamed (#77): the page that embeds the signer could find a named
     // popup with window.open('', name) and navigate it. We keep `popup`.
@@ -116,8 +119,12 @@ export function servePasskeyPopup(onRequest: (r: PopupRequest | null) => void): 
         if (e.source !== opener || e.origin !== location.origin) return;
         const d = e.data as Partial<Op> & { type?: string };
         if (d?.type !== 'EVOLUSTR_PASSKEY_REQUEST' || (d.op !== 'create' && d.op !== 'get') || !d.args) return;
-        const reply = (msg: Record<string, unknown>) =>
-            opener.postMessage({ type: 'EVOLUSTR_PASSKEY_RESULT', ...msg }, location.origin);
+        // Only to the document that asked: the PRF output is a secret (#144).
+        const asked = openerDocument(opener);
+        const reply = (msg: Record<string, unknown>) => {
+            if (sameOpenerDocument(opener, asked))
+                opener.postMessage({ type: 'EVOLUSTR_PASSKEY_RESULT', ...msg }, location.origin);
+        };
         onRequest({
             op: d.op,
             perform: async () => {
