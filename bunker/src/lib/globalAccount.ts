@@ -6,11 +6,13 @@
 
 import type { Event, Filter } from 'nostr-tools';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
+import { openAccountLinks } from './accountLinks';
 import { collectBackupEvents } from './backupEvents';
 import { buildBackupFile } from './backupFile';
-import { buildCounter, counterFilter, counterPubkey, nextIndex, readCounter } from './counter';
+import { counterFilter, counterPubkey, nextIndex, readCounter } from './counter';
+import { counterWrites } from './counterWrites';
 import { canonicalOrigin, deriveIdentity, deriveRoot } from './derive';
-import { type Primary, pointerAddress } from './envelope';
+import { type Primary, } from './envelope';
 import {
   type GlobalList,
   type LinkRecord,
@@ -21,12 +23,7 @@ import {
 import { grantFromRoot } from './identity';
 import {
   type LinkingDeps,
-  type LinkScope,
   type Login,
-  rebuiltLinkRecord,
-  sealLink,
-  storedPointers,
-  unlinkRecord,
 } from './linking';
 import { buildMarker, type MarkerReading, markerFilter, readMarker } from './marker';
 import { exportMasterKey } from './masterKey';
@@ -220,49 +217,8 @@ export async function openGlobalAccountFromRoot(
       ? all.map((i) => (i.storedKey && !i.sites.includes(origin) ? { ...i, storedKey: null } : i))
       : [...all];
   let current = forScope(rows);
-  let links = await list.links();
-  const linkingDeps = (): LinkingDeps => {
-    if (!deps.openCopies) throw new Error('Linking needs the envelope store');
-    return {
-      query: deps.query,
-      publish: deps.publish,
-      openCopies: deps.openCopies,
-      openList: deps.openList,
-      now,
-      ...(deps.defer ? { defer: deps.defer } : {}),
-    };
-  };
-  /** The identities a restricted link opens, with their keys (derived, or stored). */
-  const linkScope = async (scope: 'full' | readonly string[]): Promise<LinkScope> => {
-    if (scope === 'full') return { kind: 'full' };
-    const identities = [];
-    for (const pubkey of scope) {
-      const i = current.find((x) => x.pubkey === pubkey);
-      if (!i) throw new Error('Not an identity of this account');
-      const key = i.storedKey ? fromHexKey(i.storedKey) : await deriveIdentity(root, i.index ?? 0);
-      identities.push({ secretKey: toHexKey(key), pubkey, index: i.index, label: i.label });
-      key.fill(0);
-    }
-    return { kind: 'restricted', identities };
-  };
-  // Re-send the stored pointers, linked and unlinked (review 8, item 9).
-  if (links.length && deps.scope !== 'site')
-    void deps.publish(storedPointers(links)).catch(() => {});
-  let via = deps.viaPointer ? links.find((l) => l.pointerPubkey === deps.viaPointer) : undefined;
-  // A full link that opened the account isn't in the synced list (a link left
-  // half-done, or a lost list): list it again, so it can be seen and unlinked
-  // (#142). Not from an unsynced list, which would add duplicates.
-  let relistedLink: GlobalAccount['relistedLink'] = null;
-  const listSynced = list.synced === 'Synced' || list.synced === 'NoRelays';
-  if (!via && deps.viaLogin && listSynced) {
-    const record = await rebuiltLinkRecord(deps.viaLogin.login, deps.viaLogin.version, now());
-    await list.saveLink(record);
-    links = await list.links();
-    via = links.find((l) => l.pointerPubkey === record.pointerPubkey);
-    relistedLink = { provider: record.provider, masked: record.masked };
-  }
-  // The sign-in's own record was checked (unlinkedVia): the widget keeps no others (#138).
-  if (deps.scope === 'site') links = [];
+  // Linked sign-ins (D25): records, relisting (#142), what the widget keeps (#138).
+  const accountLinks = await openAccountLinks(root, list, deps, now, () => current);
   const relayCounter = counterEvents ? await readCounter(counterEvents, root) : null;
 
   const pubkeyOf = async (index: number) => {
@@ -280,20 +236,8 @@ export async function openGlobalAccountFromRoot(
   };
   const find = (pubkey: string) => current.find((i) => i.pubkey === pubkey);
 
-  /**
-   * The counter from every relay (#140): what a counter write builds on.
-   * Undefined when the relays can't say; then no counter is written.
-   */
-  const fullCounter = async (): Promise<number | null | undefined> => {
-    const events = await (deps.queryAll ?? deps.query)(counterFilter(counterPub));
-    return events === null ? undefined : readCounter(events, root);
-  };
-  /** Publishes the counter: at least `next`, never below what any relay holds (D12, #140). */
-  const writeCounter = async (next: number, seen?: number | null) => {
-    const known = seen === undefined ? await fullCounter() : seen;
-    if (known === undefined) return; // can't read every relay: retried at a later sign-in
-    await deps.publish([await buildCounter(root, Math.max(next, known ?? 0), now())]);
-  };
+  // Counter writes read every relay first and never lower it (#140).
+  const { full: fullCounter, write: writeCounter } = counterWrites(root, counterPub, deps, now);
 
   const create = async (label: string | null, profile?: NewProfile) => {
     // A write follows: read the counter from every relay first (#140).
@@ -463,42 +407,17 @@ export async function openGlobalAccountFromRoot(
     },
     primary: deps.primary ?? null,
     get links() {
-      return links;
+      return accountLinks.all;
     },
-    unlinkedVia: via?.unlinkedAt ?? null,
-    relistedLink,
+    unlinkedVia: accountLinks.unlinkedVia,
+    relistedLink: accountLinks.relistedLink,
     isRoot: (rootHex) =>
       rootHex === Array.from(root, (x) => x.toString(16).padStart(2, '0')).join(''),
     link: async (login, scope, after = 0) => {
-      if (!deps.primary) throw new Error('The account’s first sign-in isn’t known here');
-      const { pubkey } = await pointerAddress(login.key);
-      const previous = links.find((l) => l.pointerPubkey === pubkey);
-      const record = await sealLink(
-        root,
-        login,
-        await linkScope(scope),
-        deps.primary,
-        Math.max(previous?.version ?? 0, after) + 1,
-        linkingDeps()
-      );
-      await list.saveLink(record);
-      // A restricted link hands these keys to another sign-in: rewrites of
-      // their data ask from now on (D13, decided for #145).
-      if (scope !== 'full')
-        for (const pubkey of scope)
-          await list.markUsedElsewhere(
-            pubkey,
-            current.find((i) => i.pubkey === pubkey)?.index ?? null
-          );
-      current = forScope(await list.load());
-      links = await list.links();
+      await accountLinks.link(login, scope, after);
+      current = forScope(await list.load()); // restricted links mark identities (D13)
     },
-    unlink: async (pointerPubkey) => {
-      const record = links.find((l) => l.pointerPubkey === pointerPubkey && !l.unlinkedAt);
-      if (!record) return;
-      await list.saveLink(await unlinkRecord(record, linkingDeps()));
-      links = await list.links();
-    },
+    unlink: accountLinks.unlink,
     exportMasterKey: (password) => exportMasterKey(root, password),
     backupFile: async () =>
       buildBackupFile({
@@ -506,13 +425,13 @@ export async function openGlobalAccountFromRoot(
         root: Array.from(root, (x) => x.toString(16).padStart(2, '0')).join(''),
         counter: Math.max(relayCounter ?? 0, listNext(current) ?? 0, 1),
         identities: current,
-        links,
+        links: accountLinks.all,
         createdAt: new Date(now() * 1000).toISOString(),
         // From every relay: the copies "Publish again" sends back (#146).
         events: await collectBackupEvents(
           counterPub,
           current.map((i) => i.pubkey),
-          links.map((l) => l.pointerEvent),
+          accountLinks.all.map((l) => l.pointerEvent),
           deps.queryAll ?? deps.query
         ),
       }),
