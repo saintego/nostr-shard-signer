@@ -13,6 +13,8 @@ export const welcomeBackMessages = defineMessages('welcomeBack', {
     'Some names and paired sites couldn’t be loaded yet. Your identities are safe; try again later to see everything.',
   listMissing:
     'Your list of identities couldn’t be found: the service that keeps it may have been reset. Identities from your sign-in are back. Accounts you brought over or imported are in your backup file: open it at {restore} to export them.',
+  listRestored:
+    'Your list of identities was restored from your relays. Accounts you brought over or imported aren’t in it: they’re in your backup file ({restore}).',
   unnamed: 'Identity {n}',
   createdOn: 'Created on {site}',
   pairedWith: 'Used on {sites}',

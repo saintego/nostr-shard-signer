@@ -12,7 +12,7 @@ import { buildBackupFile } from './backupFile';
 import { counterFilter, counterPubkey, nextIndex, readCounter } from './counter';
 import { counterWrites } from './counterWrites';
 import { canonicalOrigin, deriveIdentity, deriveRoot } from './derive';
-import { type Primary, } from './envelope';
+import type { Primary } from './envelope';
 import {
   type GlobalList,
   type LinkRecord,
@@ -21,10 +21,14 @@ import {
   pairedWith,
 } from './globalListModel';
 import { grantFromRoot } from './identity';
+import type { LinkingDeps, Login } from './linking';
 import {
-  type LinkingDeps,
-  type Login,
-} from './linking';
+  buildListCopy,
+  listCopyFilter,
+  listCopyOf,
+  listedFromCopy,
+  readListCopy,
+} from './listCopy';
 import { buildMarker, type MarkerReading, markerFilter, readMarker } from './marker';
 import { exportMasterKey } from './masterKey';
 import { MAX_SITE_IDENTITIES, type SiteGrant } from './siteGrant';
@@ -82,6 +86,8 @@ export interface GlobalAccount {
   readonly isNew: boolean;
   /** Not new, yet the list is empty: Evolu's copy was lost or didn't sync (#136, #137). */
   readonly listMissing: boolean;
+  /** The list was empty and came back from its copy on the relays (#147). */
+  readonly listRestored: boolean;
   /**
    * The list is missing, and the relays' counter says the account only ever
    * had identity 0: it can be used again without asking (no other identity to
@@ -194,11 +200,25 @@ export async function openGlobalAccountFromRoot(
   const list = await deps.openList(root);
   const counterPub = await counterPubkey(root);
   const address = deps.markerAddress;
-  const [rows, counterEvents, markerEvents] = await Promise.all([
+  const [rows, counterEvents, markerEvents, copyEvents] = await Promise.all([
     list.load(),
     deps.query(counterFilter(counterPub)),
     address ? deps.query(markerFilter(address)) : Promise.resolve(null),
+    deps.query(listCopyFilter(counterPub)),
   ]);
+  const complete = list.synced === 'Synced' || list.synced === 'NoRelays'; // NoRelays: sync off on purpose (tests)
+  // A lost list comes back from its copy on the relays (#147): into Evolu when
+  // it synced, else shown from the copy.
+  const copied = await readListCopy(copyEvents ?? [], root, counterPub);
+  let opened = rows;
+  const listRestored = rows.length === 0 && (copied?.copy.identities.length ?? 0) > 0;
+  if (listRestored && copied && complete) {
+    for (const i of copied.copy.identities) {
+      await list.addDerived(i.index, i.pubkey, i.createdOn ?? origin, i.label);
+      for (const site of i.sites) await list.pair(i.pubkey, site);
+    }
+    opened = await list.load();
+  } else if (listRestored && copied) opened = listedFromCopy(copied.copy);
   let marker: MarkerReading | null = address
     ? await readMarker(markerEvents ?? [], root, origin, address)
     : null;
@@ -216,7 +236,7 @@ export async function openGlobalAccountFromRoot(
     deps.scope === 'site'
       ? all.map((i) => (i.storedKey && !i.sites.includes(origin) ? { ...i, storedKey: null } : i))
       : [...all];
-  let current = forScope(rows);
+  let current = forScope(opened);
   // Linked sign-ins (D25): records, relisting (#142), what the widget keeps (#138).
   const accountLinks = await openAccountLinks(root, list, deps, now, () => current);
   const relayCounter = counterEvents ? await readCounter(counterEvents, root) : null;
@@ -231,9 +251,24 @@ export async function openGlobalAccountFromRoot(
   };
   const usedOnRelays = async (index: number) =>
     ((await deps.query({ authors: [await pubkeyOf(index)], limit: 1 })) ?? []).length > 0;
+  let copyAt = copied?.event.created_at ?? 0;
+  /** The list's copy on the relays (#147), after a change; from a synced list only. */
+  const saveCopy = async () => {
+    if (!complete) return;
+    const event = await buildListCopy(root, listCopyOf(current), Math.max(now(), copyAt + 1));
+    if (!event) return;
+    copyAt = event.created_at;
+    await deps.publish([event]);
+  };
   const reload = async () => {
     current = forScope(await list.load());
+    await saveCopy().catch(() => {});
   };
+  // Kept alive like markers: re-sent unchanged, or written once for a list without one.
+  if (copied && !listRestored && deps.scope !== 'site')
+    void deps.publish([copied.event]).catch(() => {});
+  if (!copied && copyEvents !== null && complete && rows.length > 0)
+    void saveCopy().catch(() => {});
   const find = (pubkey: string) => current.find((i) => i.pubkey === pubkey);
 
   // Counter writes read every relay first and never lower it (#140).
@@ -280,11 +315,11 @@ export async function openGlobalAccountFromRoot(
     );
   };
 
-  const complete = list.synced === 'Synced' || list.synced === 'NoRelays'; // NoRelays: sync off on purpose (tests)
   // New only on evidence (#136): an empty list that didn't sync, relays that
   // didn't answer, or anything the lookup found, mean an existing account.
   const isNew =
     current.length === 0 &&
+    copied === null &&
     deps.knownExisting !== true &&
     (deps.provenNew === true || (complete && counterEvents !== null && relayCounter === null));
   const listMissing = current.length === 0 && !isNew;
@@ -329,6 +364,7 @@ export async function openGlobalAccountFromRoot(
     complete,
     isNew,
     listMissing,
+    listRestored,
     onlyIdentity0,
     profileFree,
     pair: async (pubkey) => {

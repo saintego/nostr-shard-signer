@@ -163,6 +163,9 @@ export function WelcomeBackView({
     <section className="welcome-back">
       <h2 className="np-title">{m.title}</h2>
       <p>{format(m.choose, { site: host })}</p>
+      {account.listRestored && (
+        <p className="np-message np-info">{format(m.listRestored, { restore: restoreAddress })}</p>
+      )}
       {account.complete && account.listMissing && (
         <p className="np-message np-warning">
           {format(m.listMissing, { restore: restoreAddress })}

@@ -173,7 +173,11 @@ test('creating: the next index from the counter, paired, counter published; Goog
   expect(created.pubkey).toBe(id(2).pubkey);
   expect(created.label).toBe('Work');
   expect(account.paired.map((i) => i.index)).toEqual([0, 2]);
-  expect(published.map((e) => e.kind)).toEqual([30078]); // the counter, no profile
+  // The counter, no profile (the list's copy, #147, is published too).
+  const isCounter = (e: { tags: string[][] }) =>
+    e.tags.some((t) => t[1] === 'nostr-shard-signer/counter');
+  expect(published.filter(isCounter)).toHaveLength(1);
+  expect(published.some((e) => e.kind === 0)).toBe(false);
   const withProfile = await account.create(null, {
     name: 'Ann',
     picture: 'https://example.com/a.png',
@@ -223,7 +227,9 @@ test('no counter is published when the relays did not answer', async () => {
   const account = await openGlobalAccount(bytes(v.globalLoginKey), SITE, d);
   const created = await account.create(null);
   expect(created.index).toBe(2);
-  expect(published).toEqual([]);
+  expect(
+    published.filter((e) => e.tags.some((t) => t[1] === 'nostr-shard-signer/counter'))
+  ).toEqual([]);
 });
 
 test('unpairing removes an identity from this site only (scenario 11, shared sites)', async () => {
@@ -438,4 +444,52 @@ test('#145: a site with more than 20 paired identities gets 20, the active one a
   expect(grant.identities).toHaveLength(20);
   expect(grant.identities.some((i) => i.pubkey === last)).toBe(true);
   expect(parseSiteGrant(JSON.parse(JSON.stringify(grant)))).not.toBeNull();
+});
+
+test('#147: a lost list comes back from its copy on the relays; the copy has no keys', async () => {
+  const { buildListCopy, listCopyOf } = await import('../bunker/src/lib/listCopy.ts');
+  const root = await deriveRoot(bytes(v.globalLoginKey));
+  // The copy a device wrote: identities 0 and 1, 1 named "Work" and used on SITE.
+  const before = buildList(
+    [row(0), row(1, SITE, 'Work')],
+    [{ origin: SITE, identityPubkey: id(1).pubkey }]
+  );
+  const copy = await buildListCopy(root, listCopyOf(before), 1_699_999_500);
+  if (!copy) throw new Error('no copy');
+  expect(copy.content).not.toContain('Work'); // encrypted
+  // Evolu's relay was wiped: the list is empty but synced.
+  const wiped = fakeList([], [], 'Synced');
+  const { d } = deps(wiped.list, [copy]);
+  const account = await openGlobalAccount(bytes(v.globalLoginKey), SITE, d);
+  expect(account.isNew).toBe(false);
+  expect(account.listRestored).toBe(true);
+  expect(account.list.map((i) => [i.index, i.label])).toEqual([
+    [0, null],
+    [1, 'Work'],
+  ]);
+  expect(account.paired.map((i) => i.index)).toEqual([1]);
+  expect(wiped.state.identities).toHaveLength(2); // written back into Evolu
+});
+
+test('#147: the copy is written after a change, from a synced list, with no keys in it', async () => {
+  const { readListCopy } = await import('../bunker/src/lib/listCopy.ts');
+  const { counterPubkey } = await import('../bunker/src/lib/counter.ts');
+  const root = await deriveRoot(bytes(v.globalLoginKey));
+  const { list } = fakeList([row(0)], [], 'Synced');
+  const { d, published } = deps(list, []);
+  const account = await openGlobalAccount(bytes(v.globalLoginKey), SITE, d);
+  await account.pair(id(0).pubkey);
+  const read = await readListCopy(published, root, await counterPubkey(root));
+  expect(read?.copy.identities.map((i) => [i.index, i.sites])).toEqual([[0, [SITE]]]);
+  const plain = JSON.stringify(read?.copy);
+  expect(plain).not.toContain(id(0).secret); // the pubkey only, never the key
+  expect(plain).not.toContain('secret');
+  expect(plain).not.toContain('storedKey');
+  // An unsynced device writes no copy.
+  const offline = deps(fakeList([row(0)], [], 'Offline').list, []);
+  const b = await openGlobalAccount(bytes(v.globalLoginKey), SITE, offline.d);
+  await b.pair(id(0).pubkey);
+  expect(
+    offline.published.filter((e) => e.tags.some((t) => t[1] === 'nostr-shard-signer/list'))
+  ).toEqual([]);
 });
