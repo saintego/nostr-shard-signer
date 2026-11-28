@@ -3,6 +3,7 @@
 // Nostr extension in this browser, or by Amber or another bunker (NIP-46)
 // connected on this page. Never through a site's bridge.
 
+import type { BackupEvents } from './backupEvents';
 import { type BackupFile, type FileKeyDecrypter, openBackupFile, withRoot } from './backupFile';
 import { counterFilter, counterPubkey, readCounter } from './counter';
 import type { ListedIdentity } from './globalListModel';
@@ -16,6 +17,8 @@ export interface Unlocked {
   readonly identities: readonly ListedIdentity[];
   /** A signer held the root to open the file: tell the user to remove it there. */
   readonly signerHeldRoot: boolean;
+  /** From a backup file: its signed events and when it was made (#146). */
+  readonly backup?: { readonly events: BackupEvents; readonly createdAt: string };
 }
 
 interface Nip07 {
@@ -78,7 +81,16 @@ export async function unlockFile(
   if (!body.ok) return body;
   const root = fromHex(body.value.root);
   const identities = await restoredIdentities(root, body.value.counter, body.value.identities);
-  return { ok: true, value: { root, identities, signerHeldRoot } };
+  const { events, createdAt } = body.value;
+  return {
+    ok: true,
+    value: {
+      root,
+      identities,
+      signerHeldRoot,
+      ...(events ? { backup: { events, createdAt } } : {}),
+    },
+  };
 }
 
 /** Unlocks a backup file with the master key itself. */

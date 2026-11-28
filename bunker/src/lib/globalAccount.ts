@@ -6,6 +6,7 @@
 
 import type { Event, Filter } from 'nostr-tools';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
+import { collectBackupEvents } from './backupEvents';
 import { buildBackupFile } from './backupFile';
 import { buildCounter, counterFilter, counterPubkey, nextIndex, readCounter } from './counter';
 import { canonicalOrigin, deriveIdentity, deriveRoot } from './derive';
@@ -499,7 +500,7 @@ export async function openGlobalAccountFromRoot(
       links = await list.links();
     },
     exportMasterKey: (password) => exportMasterKey(root, password),
-    backupFile: () =>
+    backupFile: async () =>
       buildBackupFile({
         v: 1,
         root: Array.from(root, (x) => x.toString(16).padStart(2, '0')).join(''),
@@ -507,6 +508,13 @@ export async function openGlobalAccountFromRoot(
         identities: current,
         links,
         createdAt: new Date(now() * 1000).toISOString(),
+        // From every relay: the copies "Publish again" sends back (#146).
+        events: await collectBackupEvents(
+          counterPub,
+          current.map((i) => i.pubkey),
+          links.map((l) => l.pointerEvent),
+          deps.queryAll ?? deps.query
+        ),
       }),
     close: async () => {
       try {

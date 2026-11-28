@@ -16,6 +16,7 @@ import {
   unlockWithRoot,
 } from '../lib/restoreUnlock';
 import { useMessages } from '../lib/useMessages';
+import { PublishAgain } from './PublishAgain';
 import { RestoreIdentities } from './RestoreIdentities';
 import { restoreMessages } from './RestoreMessages';
 import './WelcomeBack.css';
@@ -145,6 +146,9 @@ export function RestoreView() {
         <>
           {unlocked.signerHeldRoot && <p className="np-message np-warning">{m.removeFromSigner}</p>}
           <RestoreIdentities root={unlocked.root} identities={identities} onExported={exported} />
+          {unlocked.backup && (
+            <PublishAgain events={unlocked.backup.events} createdAt={unlocked.backup.createdAt} />
+          )}
           <button type="button" className="np-button np-text" onClick={() => location.reload()}>
             {m.startOver}
           </button>

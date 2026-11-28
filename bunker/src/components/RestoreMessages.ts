@@ -10,6 +10,14 @@ export const restoreMessages = defineMessages('restore', {
     'This page only works in its own tab, opened by you. Close this and type the address yourself.',
   opened:
     'This page was opened by another page. For your safety, close it and type the address yourself.',
+  publishTitle: 'Publish your account’s data again',
+  publishExplain:
+    'This backup holds signed copies of {count} of your account’s Nostr events: app keys, your profile, follows and relay list, and the signer’s own records. If relays lost them, sending them again brings them back. A relay that has a newer version keeps it.',
+  publishOldLinks:
+    'This backup is {days} days old. Also send its linked sign-ins? If you removed a link after this backup, sending it could bring that link back.',
+  publishButton: 'Publish again',
+  publishing: 'Sending…',
+  published: 'Sent: {ok} of {count} events reached at least one relay.',
   keyTitle: 'With your master key',
   keyField: 'Master key (nsec1… or ncryptsec1…)',
   password: 'Its password',

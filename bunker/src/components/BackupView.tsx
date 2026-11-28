@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { BackupMethod } from '../lib/backup';
 import type { GlobalAccount } from '../lib/globalAccount';
 import { format } from '../lib/i18n';
@@ -40,8 +40,11 @@ export function BackupView({ account, restoreAddress, onDone, onCancel }: Props)
     });
   };
 
+  // Built once, ahead of the clicks: it reads the account's events from every
+  // relay first (#146), which takes a few seconds.
+  const built = useMemo(() => account.backupFile(), [account]);
   const download = async () => {
-    const blob = new Blob([await account.backupFile()], { type: 'application/json' });
+    const blob = new Blob([await built], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = fileName();
@@ -55,7 +58,7 @@ export function BackupView({ account, restoreAddress, onDone, onCancel }: Props)
   const [shareFile, setShareFile] = useState<File | null>(null);
   useEffect(() => {
     let live = true;
-    void account.backupFile().then((text) => {
+    void built.then((text) => {
       const name = fileName().replace(/\.json$/, '.txt');
       const file = new File([text], name, { type: 'text/plain' });
       if (live && navigator.canShare?.({ files: [file] })) setShareFile(file);
@@ -63,7 +66,7 @@ export function BackupView({ account, restoreAddress, onDone, onCancel }: Props)
     return () => {
       live = false;
     };
-  }, [account]);
+  }, [built]);
   const canShare = shareFile !== null;
   const share = async () => {
     const file = shareFile;

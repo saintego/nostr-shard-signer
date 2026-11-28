@@ -7,6 +7,7 @@
 
 import * as nip44 from 'nostr-tools/nip44';
 import { getPublicKey } from 'nostr-tools/pure';
+import type { BackupEvents } from './backupEvents';
 import type { LinkRecord, ListedIdentity } from './globalListModel';
 import type { Result } from './masterKey';
 
@@ -23,6 +24,8 @@ export interface BackupBody {
   readonly links?: readonly LinkRecord[];
   /** ISO date. */
   readonly createdAt: string;
+  /** Signed copies of the account's Nostr events, for "Publish again" (#146). */
+  readonly events?: BackupEvents;
 }
 
 /** The file as saved (JSON). Nothing in it is readable without the root. */
